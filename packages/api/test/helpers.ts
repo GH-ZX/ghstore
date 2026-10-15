@@ -17,6 +17,12 @@ export const env: ApiEnv = {
   OWNER_TELEGRAM_IDS: "900001",
   PAYMENT_METHODS: "sam,nowpayments,bep20,stars",
   TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret-abcdef123456",
+  // The keys each payment method needs before it is offered (the adapters themselves are fakes).
+  SAM_API_KEY: "test-sam-key",
+  SAM_WEBHOOK_SECRET: "test-sam-webhook-secret",
+  NOWPAYMENTS_API_KEY: "test-np-key",
+  NOWPAYMENTS_IPN_SECRET: "test-np-ipn",
+  BEP20_ADDRESS: "0x000000000000000000000000000000000000dEaD",
 };
 
 /** A Db over any driver exposing unsafe(text, params) and begin(fn) (Bun.SQL here, postgres.js in production). */

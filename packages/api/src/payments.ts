@@ -20,12 +20,29 @@ const MISMATCH_NOTE = "transfer did not match";
 export const MIN_TOPUP_CENTS = 100;
 export const MAX_TOPUP_CENTS = 100_000;
 
-export function enabledMethods(env: ApiEnv): PaymentMethod[] {
-  const list = (env.PAYMENT_METHODS ?? "sam,nowpayments,bep20,stars").split(",").map((s) => s.trim());
-  return ALL_METHODS.filter((m) => list.includes(m));
+/**
+ * The Worker settings a method cannot work without (see each adapter's header).
+ * A method listed in PAYMENT_METHODS stays hidden until these are set, so a
+ * customer is never offered a method that would fail when tapped.
+ */
+const REQUIRED_KEYS: Record<PaymentMethod, string[]> = {
+  sam: ["SAM_API_KEY", "SAM_WEBHOOK_SECRET"],
+  nowpayments: ["NOWPAYMENTS_API_KEY", "NOWPAYMENTS_IPN_SECRET"],
+  bep20: ["BEP20_ADDRESS"],
+  stars: ["TELEGRAM_BOT_TOKEN"],
+};
+
+export function methodConfigured(env: ApiEnv, method: PaymentMethod): boolean {
+  return (REQUIRED_KEYS[method] ?? []).every((k) => typeof env[k] === "string" && (env[k] as string).trim() !== "");
 }
 
-/** Methods customers can use now: switched on in the Worker, and Stars only while the admin has a rate set. */
+/** Methods switched on in PAYMENT_METHODS whose keys are set. */
+export function enabledMethods(env: ApiEnv): PaymentMethod[] {
+  const list = (env.PAYMENT_METHODS ?? "sam,nowpayments,bep20,stars").split(",").map((s) => s.trim());
+  return ALL_METHODS.filter((m) => list.includes(m) && methodConfigured(env, m));
+}
+
+/** Methods customers can use now: switched on and configured in the Worker, and Stars only while the admin has a rate set. */
 export async function availableMethods(env: ApiEnv, svc: Pick<Services, "db">): Promise<PaymentMethod[]> {
   const methods = enabledMethods(env);
   if (!methods.includes("stars")) return methods;

@@ -339,3 +339,23 @@ describe("store settings in the database", () => {
     expect((await h.call("PUT", "/api/admin/settings/support.telegram", { token: customer, body: { value: "evil_desk" } })).status).toBe(403);
   });
 });
+
+describe("payment methods", () => {
+  it("offers a method only once its keys are set", async () => {
+    const saved = { ...env };
+    try {
+      delete env.NOWPAYMENTS_IPN_SECRET;
+      env.BEP20_ADDRESS = "  ";
+      const r = await h.call("GET", "/api/topups/methods");
+      expect(r.data.methods).not.toContain("nowpayments");
+      expect(r.data.methods).not.toContain("bep20");
+      expect(r.data.methods).toContain("sam");
+      const customer = await h.login(tg(77));
+      const t = await h.call("POST", "/api/topups", { token: customer, body: { method: "nowpayments", amountCents: 500 } });
+      expect(t.status).toBe(409);
+      expect(t.data.error.code).toBe("payment_method_unavailable");
+    } finally {
+      Object.assign(env, saved);
+    }
+  });
+});

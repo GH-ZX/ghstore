@@ -33,6 +33,7 @@ export async function productMeta(svc: Pick<Services, "db">, slug: string): Prom
             min(o.price_cents) as min_cents, max(o.price_cents) as max_cents, count(o.id) as offers
        from app.products p
        left join app.offers o on o.product_id = p.id and o.active and o.paused_reason is null
+            and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))
       where p.slug = $1 and p.active
       group by p.id`,
     [slug],
@@ -129,7 +130,8 @@ export function renderProductPage(
 export async function sitemapXml(svc: Pick<Services, "db">, baseUrl: string): Promise<string> {
   const rows = await svc.db.query<{ slug: string; updated_at: string | Date }>(
     `select p.slug, p.updated_at from app.products p
-      where p.active and exists (select 1 from app.offers o where o.product_id = p.id and o.active and o.paused_reason is null)
+      where p.active and exists (select 1 from app.offers o where o.product_id = p.id and o.active and o.paused_reason is null
+                                   and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled)))
       order by p.sort, p.slug limit 5000`,
   );
   const day = (d: string | Date) => new Date(d).toISOString().slice(0, 10);

@@ -242,7 +242,8 @@ Menu button: @BotFather → `/mybots` → your bot → Bot Settings → Menu But
 1. Sign in with the Telegram account in `OWNER_TELEGRAM_IDS` (done in § 9): it
    becomes the owner.
 2. In **Admin → Suppliers**, switch on the suppliers you set keys for and set a
-   low-balance alert.
+   low-balance alert. Packages of a supplier that is off are hidden from the store,
+   and a payment method appears only once its keys are set.
 3. Add products in **Admin → Catalogue**: create a product, then "Import from
    supplier" to pick the supplier's items and set the markup (the price preview
    uses the same margin rule the server enforces). Codes and accounts you sell

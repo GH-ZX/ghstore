@@ -492,3 +492,32 @@ describe("supplier sync and margin guard", () => {
     expect(rows.filter((r) => Number(r.price_cents) === 115)).toHaveLength(39);
   });
 });
+
+describe("suppliers switched off", () => {
+  it("hide their packages from the store and refuse new orders until switched on", async () => {
+    const supplier = `off_${run}`;
+    await db.query(`insert into app.suppliers (id, name, enabled) values ($1, 'Off', false)`, [supplier]);
+    const p = await db.query<{ id: string }>(
+      `insert into app.products (slug, category_id, name_ar, name_en, kind, active)
+       select $1, id, 'منتج', 'Off product', 'code', true from app.categories where slug = 'games' returning id`,
+      [`off-${run}`],
+    );
+    const o = await db.query<{ id: string }>(
+      `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents)
+       values ($1, 'x', 'x', $2, 'item-1', 100, 150) returning id`,
+      [p[0]!.id, supplier],
+    );
+    const listed = async () => ((await h.call("GET", "/api/catalog")).data.products as { slug: string }[]).some((x) => x.slug === `off-${run}`);
+
+    expect(await listed()).toBe(false);
+    expect((await h.call("GET", `/api/products/off-${run}`)).status).toBe(404);
+    const buyer = await h.login(tg(91));
+    const r = await h.call("POST", "/api/orders", { token: buyer, body: { offerId: o[0]!.id, idempotencyKey: `off-order-${run}` } });
+    expect(r.status).toBe(409);
+    expect(r.data.error.code).toBe("offer_unavailable");
+
+    await db.query(`update app.suppliers set enabled = true where id = $1`, [supplier]);
+    expect(await listed()).toBe(true);
+    expect((await h.call("GET", `/api/products/off-${run}`)).status).toBe(200);
+  });
+});

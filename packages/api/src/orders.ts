@@ -19,8 +19,20 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
   if (!CHANNELS.has(channel)) throw new ApiError("bad_request");
   const coupon = body.coupon === undefined || body.coupon === null || body.coupon === "" ? null : couponCode(body.coupon);
 
-  const offer = await one<{ input_fields: InputField[] }>(ctx.svc.db, `select input_fields from app.offers where id = $1`, [offerId]);
+  const offer = await one<{ input_fields: InputField[]; supplier_on: boolean }>(
+    ctx.svc.db,
+    `select o.input_fields,
+            (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled)) as supplier_on
+       from app.offers o where o.id = $1`,
+    [offerId],
+  );
   if (!offer) throw new ApiError("offer_unavailable");
+  if (!offer.supplier_on) {
+    // Its supplier is switched off in Admin → Suppliers. A repeat of an order that
+    // was already placed still gets its answer from place_order below.
+    const placed = await one(ctx.svc.db, `select 1 from app.orders where user_id = $1 and idempotency_key = $2`, [user.id, idem]);
+    if (!placed) throw new ApiError("offer_unavailable");
+  }
   const rawInput = body.input && typeof body.input === "object" && !Array.isArray(body.input) ? (body.input as Record<string, unknown>) : {};
   const checked = validateInput(offer.input_fields, rawInput);
   if (!checked.ok) throw new ApiError("invalid_input", `input.${checked.field}`);
