@@ -100,6 +100,41 @@ describe("auth", () => {
   });
 });
 
+describe("web app support", () => {
+  it("serves public config without secrets", async () => {
+    const c = await h.call("GET", "/api/config");
+    expect(c.status).toBe(200);
+    expect(c.data.theme.preset).toBeTruthy();
+    expect(c.data.payments.methods).toContain("bep20");
+    expect(c.data.login).toEqual(["telegram"]); // no Supabase keys in the test env
+    expect(JSON.stringify(c.data)).not.toMatch(/SECRET|TOKEN|DATA_KEY/i);
+  });
+
+  it("signs a website visitor in with the Telegram widget, as the same user as the Mini App", async () => {
+    const id = tg(30);
+    const mini = await h.login(id, "Lina");
+    const miniUser = (await h.call("GET", "/api/me", { token: mini })).data.user.id;
+    const { BOT_TOKEN } = await import("./helpers");
+    const { hmacSha256, toHex } = await import("@store/core");
+    const fields: Record<string, string> = { id: String(id), first_name: "Lina", auth_date: String(Math.floor(Date.now() / 1000) - 5) };
+    const dcs = Object.keys(fields).sort().map((k) => `${k}=${fields[k]}`).join("\n");
+    const secret = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(BOT_TOKEN)));
+    const body = { ...fields, hash: toHex(await hmacSha256(secret, dcs)) };
+    const { handle } = await import("../src/index");
+    const { env } = await import("./helpers");
+    const res = await handle(new Request("https://store.test/api/auth/telegram-widget", { method: "POST", headers: { origin: env.PUBLIC_BASE_URL, "content-type": "application/json" }, body: JSON.stringify(body) }), env, h.svc);
+    expect(res.status).toBe(200);
+    const cookie = res.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain("HttpOnly");
+    const token = decodeURIComponent(cookie.split(";")[0]!.split("=")[1]!);
+    const me = await h.call("GET", "/api/me", { token });
+    expect(me.data.user.id).toBe(miniUser);
+    expect(me.data.channel).toBe("web");
+    const bad = await handle(new Request("https://store.test/api/auth/telegram-widget", { method: "POST", headers: { origin: env.PUBLIC_BASE_URL }, body: JSON.stringify({ ...body, id: "1" }) }), env, h.svc);
+    expect(bad.status).toBe(401);
+  });
+});
+
 describe("catalog", () => {
   it("lists sellable products and finds Arabic spelling variants", async () => {
     const all = await h.call("GET", `/api/catalog`);
@@ -202,6 +237,13 @@ describe("manual USDT transfers", () => {
     const hash = "0x" + Array.from({ length: 64 }, (_, i) => ((i + Date.now()) % 16).toString(16)).join("");
     const pa = await h.call("POST", "/api/topups", { token: a, body: { method: "bep20", amountCents: 1000 } });
     expect(pa.data.action.type).toBe("address");
+    expect((await h.call("GET", `/api/topups/${pa.data.paymentId}`, { token: a })).data.stage).toBe("await_hash");
+    // A hash still waiting for confirmations: the app can resume "checking" after a reload.
+    const early = "0x" + "c".repeat(64);
+    expect((await h.call("POST", `/api/topups/${pa.data.paymentId}/tx`, { token: a, body: { txHash: early } })).data.status).toBe("pending");
+    const resumed = await h.call("GET", `/api/topups/${pa.data.paymentId}`, { token: a });
+    expect(resumed.data.stage).toBe("checking");
+    expect(resumed.data.txHash).toBe(early);
     chainPaid.add(hash);
     const sa = await h.call("POST", `/api/topups/${pa.data.paymentId}/tx`, { token: a, body: { txHash: hash } });
     expect(sa.data.status).toBe("paid");
@@ -295,6 +337,10 @@ describe("admin", () => {
     const m = await h.call("POST", `/api/admin/products/${pid}/offers`, { token: owner, body: { nameAr: "بطاقة", nameEn: "Card", markupMode: "manual", priceCents: 200 } });
     expect(m.status).toBe(201);
     expect((await h.call("POST", `/api/admin/offers/${o.data.id}/stock`, { token: owner, body: { items: ["X"] } })).status).toBe(409); // supplier offers have no stock
+    // Manual-stock packages take a typed cost; supplier packages get theirs from the sync.
+    expect((await h.call("PATCH", `/api/admin/offers/${m.data.id}`, { token: owner, body: { costCents: 150, markupMode: "percent", markupValue: 20 } })).data.priceCents).toBe(180);
+    expect((await h.call("PATCH", `/api/admin/offers/${o.data.id}`, { token: owner, body: { costCents: 10 } })).status).toBe(400);
+    await h.call("PATCH", `/api/admin/offers/${m.data.id}`, { token: owner, body: { markupMode: "manual", priceCents: 200 } });
     const st = await h.call("POST", `/api/admin/offers/${m.data.id}/stock`, { token: owner, body: { items: ["CARD-AAA-111", "CARD-BBB-222"] } });
     expect(st.data.added).toBe(2);
     const raw = await db.query<{ payload_enc: string }>(`select payload_enc from app.stock_items where offer_id = $1`, [m.data.id]);
@@ -308,6 +354,13 @@ describe("admin", () => {
     const got = await h.call("GET", `/api/orders/${order.data.orderId}`, { token: buyer });
     expect(got.data.order.status).toBe("delivered");
     expect(JSON.stringify(got.data)).toContain("CARD-AAA-111");
+
+    const me = await h.call("GET", "/api/me", { token: buyer });
+    expect(me.data.stats).toEqual({ orders: 1, spentCents: 200 });
+    const found = await h.call("GET", `/api/admin/users?q=${uid}`, { token: owner });
+    expect(found.data.users[0].balanceCents).toBe(300);
+    expect((await h.call("GET", "/api/admin/users?q=%25", { token: owner })).status).toBe(200); // wildcards are escaped
+    expect((await h.call("GET", "/api/admin/users", { token: buyer })).status).toBe(403);
 
     const sup = await h.call("PATCH", "/api/admin/suppliers/fake", { token: owner, body: { lowBalanceCents: 2000 } });
     expect(sup.status).toBe(200);

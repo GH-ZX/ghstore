@@ -10,6 +10,8 @@ import { supplierFactories } from "@store/suppliers";
 
 export interface WorkerEnv extends ApiEnv {
   HYPERDRIVE: { connectionString: string };
+  /** Static files of the web app (dist/). */
+  ASSETS: { fetch(request: Request): Promise<Response> };
 }
 
 function clientDb(c: PoolClient): Db {

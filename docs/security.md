@@ -80,11 +80,6 @@ What protects money, codes and accounts, and what the owner must do.
 
 ## Owner checklist
 
-- [ ] Make `gh-store-tele` and `gh-store-dev` private.
-- [ ] Rotate every key that was ever committed or used on the work server: bot
-      token (@BotFather → Revoke), supplier keys, SAM/NOWPayments keys, the
-      Postgres and Redis passwords from the old server.
-- [ ] Change the ghawi.app admin password (it was shared in a chat).
 - [ ] Turn on 2FA for Cloudflare, Supabase, GitHub and every supplier account.
 - [ ] Keep `DATA_KEY` and `SESSION_SECRET` in a password manager. Rotating
       `SESSION_SECRET` signs everyone out; `DATA_KEY` must not be lost.

@@ -20,6 +20,7 @@ import {
   toHex,
   utf8,
   verifyInitData,
+  verifyLoginWidget,
   verifySession,
 } from "../src/index";
 
@@ -106,6 +107,27 @@ describe("telegram initData", () => {
     expect(await verifyInitData(data, "999:other", { now })).toBeNull();
     expect(await verifyInitData(data.replace("samer_sy", "admin"), bot, { now })).toBeNull();
     expect(await verifyInitData(data, bot, { now: new Date(now.getTime() + 2 * 3600_000) })).toBeNull();
+  });
+});
+
+describe("telegram login widget", () => {
+  const bot = "123456:TEST-token-not-real";
+  const now = new Date("2026-10-15T12:00:00Z");
+  async function sign(f: Record<string, string>): Promise<Record<string, string>> {
+    const dcs = Object.keys(f).sort().map((k) => `${k}=${f[k]}`).join("\n");
+    const secret = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bot)));
+    return { ...f, hash: toHex(await hmacSha256(secret, dcs)) };
+  }
+  const base = { id: "42", first_name: "Samer", username: "samer_sy", auth_date: String(Math.floor(now.getTime() / 1000) - 30) };
+  it("accepts a signed widget payload and reads the user", async () => {
+    const v = await verifyLoginWidget(await sign(base), bot, { now });
+    expect(v?.user).toEqual({ id: 42, firstName: "Samer", username: "samer_sy" });
+  });
+  it("rejects tampering, another bot and stale logins", async () => {
+    const signed = await sign(base);
+    expect(await verifyLoginWidget({ ...signed, id: "43" }, bot, { now })).toBeNull();
+    expect(await verifyLoginWidget(signed, "999:other", { now })).toBeNull();
+    expect(await verifyLoginWidget(signed, bot, { now: new Date(now.getTime() + 2 * 3600_000) })).toBeNull();
   });
 });
 

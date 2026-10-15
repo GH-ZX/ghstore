@@ -15,7 +15,8 @@
     "db:test": "node --experimental-strip-types packages/db/scripts/test.ts",
     "setup:store": "node --experimental-strip-types scripts/setup.ts",
     "dev": "pnpm --filter @store/web run dev",
-    "ship": "pnpm --filter @store/web run deploy"
+    "ship": "pnpm --filter @store/web run deploy",
+    "build": "pnpm --filter @store/web run build"
   },
   "devDependencies": {
     "postgres": "^3.4.7",

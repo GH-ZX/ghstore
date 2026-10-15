@@ -7,6 +7,7 @@ import * as admin from "./admin";
 import * as adminCatalog from "./admin-catalog";
 import * as auth from "./auth";
 import * as catalog from "./catalog";
+import { publicConfig } from "./config";
 import type { ApiEnv, Services } from "./context";
 import { ApiError, errorResponse, json } from "./http";
 import * as orders from "./orders";
@@ -19,15 +20,17 @@ export { ApiError } from "./http";
 export { runScheduled } from "./jobs";
 export { fulfilOrder } from "./fulfilment";
 export { creditStarsPayment, settlePayment } from "./payments";
-export { normalizeSearch, matchesQuery } from "./search";
+export { normalizeSearch, matchesQuery } from "@store/core";
 export { renderTemplate, sendOutbox } from "./notify";
 export { handleBotWebhook, handleUpdate } from "./bot";
 export { syncSupplier, syncDueSuppliers } from "./sync";
 
 const router = new Router()
   .on("GET", "/api/health", async () => json({ ok: true }))
+  .on("GET", "/api/config", publicConfig)
   // auth
   .on("POST", "/api/auth/telegram", auth.telegramLogin)
+  .on("POST", "/api/auth/telegram-widget", auth.telegramWidgetLogin)
   .on("POST", "/api/auth/web", auth.webLogin)
   .on("POST", "/api/auth/logout", auth.logout)
   .on("GET", "/api/me", auth.me)
@@ -58,6 +61,7 @@ const router = new Router()
   .on("POST", "/api/admin/orders/:id/retry", admin.retryOrder)
   .on("GET", "/api/admin/settings", admin.getSettings)
   .on("PUT", "/api/admin/settings/:key", admin.putSetting)
+  .on("GET", "/api/admin/users", admin.listUsers)
   .on("POST", "/api/admin/users/:id/wallet", admin.adjustWallet)
   .on("POST", "/api/admin/users/:id/role", admin.setUserRole)
   .on("POST", "/api/admin/suppliers/:id/sync", admin.runSupplierSync)

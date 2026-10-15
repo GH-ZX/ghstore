@@ -81,10 +81,11 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
   const id = uuid(ctx.params.id);
   // Ownership is part of the query: another user's order is simply "not found".
-  const o = await one<{ id: string; number: string | number; status: string; total_cents: string | number; created_at: string; delivered_at: string | null; input: Record<string, string>; name_ar: string; name_en: string }>(
+  const o = await one<{ id: string; number: string | number; status: string; total_cents: string | number; created_at: string; delivered_at: string | null; input: Record<string, string>; name_ar: string; name_en: string; offer_ar: string; offer_en: string; input_fields: InputField[] }>(
     ctx.svc.db,
-    `select o.id, o.number, o.status, o.total_cents, o.created_at, o.delivered_at, o.input, p.name_ar, p.name_en
-       from app.orders o join app.products p on p.id = o.product_id
+    `select o.id, o.number, o.status, o.total_cents, o.created_at, o.delivered_at, o.input, p.name_ar, p.name_en,
+            f.name_ar as offer_ar, f.name_en as offer_en, f.input_fields
+       from app.orders o join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
       where o.id = $1 and o.user_id = $2`,
     [id, user.id],
   );
@@ -100,6 +101,9 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
     order: {
       id: o.id, number: n(o.number), status: o.status, totalCents: n(o.total_cents), createdAt: o.created_at,
       deliveredAt: o.delivered_at, input: o.input, productAr: o.name_ar, productEn: o.name_en,
+      packageAr: o.offer_ar, packageEn: o.offer_en,
+      // Labels for the details the customer typed (player ID, server...).
+      fields: (o.input_fields ?? []).map((f) => ({ key: f.key, labelEn: f.labelEn, labelAr: f.labelAr ?? null })),
     },
     deliveries,
   });

@@ -6,9 +6,9 @@
  * - Website: the client signs in with Supabase Auth (email or Google) and posts
  *   the Supabase access token; we confirm it with Supabase and swap it for ours.
  */
-import { readSessionToken, SESSION_TTL_SECONDS, signSession, verifyInitData, verifySession, type Channel } from "@store/core";
+import { readSessionToken, SESSION_TTL_SECONDS, signSession, verifyInitData, verifyLoginWidget, verifySession, type Channel, type TelegramUser } from "@store/core";
 import type { AuthedUser, Ctx } from "./context";
-import { call, must, one, type Db } from "./db";
+import { call, must, n, one, type Db } from "./db";
 import { ApiError, clearCookie, json, readJson, setCookie, str } from "./http";
 
 export const SESSION_COOKIE = "store_session";
@@ -38,12 +38,8 @@ async function promoteOwner(db: Db, userId: string, telegramId: string, ownerIds
   }
 }
 
-export async function telegramLogin(ctx: Ctx): Promise<Response> {
-  const body = await readJson(ctx.req);
-  const initData = str(body, "initData", { max: 4096 });
-  const verified = await verifyInitData(initData, ctx.env.TELEGRAM_BOT_TOKEN, { now: ctx.svc.now(), maxAgeSeconds: 24 * 3600 });
-  if (!verified) throw new ApiError("unauthorized");
-  const u = verified.user;
+/** Find or create the user behind a verified Telegram account (owners promoted on the way). */
+async function telegramUser(ctx: Ctx, u: TelegramUser): Promise<UserRow> {
   const displayName = [u.firstName, u.lastName].filter(Boolean).join(" ");
   const locale = u.languageCode?.startsWith("ar") ? "ar" : u.languageCode ? "en" : "ar";
   const rows = await call<{ id: string }>(ctx.svc.db, `select app.ensure_telegram_user($1, $2, $3, $4) as id`, [
@@ -57,8 +53,31 @@ export async function telegramLogin(ctx: Ctx): Promise<Response> {
   await promoteOwner(ctx.svc.db, userId, String(u.id), ctx.env.OWNER_TELEGRAM_IDS);
   const user = await loadUser(ctx.svc.db, userId);
   if (user.status !== "active") throw new ApiError("user_blocked");
-  const { token, expiresAt } = await startSession(ctx, userId, "miniapp");
+  return user;
+}
+
+/** Mini App: Telegram initData, answered with a bearer token (Telegram's webview keeps no cookies reliably). */
+export async function telegramLogin(ctx: Ctx): Promise<Response> {
+  const body = await readJson(ctx.req);
+  const initData = str(body, "initData", { max: 4096 });
+  const verified = await verifyInitData(initData, ctx.env.TELEGRAM_BOT_TOKEN, { now: ctx.svc.now(), maxAgeSeconds: 24 * 3600 });
+  if (!verified) throw new ApiError("unauthorized");
+  const user = await telegramUser(ctx, verified.user);
+  const { token, expiresAt } = await startSession(ctx, user.id, "miniapp");
   return json({ token, expiresAt: expiresAt.toISOString(), user: publicUser(user) });
+}
+
+/** Website: "Log in with Telegram" widget. Same Telegram account, same user and wallet as in the bot. */
+export async function telegramWidgetLogin(ctx: Ctx): Promise<Response> {
+  const body = await readJson(ctx.req);
+  const verified = await verifyLoginWidget(body, ctx.env.TELEGRAM_BOT_TOKEN, { now: ctx.svc.now(), maxAgeSeconds: 3600 });
+  if (!verified) throw new ApiError("unauthorized");
+  const user = await telegramUser(ctx, verified.user);
+  const { expiresAt, token } = await startSession(ctx, user.id, "web");
+  return json(
+    { expiresAt: expiresAt.toISOString(), user: publicUser(user) },
+    { headers: { "set-cookie": setCookie(SESSION_COOKIE, token, SESSION_TTL_SECONDS.web) } },
+  );
 }
 
 export async function webLogin(ctx: Ctx): Promise<Response> {
@@ -146,8 +165,22 @@ export async function requireStaff(ctx: Ctx, level: "support" | "owner" = "suppo
 export async function me(ctx: Ctx): Promise<Response> {
   const auth = await requireUser(ctx);
   const user = await loadUser(ctx.svc.db, auth.id);
-  const wallet = await one<{ balance_cents: string | number }>(ctx.svc.db, `select balance_cents from app.wallets where user_id = $1`, [auth.id]);
-  return json({ user: publicUser(user), balanceCents: Number(wallet?.balance_cents ?? 0) });
+  const extra = await one<{ balance_cents: string | number | null; orders: string | number; spent: string | number; telegram: string | null; tg_id: string | null; email: string | null }>(
+    ctx.svc.db,
+    `select (select balance_cents from app.wallets where user_id = $1) as balance_cents,
+            (select count(*) from app.orders where user_id = $1 and status = 'delivered') as orders,
+            (select coalesce(sum(total_cents), 0) from app.orders where user_id = $1 and status = 'delivered') as spent,
+            (select username from app.identities where user_id = $1 and provider = 'telegram' limit 1) as telegram,
+            (select subject from app.identities where user_id = $1 and provider = 'telegram' limit 1) as tg_id,
+            (select email from app.identities where user_id = $1 and provider = 'supabase' limit 1) as email`,
+    [auth.id],
+  );
+  return json({
+    user: { ...publicUser(user), telegramUsername: extra?.telegram ?? null, hasTelegram: Boolean(extra?.tg_id), email: extra?.email ?? null },
+    balanceCents: n(extra?.balance_cents),
+    stats: { orders: n(extra?.orders), spentCents: n(extra?.spent) },
+    channel: auth.channel,
+  });
 }
 
 export async function updateMe(ctx: Ctx): Promise<Response> {

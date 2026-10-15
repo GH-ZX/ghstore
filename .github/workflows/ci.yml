@@ -56,6 +56,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Build the web app
+        run: pnpm build
+
       # The roles Supabase has, so the migration's access rules are exercised as in production.
       - name: Create Supabase roles
         run: |

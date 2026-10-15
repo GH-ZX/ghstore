@@ -1,0 +1,192 @@
+/**
+ * Arabic first, English beside it. Every visible string lives here so a copy of
+ * the store can change wording in one place. `{x}` marks a value filled in.
+ */
+import type { Lang } from "./types";
+
+const en = {
+  // navigation
+  store: "Store", orders: "Orders", wallet: "Wallet", profile: "Profile", admin: "Admin", nav: "Main",
+  back: "Back", close: "Close", cancel: "Cancel", save: "Save", saved: "Saved", retry: "Try again", loading: "Loading…",
+  // store
+  search: "Search games, cards, subscriptions", searchLabel: "Search", all: "All", allProducts: "All products",
+  productsCount: "{n} products", productsOne: "1 product", noProducts: "No products match your search.", featured: "Today's pick",
+  buyNow: "Buy now", from: "from", instant: "Instant",
+  kind_id: "By ID", kind_code: "Code", kind_account: "Account", kind_link: "Link", kind_sms: "SMS number",
+  // product
+  package: "Package", quantity: "Quantity", description: "About", instructions: "How it works", warranty: "Warranty",
+  included: "What you get", f1: "Automatic delivery right after payment", f2: "Paid from your wallet balance", f3: "Fast support if anything goes wrong",
+  buy: "Buy", balanceAfter: "Balance after purchase", notEnough: "Your balance is too low for this order.", addFunds: "Add funds",
+  required: "Required", invalidValue: "Check this value", signInToBuy: "Sign in to buy",
+  orderPlaced: "Order placed", orderDelivered: "Delivered. Your code or details are in Orders.",
+  orderProcessing: "We are processing your order. You will get a notification when it is done.",
+  viewOrder: "View order", keepShopping: "Keep shopping",
+  // orders
+  myOrders: "My orders", noOrders: "No orders yet.", orderNo: "Order {n}",
+  st_paid: "Paid", st_processing: "Processing", st_delivered: "Delivered", st_failed: "Failed", st_refunded: "Refunded",
+  yourDelivery: "Your delivery", copy: "Copy", copied: "Copied", inProgress: "Being delivered by the supplier now.",
+  refundedNote: "This order was refunded to your wallet.", yourInput: "Details you entered", loadMore: "Load more",
+  // wallet
+  yourBalance: "Your balance", recent: "Recent activity", fAll: "All", fTop: "Top-ups", fBuy: "Purchases",
+  t_topup: "Top-up", t_purchase: "Purchase", t_refund: "Refund", t_adjustment: "Adjustment",
+  pendingTopups: "Waiting for payment", noActivity: "Nothing here yet.", approx: "≈ {v}",
+  payWith: "Pay with", continue: "Continue", amount: "Amount",
+  m_sam: "ShamCash", m_sam_sub: "via SAM", m_nowpayments: "USDT auto", m_nowpayments_sub: "NOWPayments",
+  m_bep20: "USDT manual", m_bep20_sub: "BEP20, checked on chain", m_stars: "Telegram Stars", m_stars_sub: "Inside Telegram",
+  starsOnlyInTelegram: "Stars work inside the Telegram app.",
+  c_sam: "We create a ShamCash invoice for this amount. Pay it in ShamCash and your balance updates automatically.",
+  c_nowpayments: "Send exactly this amount of USDT to the address below. Your balance updates after network confirmation.",
+  c_bep20: "Send exactly {amount} USDT on BNB Smart Chain (BEP20) to the store address, then paste the transaction hash.",
+  c_stars: "A Telegram Stars payment opens for the equivalent of this amount.",
+  b_sam: "Open invoice", b_nowpayments: "Create payment address", b_bep20: "Get the address", b_stars: "Pay with Stars",
+  exactAmount: "Send exactly", network: "Network", address: "Address", memo: "Memo / tag",
+  txHash: "Transaction hash", txHashPh: "0x…", txNoMatch: "No matching transfer for this hash. Check the amount, the network and the hash, then try again.", submitTx: "Check transfer", checkingTx: "Checking the transfer…",
+  openInvoice: "Open the invoice", iPaid: "I have paid", waitingPayment: "Waiting for the payment to confirm…",
+  topupPaid: "Balance topped up", topupPaidText: "{amount} was added to your wallet.",
+  topupReview: "Under review", topupReviewText: "We will check the transfer and add the balance once confirmed.",
+  topupPending: "Not confirmed yet", topupPendingText: "We keep checking. Your balance updates by itself once the payment confirms.",
+  topupFailed: "Payment not completed", topupFailedText: "Nothing was charged. You can try again.",
+  minMax: "From {min} to {max}",
+  // profile
+  prefs: "Preferences", notifications: "Notifications", language: "Language", appearance: "Appearance",
+  mode_system: "Auto", mode_light: "Light", mode_dark: "Dark", logout: "Sign out", support: "Help and support",
+  stOrders: "Orders", stSpent: "Spent", openInTelegram: "Open in Telegram", topUp: "Top up",
+  // login
+  signIn: "Sign in", signInTitle: "Sign in to {name}", signInText: "One account for the website, the bot and the Mini App.",
+  withTelegram: "Log in with Telegram", or: "or", email: "Email", emailPh: "you@example.com", sendCode: "Send code",
+  codeSent: "We sent a code to {email}.", code: "Code", verify: "Sign in", withGoogle: "Continue with Google",
+  changeEmail: "Use another email", orOpenBot: "Or open the store in Telegram", backToStoreShort: "Back to the store",
+  // errors (API codes)
+  e_network: "No connection. Check your internet and try again.", e_unauthorized: "Please sign in again.",
+  e_forbidden: "You can't do that.", e_not_found: "Not found.", e_conflict: "Already exists.",
+  e_rate_limited: "Too many open requests. Try again later.", e_insufficient_balance: "Your balance is too low.",
+  e_offer_unavailable: "This package is not available right now.", e_out_of_stock: "Out of stock right now.",
+  e_user_blocked: "This account is blocked.", e_invalid_quantity: "Check the quantity.", e_invalid_input: "Check the highlighted field.",
+  e_payment_method_unavailable: "This payment method is not available.", e_tx_reused: "This transaction was already used.",
+  e_bad_state: "This can't be done in its current state.", e_not_allowed: "Not allowed.", e_internal: "Something went wrong. Try again.",
+  e_bad_request: "Something was wrong with the request.", e_payment_not_found: "Payment not found.",
+  // admin
+  overview: "Overview", topups: "Top-ups", catalog: "Catalogue", suppliers: "Suppliers", users: "Users", settings: "Settings",
+  backToStore: "Back to store", salesToday: "Sales today", profitToday: "Profit today", ordersToday: "Orders today",
+  openOrders: "Open orders", failedOrders: "Failed orders", toReview: "Top-ups to review", walletsTotal: "Customer balances",
+  newUsers: "New users today", jobs: "Background jobs", lastOk: "Last OK", lastError: "Last error",
+  balance: "Balance", health: "Health", low: "Low", status: "Status", method: "Method", user: "User", created: "Created",
+  approve: "Approve", reject: "Reject", recheck: "Re-check", amountReceived: "Amount received (USD)", note: "Note",
+  noteRequired: "A short note (3+ letters)", refund: "Refund", retryOrder: "Retry", product: "Product", total: "Total",
+  error: "Error", none: "Nothing here.", importFrom: "Import from supplier", newProduct: "New product", newOffer: "New package",
+  edit: "Edit", slug: "Link name (slug)", category: "Category", nameAr: "Name (Arabic)", nameEn: "Name (English)",
+  kind: "Delivery type", active: "On sale", featuredFlag: "Featured", sort: "Order", imageUrl: "Image URL (https)",
+  descriptionAr: "Description (Arabic)", descriptionEn: "Description (English)", searchTerms: "Search words",
+  supplier: "Supplier", manualStock: "Manual stock", supplierRef: "Supplier item", cost: "Cost", price: "Price",
+  markup: "Pricing", m_percent: "Percent markup", m_fixed: "Fixed markup", m_manual: "Manual price",
+  markupValue: "Markup", rounding: "Round up to (cents)", minMargin: "Minimum margin %", maxQty: "Max quantity",
+  inputFields: "Customer fields", addField: "Add field", fieldKey: "Key", fieldLabelEn: "Label (English)",
+  fieldLabelAr: "Label (Arabic)", fieldPattern: "Pattern (optional)", paused: "Paused", resume: "Resume",
+  stock: "Stock", addStock: "Add stock", stockItems: "One code or account per line", linked: "Linked", link: "Add",
+  syncNow: "Sync now", enabled: "Enabled", lowBalanceAt: "Alert below (USD)", lastSync: "Last sync",
+  theme: "Theme", themeHint: "Applies to the website and the Mini App for everyone.", defaultMode: "Default mode",
+  sypRate: "SYP per USD (new pounds)", sypHint: "Leave empty to hide Syrian pound prices.",
+  maxPending: "Hours before an open order needs a person", role: "Role", adjustWallet: "Adjust wallet",
+  adjustHint: "Positive adds, negative removes. Written to the ledger with your note.", ban: "Block", unban: "Unblock",
+  r_customer: "Customer", r_support: "Support", r_owner: "Owner", searchUsers: "Name, @username, Telegram id or email",
+  ok: "OK", yes: "Yes", no: "No", apply: "Apply", confirmRefund: "Refund this order to the customer's wallet?",
+} as const;
+
+export type MsgKey = keyof typeof en;
+
+const ar: Record<MsgKey, string> = {
+  store: "المتجر", orders: "الطلبات", wallet: "المحفظة", profile: "حسابي", admin: "الإدارة", nav: "التنقل",
+  back: "رجوع", close: "إغلاق", cancel: "إلغاء", save: "حفظ", saved: "تم الحفظ", retry: "حاول مجدداً", loading: "جارٍ التحميل…",
+  search: "ابحث عن لعبة، بطاقة، اشتراك", searchLabel: "بحث", all: "الكل", allProducts: "كل المنتجات",
+  productsCount: "{n} منتجات", productsOne: "منتج واحد", noProducts: "لا توجد منتجات تطابق بحثك.", featured: "اختيار اليوم",
+  buyNow: "اشترِ الآن", from: "من", instant: "فوري",
+  kind_id: "بالمعرّف", kind_code: "كود", kind_account: "حساب", kind_link: "رابط", kind_sms: "رقم للتفعيل",
+  package: "الباقة", quantity: "الكمية", description: "عن المنتج", instructions: "طريقة الاستخدام", warranty: "الضمان",
+  included: "ما تحصل عليه", f1: "تسليم تلقائي بعد الدفع مباشرة", f2: "يُدفع من رصيد محفظتك", f3: "دعم سريع إذا واجهتك أي مشكلة",
+  buy: "شراء", balanceAfter: "رصيدك بعد الشراء", notEnough: "رصيدك لا يكفي لهذا الطلب.", addFunds: "شحن الرصيد",
+  required: "مطلوب", invalidValue: "تحقق من هذه القيمة", signInToBuy: "سجّل الدخول للشراء",
+  orderPlaced: "تم الطلب", orderDelivered: "تم التسليم. تجد الكود أو البيانات في طلباتك.",
+  orderProcessing: "نعالج طلبك الآن، وسيصلك إشعار عند الانتهاء.",
+  viewOrder: "عرض الطلب", keepShopping: "متابعة التسوق",
+  myOrders: "طلباتي", noOrders: "لا توجد طلبات بعد.", orderNo: "طلب {n}",
+  st_paid: "مدفوع", st_processing: "قيد التنفيذ", st_delivered: "مكتمل", st_failed: "فشل", st_refunded: "مسترجع",
+  yourDelivery: "بيانات التسليم", copy: "نسخ", copied: "تم النسخ", inProgress: "يجري التسليم من المزوّد الآن.",
+  refundedNote: "أُعيد مبلغ هذا الطلب إلى محفظتك.", yourInput: "البيانات التي أدخلتها", loadMore: "عرض المزيد",
+  yourBalance: "رصيدك", recent: "آخر العمليات", fAll: "الكل", fTop: "شحن", fBuy: "مشتريات",
+  t_topup: "شحن رصيد", t_purchase: "شراء", t_refund: "استرجاع", t_adjustment: "تعديل",
+  pendingTopups: "بانتظار الدفع", noActivity: "لا توجد عمليات هنا بعد.", approx: "≈ {v}",
+  payWith: "ادفع عبر", continue: "متابعة", amount: "المبلغ",
+  m_sam: "شام كاش", m_sam_sub: "عبر SAM", m_nowpayments: "USDT تلقائي", m_nowpayments_sub: "NOWPayments",
+  m_bep20: "USDT يدوي", m_bep20_sub: "BEP20، يُتحقق منه على الشبكة", m_stars: "نجوم تيليجرام", m_stars_sub: "داخل تيليجرام",
+  starsOnlyInTelegram: "النجوم تعمل داخل تطبيق تيليجرام.",
+  c_sam: "سننشئ فاتورة شام كاش بهذا المبلغ. ادفعها من تطبيق شام كاش وسيُضاف الرصيد تلقائياً.",
+  c_nowpayments: "أرسل هذا المبلغ تماماً من USDT إلى العنوان أدناه، ويُضاف الرصيد بعد تأكيد الشبكة.",
+  c_bep20: "أرسل {amount} USDT تماماً على شبكة BNB Smart Chain (BEP20) إلى عنوان المتجر، ثم ألصق رقم المعاملة.",
+  c_stars: "سيُفتح طلب دفع بالنجوم بما يعادل هذا المبلغ.",
+  b_sam: "فتح الفاتورة", b_nowpayments: "إنشاء عنوان الدفع", b_bep20: "عرض العنوان", b_stars: "الدفع بالنجوم",
+  exactAmount: "أرسل تماماً", network: "الشبكة", address: "العنوان", memo: "المذكرة / الوسم",
+  txHash: "رقم المعاملة (Hash)", txHashPh: "0x…", txNoMatch: "لم نجد تحويلاً مطابقاً لهذا الرقم. تحقق من المبلغ والشبكة ورقم المعاملة ثم حاول مجدداً.", submitTx: "تحقق من التحويل", checkingTx: "نتحقق من التحويل…",
+  openInvoice: "افتح الفاتورة", iPaid: "دفعت", waitingPayment: "بانتظار تأكيد الدفع…",
+  topupPaid: "تم شحن رصيدك", topupPaidText: "أُضيف {amount} إلى محفظتك.",
+  topupReview: "قيد المراجعة", topupReviewText: "سنتحقق من التحويل ونضيف الرصيد فور التأكيد.",
+  topupPending: "لم يتأكد بعد", topupPendingText: "نواصل التحقق، وسيتحدث رصيدك تلقائياً عند تأكيد الدفع.",
+  topupFailed: "لم يكتمل الدفع", topupFailedText: "لم يُخصم شيء، ويمكنك المحاولة مجدداً.",
+  minMax: "من {min} إلى {max}",
+  prefs: "التفضيلات", notifications: "الإشعارات", language: "اللغة", appearance: "المظهر",
+  mode_system: "تلقائي", mode_light: "فاتح", mode_dark: "داكن", logout: "تسجيل الخروج", support: "المساعدة والدعم",
+  stOrders: "الطلبات", stSpent: "المصروف", openInTelegram: "افتح في تيليجرام", topUp: "شحن",
+  signIn: "تسجيل الدخول", signInTitle: "الدخول إلى {name}", signInText: "حساب واحد للموقع والبوت والتطبيق المصغّر.",
+  withTelegram: "الدخول عبر تيليجرام", or: "أو", email: "البريد الإلكتروني", emailPh: "you@example.com", sendCode: "أرسل الرمز",
+  codeSent: "أرسلنا رمزاً إلى {email}.", code: "الرمز", verify: "دخول", withGoogle: "المتابعة عبر Google",
+  changeEmail: "استخدم بريداً آخر", orOpenBot: "أو افتح المتجر في تيليجرام", backToStoreShort: "العودة إلى المتجر",
+  e_network: "لا يوجد اتصال. تحقق من الإنترنت وحاول مجدداً.", e_unauthorized: "سجّل الدخول من جديد.",
+  e_forbidden: "لا يمكنك القيام بذلك.", e_not_found: "غير موجود.", e_conflict: "موجود مسبقاً.",
+  e_rate_limited: "لديك طلبات مفتوحة كثيرة. حاول لاحقاً.", e_insufficient_balance: "رصيدك لا يكفي.",
+  e_offer_unavailable: "هذه الباقة غير متاحة الآن.", e_out_of_stock: "نفدت الكمية حالياً.",
+  e_user_blocked: "هذا الحساب محظور.", e_invalid_quantity: "تحقق من الكمية.", e_invalid_input: "تحقق من الحقل المحدد.",
+  e_payment_method_unavailable: "طريقة الدفع هذه غير متاحة.", e_tx_reused: "استُخدمت هذه المعاملة من قبل.",
+  e_bad_state: "لا يمكن تنفيذ ذلك في الحالة الحالية.", e_not_allowed: "غير مسموح.", e_internal: "حدث خطأ. حاول مجدداً.",
+  e_bad_request: "في الطلب خطأ.", e_payment_not_found: "الدفعة غير موجودة.",
+  overview: "نظرة عامة", topups: "الشحنات", catalog: "المنتجات", suppliers: "المزوّدون", users: "المستخدمون", settings: "الإعدادات",
+  backToStore: "العودة للمتجر", salesToday: "مبيعات اليوم", profitToday: "ربح اليوم", ordersToday: "طلبات اليوم",
+  openOrders: "طلبات مفتوحة", failedOrders: "طلبات فاشلة", toReview: "شحنات للمراجعة", walletsTotal: "أرصدة العملاء",
+  newUsers: "مستخدمون جدد اليوم", jobs: "المهام الخلفية", lastOk: "آخر نجاح", lastError: "آخر خطأ",
+  balance: "الرصيد", health: "الحالة", low: "منخفض", status: "الحالة", method: "الطريقة", user: "المستخدم", created: "التاريخ",
+  approve: "اعتماد", reject: "رفض", recheck: "إعادة التحقق", amountReceived: "المبلغ المستلم (USD)", note: "ملاحظة",
+  noteRequired: "ملاحظة قصيرة (3 أحرف أو أكثر)", refund: "استرجاع", retryOrder: "إعادة المحاولة", product: "المنتج", total: "الإجمالي",
+  error: "الخطأ", none: "لا يوجد شيء هنا.", importFrom: "استيراد من مزوّد", newProduct: "منتج جديد", newOffer: "باقة جديدة",
+  edit: "تعديل", slug: "اسم الرابط (slug)", category: "التصنيف", nameAr: "الاسم (عربي)", nameEn: "الاسم (إنجليزي)",
+  kind: "نوع التسليم", active: "معروض للبيع", featuredFlag: "مميز", sort: "الترتيب", imageUrl: "رابط الصورة (https)",
+  descriptionAr: "الوصف (عربي)", descriptionEn: "الوصف (إنجليزي)", searchTerms: "كلمات البحث",
+  supplier: "المزوّد", manualStock: "مخزون يدوي", supplierRef: "منتج المزوّد", cost: "التكلفة", price: "السعر",
+  markup: "التسعير", m_percent: "نسبة ربح", m_fixed: "ربح ثابت", m_manual: "سعر يدوي",
+  markupValue: "قيمة الربح", rounding: "التقريب لأعلى (سنت)", minMargin: "أقل هامش ربح %", maxQty: "أكبر كمية",
+  inputFields: "حقول العميل", addField: "إضافة حقل", fieldKey: "المفتاح", fieldLabelEn: "العنوان (إنجليزي)",
+  fieldLabelAr: "العنوان (عربي)", fieldPattern: "النمط (اختياري)", paused: "متوقف", resume: "استئناف",
+  stock: "المخزون", addStock: "إضافة مخزون", stockItems: "كود أو حساب واحد في كل سطر", linked: "مرتبط", link: "إضافة",
+  syncNow: "مزامنة الآن", enabled: "مفعّل", lowBalanceAt: "تنبيه تحت (USD)", lastSync: "آخر مزامنة",
+  theme: "السمة", themeHint: "تُطبّق على الموقع والتطبيق المصغّر للجميع.", defaultMode: "الوضع الافتراضي",
+  sypRate: "الليرة السورية مقابل الدولار (الجديدة)", sypHint: "اتركه فارغاً لإخفاء الأسعار بالليرة.",
+  maxPending: "عدد الساعات قبل تحويل الطلب المفتوح لشخص", role: "الدور", adjustWallet: "تعديل الرصيد",
+  adjustHint: "الموجب يضيف والسالب يخصم، ويُسجّل في السجل مع ملاحظتك.", ban: "حظر", unban: "إلغاء الحظر",
+  r_customer: "عميل", r_support: "دعم", r_owner: "مالك", searchUsers: "الاسم أو @المعرّف أو رقم تيليجرام أو البريد",
+  ok: "حسناً", yes: "نعم", no: "لا", apply: "تطبيق", confirmRefund: "استرجاع مبلغ هذا الطلب إلى محفظة العميل؟",
+};
+
+export const DICTS: Record<Lang, Record<MsgKey, string>> = { en, ar };
+
+export function translate(lang: Lang, key: MsgKey, vars?: Record<string, string | number>): string {
+  let s = DICTS[lang][key] ?? en[key] ?? key;
+  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
+  return s;
+}
+
+/** Pick the Arabic or English variant of a pair of database fields. */
+export function pick(lang: Lang, ar: string | null | undefined, en: string | null | undefined): string {
+  return (lang === "ar" ? ar || en : en || ar) ?? "";
+}
+
+export function errorText(lang: Lang, code: string): string {
+  const key = `e_${code}` as MsgKey;
+  return key in en ? translate(lang, key) : translate(lang, "e_internal");
+}

@@ -91,3 +91,45 @@ export function verifyBotWebhook(req: Request, secret: string): boolean {
   const got = req.headers.get("x-telegram-bot-api-secret-token") ?? "";
   return secret.length >= 16 && timingSafeEqual(got, secret);
 }
+
+/**
+ * Website sign-in with the Telegram Login Widget (the same Telegram account, so
+ * the same wallet as the bot and Mini App). Telegram signs the fields with
+ * HMAC_SHA256(data_check_string, SHA256(bot token)).
+ * https://core.telegram.org/widgets/login#checking-authorization
+ */
+export async function verifyLoginWidget(
+  fields: Record<string, unknown>,
+  botToken: string,
+  opts: VerifyOptions = {},
+): Promise<{ user: TelegramUser; authDate: Date } | null> {
+  if (!botToken || !fields || typeof fields !== "object") return null;
+  const hash = fields.hash;
+  if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) return null;
+  const allowed = ["auth_date", "first_name", "id", "last_name", "photo_url", "username"];
+  const entries: [string, string][] = [];
+  for (const k of allowed) {
+    const v = fields[k];
+    if (v === undefined || v === null || v === "") continue;
+    if (typeof v !== "string" && typeof v !== "number") return null;
+    entries.push([k, String(v)]);
+  }
+  const dataCheckString = entries.map(([k, v]) => `${k}=${v}`).join("\n");
+  const secret = new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(botToken)));
+  const expected = toHex(await hmacSha256(secret, dataCheckString));
+  if (!timingSafeEqual(expected, hash)) return null;
+
+  const authDateSec = Number(fields.auth_date);
+  if (!Number.isFinite(authDateSec) || authDateSec <= 0) return null;
+  const now = opts.now ?? new Date();
+  const ageSec = now.getTime() / 1000 - authDateSec;
+  if (ageSec > (opts.maxAgeSeconds ?? 3600) || ageSec < -300) return null;
+
+  const id = Number(fields.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+  const user: TelegramUser = { id, firstName: typeof fields.first_name === "string" ? fields.first_name : "" };
+  if (typeof fields.last_name === "string") user.lastName = fields.last_name;
+  if (typeof fields.username === "string") user.username = fields.username;
+  if (typeof fields.photo_url === "string") user.photoUrl = fields.photo_url;
+  return { user, authDate: new Date(authDateSec * 1000) };
+}

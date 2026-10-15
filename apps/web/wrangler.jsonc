@@ -8,10 +8,16 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  // Workers Paid plan recommended: the free plan allows only 10 ms CPU per request.
+  // Works on the free plan: the web app is static files (free and unlimited), and
+  // only /api and the bot webhook run code. Workers Paid ($5/month) raises limits later.
   "triggers": { "crons": ["* * * * *"] },
-  // Run next to the database (Supabase project region): the API makes several queries per request.
-  "placement": { "region": "aws:ap-southeast-1" },
+  // The web app, built by `pnpm build` into dist/. Unknown paths get index.html (client-side routes).
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/telegram/*"]
+  },
   "hyperdrive": [
     // Create with caching off (see `pnpm setup:store` for the full command):
     //   npx wrangler hyperdrive create gh-store-db --caching-disabled --connection-string="postgres://store_app.<ref>:...@<pooler-host>:5432/postgres"
@@ -21,6 +27,8 @@
   "vars": {
     "PUBLIC_BASE_URL": "https://gh-store.me",
     "PAYMENT_METHODS": "sam,nowpayments,bep20,stars",
+    // Website sign-in options: telegram (same wallet as the bot), email (code), google.
+    "WEB_LOGIN_METHODS": "telegram,email",
     // Public project URL (not a secret). Used only to check website logins.
     "SUPABASE_URL": "https://njlzgfddfnnqujaodbta.supabase.co"
   }

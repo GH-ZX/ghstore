@@ -203,3 +203,31 @@ export async function runSupplierSync(ctx: Ctx): Promise<Response> {
   await audit(ctx, staff.id, "supplier.sync", "supplier", id, { ...report });
   return json(report);
 }
+
+/** Find customers by name, Telegram username or id, email, or user id. */
+export async function listUsers(ctx: Ctx): Promise<Response> {
+  await requireStaff(ctx);
+  const q = (ctx.url.searchParams.get("q") ?? "").trim().replace(/^@/, "").slice(0, 80);
+  const like = `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+  const rows = await ctx.svc.db.query<{
+    id: string; display_name: string; role: string; status: string; created_at: string; last_seen_at: string | null;
+    balance_cents: string | number; telegram: string | null; tg_id: string | null; email: string | null; orders: string | number;
+  }>(
+    `select u.id, u.display_name, u.role, u.status, u.created_at, u.last_seen_at, w.balance_cents,
+            t.username as telegram, t.subject as tg_id, e.email,
+            (select count(*) from app.orders o where o.user_id = u.id) as orders
+       from app.users u
+       join app.wallets w on w.user_id = u.id
+       left join app.identities t on t.user_id = u.id and t.provider = 'telegram'
+       left join app.identities e on e.user_id = u.id and e.provider = 'supabase'
+      where $1 = '' or u.display_name ilike $2 or t.username ilike $2 or t.subject = $1 or e.email ilike $2 or u.id::text = $1
+      order by u.last_seen_at desc nulls last limit 50`,
+    [q, like],
+  );
+  return json({
+    users: rows.map((r) => ({
+      id: r.id, name: r.display_name, role: r.role, status: r.status, createdAt: r.created_at, lastSeenAt: r.last_seen_at,
+      balanceCents: n(r.balance_cents), telegramUsername: r.telegram, telegramId: r.tg_id, email: r.email, orders: n(r.orders),
+    })),
+  });
+}

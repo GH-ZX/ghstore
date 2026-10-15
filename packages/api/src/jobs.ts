@@ -51,8 +51,10 @@ export async function flagStuckOrders(svc: Services): Promise<void> {
 export async function recheckPendingPayments(svc: Services, limit = 20): Promise<void> {
   const rows = await svc.db.query<{ id: string }>(
     `select id from app.payments
-      where status = 'pending' and method in ('sam','nowpayments') and created_at < now() - interval '1 minute'
-        and created_at > now() - interval '2 days'
+      where created_at > now() - interval '2 days'
+        and ((status = 'pending' and method in ('sam','nowpayments') and created_at < now() - interval '1 minute')
+          -- a USDT hash submitted before it had enough confirmations: check the chain again
+          or (status = 'review' and method = 'bep20' and tx_hash is not null and note is null))
       order by updated_at limit $1`,
     [limit],
   );
@@ -88,11 +90,17 @@ export async function checkSupplierBalances(svc: Services): Promise<void> {
   }
 }
 
+/**
+ * One cron tick (every minute). Customer-facing work runs every tick; the rest
+ * is spread over the hour so a single run stays small enough for the Workers
+ * free plan (10 ms CPU per invocation; waiting on the network does not count).
+ */
 export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
-  await heartbeat(svc, "orders", () => processDueOrders(svc, env));
-  await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
-  await heartbeat(svc, "payments", () => recheckPendingPayments(svc));
-  await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
-  await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 60));
+  const minute = svc.now().getUTCMinutes();
+  await heartbeat(svc, "orders", () => processDueOrders(svc, env, 10));
   await heartbeat(svc, "outbox", () => sendOutbox(svc, env));
+  if (minute % 2 === 0) await heartbeat(svc, "payments", () => recheckPendingPayments(svc, 10));
+  if (minute % 10 === 5) await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
+  if (minute % 15 === 7) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
+  if (minute % 5 === 3) await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 60, 1));
 }

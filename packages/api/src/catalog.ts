@@ -2,11 +2,10 @@
  * Public catalog. Only active products with at least one sellable offer appear.
  * Supplier names and costs are never exposed.
  */
-import type { InputField } from "@store/core";
+import { matchesQuery, type InputField } from "@store/core";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
 import { ApiError, json } from "./http";
-import { matchesQuery } from "./search";
 
 interface ProductRow {
   id: string;
@@ -53,6 +52,7 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
       featured: r.featured,
       fromCents: n(r.min_price_cents),
       packages: n(r.offer_count),
+      searchTerms: r.search_terms,
     }));
   return json(
     { categories: categories.map((c) => ({ slug: c.slug, nameAr: c.name_ar, nameEn: c.name_en })), products },

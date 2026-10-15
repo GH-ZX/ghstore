@@ -26,6 +26,8 @@ export interface ApiEnv {
   PAYMENT_METHODS?: string;
   /** Stars per US dollar for Telegram Stars top-ups. */
   STARS_PER_USD?: string;
+  /** Website sign-in options, comma separated: telegram,email,google (default telegram,email). */
+  WEB_LOGIN_METHODS?: string;
   /** Anything else (supplier and payment keys, bindings) — strings are passed to adapters as config. */
   [key: string]: unknown;
 }

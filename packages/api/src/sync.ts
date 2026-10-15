@@ -126,11 +126,16 @@ export async function syncSupplier(svc: Services, supplierId: string): Promise<S
   return report;
 }
 
-/** Sync every enabled supplier whose last sync is older than `minutes`. */
-export async function syncDueSuppliers(svc: Services, minutes = 60): Promise<SyncReport[]> {
+/**
+ * Sync enabled suppliers whose last sync is older than `minutes`, oldest first,
+ * at most `max` per call. One per cron tick keeps each run light (the Workers
+ * free plan allows 10 ms of CPU per invocation; a catalogue parse is the heavy part).
+ */
+export async function syncDueSuppliers(svc: Services, minutes = 60, max = 1): Promise<SyncReport[]> {
   const due = await svc.db.query<{ id: string }>(
-    `select id from app.suppliers where enabled and (last_sync_at is null or last_sync_at < now() - make_interval(mins => $1::int))`,
-    [minutes],
+    `select id from app.suppliers where enabled and (last_sync_at is null or last_sync_at < now() - make_interval(mins => $1::int))
+      order by last_sync_at nulls first limit $2`,
+    [minutes, max],
   );
   const reports: SyncReport[] = [];
   for (const s of due) reports.push(await syncSupplier(svc, s.id));

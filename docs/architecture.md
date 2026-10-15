@@ -8,7 +8,7 @@ Everything runs in a single Cloudflare Worker (`apps/web`):
 | --- | --- |
 | `/api/*` | JSON API for the website, the Mini App and the admin |
 | `/telegram/webhook` | Bot updates. Telegram sends the secret header set with `setWebhook` |
-| `/`, `/tg`, `/admin` | The web app (next milestone; a branded placeholder for now) |
+| `/`, `/tg`, `/admin` | The web app: static files from `apps/web/dist`, served by Cloudflare without running the Worker |
 | cron `* * * * *` | Scheduled jobs (below) |
 
 One deploy, one set of secrets, one log stream. The earlier plan had a separate
@@ -36,8 +36,33 @@ core ◄── suppliers
   `Services`, so the end-to-end tests run the real handlers against a real
   Postgres with fake providers.
 - **db**: SQL migrations and SQL tests.
-- **ui**: theme tokens and brand SVG, shared by the placeholder page now and the
-  web app next.
+- **ui**: theme tokens and brand SVG, used by the web app and the build.
+- **apps/web/client**: the web app (below).
+
+## Web app
+
+One React 19 app, built with esbuild into static files (`pnpm build`), serves
+three doors from the same code:
+
+| Door | URL | Sign-in | Notes |
+| --- | --- | --- | --- |
+| Website | `/` | Telegram Login Widget (same account and wallet as the bot), or email code / Google via Supabase Auth | Session in an HttpOnly cookie |
+| Mini App | `/tg` (BotFather menu button) | Automatic from Telegram `initData` | Bearer token for the tab; Telegram's back button, theme, haptics, Stars invoices |
+| Admin | `/admin` | Same sign-in, staff role | Support: overview, top-ups, orders, users. Owner: also catalogue, suppliers, settings |
+
+- Arabic (RTL) first, English beside it; every string is in `client/src/lib/i18n.ts`.
+- Four theme presets × light/dark from `@store/ui`; the owner picks the preset in
+  the admin, visitors pick light/dark/auto (inside Telegram, auto follows Telegram).
+- Mobile patterns: floating glass header, floating pill tab bar, bottom sheets
+  (centred dialogs on wide screens), two-column product grid, short motion that
+  respects reduced-motion settings.
+- Routes: `/` store, `/p/:slug` product sheet, `/orders`, `/orders/:id`,
+  `/wallet` (`?topup=` opens add-funds, `?payment=` shows a top-up's status),
+  `/profile`, `/login`, `/admin/*`. Deep link from the bot: `t.me/<bot>?startapp=p_<slug>`.
+- No router or state library: a 90-line history router and a small store.
+  Admin code is split into its own chunk, so customers never download it.
+- `_headers` sets a strict Content-Security-Policy; Telegram's iframe on
+  web.telegram.org may embed the app, nobody else can.
 
 ## Database
 

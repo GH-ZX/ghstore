@@ -12,8 +12,11 @@ import { call, isUniqueViolation, n, one } from "./db";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 
 const ALL_METHODS: PaymentMethod[] = ["sam", "nowpayments", "bep20", "stars"];
-const MIN_TOPUP_CENTS = 100;
-const MAX_TOPUP_CENTS = 100_000;
+/** Note on a manual USDT top-up whose submitted hash did not match; the customer may paste another. */
+const MISMATCH_NOTE = "transfer did not match";
+
+export const MIN_TOPUP_CENTS = 100;
+export const MAX_TOPUP_CENTS = 100_000;
 
 export function enabledMethods(env: ApiEnv): PaymentMethod[] {
   const list = (env.PAYMENT_METHODS ?? "sam,nowpayments,bep20,stars").split(",").map((s) => s.trim());
@@ -89,13 +92,24 @@ export async function submitTxHash(ctx: Ctx): Promise<Response> {
 export async function getTopup(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
   const id = uuid(ctx.params.id);
-  const p = await one<{ id: string; method: string; amount_cents: string | number; status: string; action: unknown; credited_cents: string | number | null; created_at: string }>(
+  const p = await one<{ id: string; method: string; amount_cents: string | number; status: string; action: unknown; credited_cents: string | number | null; created_at: string; tx_hash: string | null; note: string | null }>(
     ctx.svc.db,
-    `select id, method, amount_cents, status, action, credited_cents, created_at from app.payments where id = $1 and user_id = $2`,
+    `select id, method, amount_cents, status, action, credited_cents, created_at, tx_hash, note from app.payments where id = $1 and user_id = $2`,
     [id, user.id],
   );
   if (!p) throw new ApiError("not_found");
-  return json({ id: p.id, method: p.method, amountCents: n(p.amount_cents), status: p.status, action: p.action, creditedCents: p.credited_cents === null ? null : n(p.credited_cents), createdAt: p.created_at });
+  // Manual USDT: where the customer is in the flow, so the app can resume it.
+  let stage: "await_hash" | "checking" | "mismatch" | null = null;
+  if (p.method === "bep20") {
+    if (p.status === "created" || p.status === "pending") stage = "await_hash";
+    else if (p.status === "review" && p.tx_hash && p.note === null) stage = "checking";
+    else if (p.status === "review" && p.note === MISMATCH_NOTE) stage = "mismatch";
+  }
+  return json({
+    id: p.id, method: p.method, amountCents: n(p.amount_cents), status: p.status, action: p.action,
+    creditedCents: p.credited_cents === null ? null : n(p.credited_cents), createdAt: p.created_at,
+    txHash: p.method === "bep20" ? p.tx_hash : null, stage,
+  });
 }
 
 export async function walletHistory(ctx: Ctx): Promise<Response> {
@@ -174,6 +188,9 @@ async function applyEvent(svc: Services, paymentId: string, ev: PaymentEvent): P
     case "failed":
     case "expired":
       await svc.db.query(`update app.payments set status = $2 where id = $1 and status in ('created','pending')`, [paymentId, ev.status]);
+      // A submitted USDT hash that does not match stays open (the customer may paste the right one),
+      // but gets a note so the cron stops re-checking it and staff can see why.
+      await svc.db.query(`update app.payments set note = coalesce(note, $2) where id = $1 and status = 'review'`, [paymentId, MISMATCH_NOTE]);
       return ev.status;
     case "pending":
       return "pending";

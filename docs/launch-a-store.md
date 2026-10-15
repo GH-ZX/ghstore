@@ -7,7 +7,7 @@ time. Nothing here needs the old work server.
 
 | Service | Plan | Why |
 | --- | --- | --- |
-| Cloudflare | Workers Paid, $5/month | The free plan gives 10 ms CPU per request, too little for supplier calls and crypto checks. Hyperdrive is included. |
+| Cloudflare | Free to start; Workers Paid ($5/month) when traffic grows | The web app is static files (free, unlimited). Only `/api`, the bot and the cron run code; the free plan gives them 100,000 requests a day and 10 ms of CPU each (waiting for the database or a supplier does not count). Hyperdrive is included. |
 | Supabase | Free to start (2 active projects; pauses after a week without traffic), Pro $25/month for production | Postgres and website login |
 | Telegram | A bot from @BotFather | Bot, Mini App, Stars |
 | A domain on Cloudflare | — | e.g. gh-store.me |
@@ -85,16 +85,26 @@ Put the printed id in `wrangler.jsonc` → `hyperdrive[0].id`.
 - Keep **caching disabled**. Hyperdrive would otherwise serve reads up to 60 s old,
   and sessions, balances and payment states must always be fresh.
 
-## 6. Website login (Supabase Auth)
+## 6. Website login
 
-Supabase → Authentication:
+Choose the options in `wrangler.jsonc` → `vars.WEB_LOGIN_METHODS`
+(`telegram,email,google`; default `telegram,email`).
 
-- Providers: Email (magic link or password) and Google if you want it.
+**Telegram (recommended: same account and wallet as the bot).** In @BotFather:
+`/setdomain` → your bot → `your-domain.com`. Nothing else to set.
+
+**Email code and Google (Supabase Auth).** Supabase → Authentication:
+
+- Providers: Email on. For Google, turn on the Google provider with your Google
+  OAuth client.
+- Emails → "Magic Link" template: put `{{ .Token }}` in the message, so the email
+  carries the 6-digit code the website asks for.
 - URL configuration: Site URL `https://your-domain.com`; add
-  `https://your-domain.com/**` to redirect URLs.
+  `https://your-domain.com/login` to the redirect URLs (Google comes back there).
 
 Then `npx wrangler secret put SUPABASE_PUBLISHABLE_KEY` (Project Settings → API
-keys → publishable key).
+keys → publishable key). It is meant for browsers; the website reads it from
+`/api/config`.
 
 ## 7. Worker secrets
 
@@ -144,22 +154,19 @@ good. Do it when the Worker is ready; the old Python bot can then be stopped.
 
 1. Open the bot and the Mini App with the Telegram account in
    `OWNER_TELEGRAM_IDS`: it becomes the owner.
-2. Enable the suppliers you set keys for, with a low-balance alert threshold:
-   `update app.suppliers set enabled = true, low_balance_cents = 2000 where id = 'g2bulk';`
-3. Add products. The admin screens for this are part of the next milestone; the
-   endpoints already exist (`GET /api/admin/suppliers/:id/products` to see what a
-   supplier sells, then `POST /api/admin/products` and
-   `POST /api/admin/products/:id/offers`).
-4. Optional settings: `fx.syp_per_usd` (new Syrian pounds per dollar, to show SYP
-   beside prices), `theme.preset`, `theme.default_mode`.
+2. In **Admin → Suppliers**, switch on the suppliers you set keys for and set a
+   low-balance alert.
+3. Add products in **Admin → Catalogue**: create a product, then "Import from
+   supplier" to pick the supplier's items and set the markup (the price preview
+   uses the same margin rule the server enforces). Codes and accounts you sell
+   yourself go in a package with "Manual stock" → "Add stock".
+4. **Admin → Settings**: pick the theme (Calm, Energetic, Minimal, Warm) and the
+   default light/dark mode, and the SYP rate if you want Syrian pound prices shown.
 5. Make a $1 test top-up with each method and a test order.
 
 ## Moving from the old setup
 
 - Balances in the old bot are small: settle them by hand, then start the new
   wallets at zero (decided).
-- Old repositories: make `gh-store-tele` and `gh-store-dev` private, and rotate
-  every key that was ever committed there (bot token, supplier keys, database and
-  Redis passwords).
 - After the webhook moves and a few days pass without problems, turn off the
   tunnels to the work server (admin.gh-store.me, factory.gh-store.me).

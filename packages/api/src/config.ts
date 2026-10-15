@@ -1,0 +1,31 @@
+/**
+ * Public store settings the web app reads at start: theme, the SYP rate, which
+ * top-up methods and website sign-in options are on. Nothing here is secret
+ * (the Supabase publishable key is meant for browsers).
+ */
+import type { Ctx } from "./context";
+import { json } from "./http";
+import { enabledMethods, MAX_TOPUP_CENTS, MIN_TOPUP_CENTS } from "./payments";
+
+const LOGIN_METHODS = ["telegram", "email", "google"] as const;
+type LoginMethod = (typeof LOGIN_METHODS)[number];
+
+export async function publicConfig(ctx: Ctx): Promise<Response> {
+  const rows = await ctx.svc.db.query<{ key: string; value: unknown }>(
+    `select key, value from app.settings where key in ('theme.preset', 'theme.default_mode', 'fx.syp_per_usd')`,
+  );
+  const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const supabaseReady = typeof ctx.env.SUPABASE_URL === "string" && typeof ctx.env.SUPABASE_PUBLISHABLE_KEY === "string" && !!ctx.env.SUPABASE_PUBLISHABLE_KEY;
+  const wanted = String(ctx.env.WEB_LOGIN_METHODS ?? "telegram,email").split(",").map((m) => m.trim());
+  const login = LOGIN_METHODS.filter((m): m is LoginMethod => wanted.includes(m) && (m === "telegram" || supabaseReady));
+  return json(
+    {
+      theme: { preset: s["theme.preset"] ?? "energetic", defaultMode: s["theme.default_mode"] ?? "system" },
+      sypPerUsd: typeof s["fx.syp_per_usd"] === "number" ? s["fx.syp_per_usd"] : null,
+      payments: { methods: enabledMethods(ctx.env), minCents: MIN_TOPUP_CENTS, maxCents: MAX_TOPUP_CENTS },
+      login,
+      supabase: supabaseReady ? { url: ctx.env.SUPABASE_URL, key: ctx.env.SUPABASE_PUBLISHABLE_KEY } : null,
+    },
+    { headers: { "cache-control": "public, max-age=60" } },
+  );
+}

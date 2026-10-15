@@ -23,30 +23,26 @@
   working.
 - This repository: schema and money functions, the full API, five suppliers, four
   payment methods, the bot, scheduled jobs, the catalogue editor API, brand assets,
-  theme tokens, CI, docs. 216 automated tests plus the SQL tests.
+  theme tokens, CI, docs. 220 automated tests plus the SQL tests.
 - Migrations verified on the gh-store project's Postgres 17 inside a transaction
   that was rolled back (nothing created yet).
 
-## Next: the web app (milestone 2)
+## Done in milestone 2 (web app)
 
-One React Router app served by the same Worker, built from the approved prototype:
-
-1. **Shared shell**: theme from `@store/ui`, Arabic RTL first, English, light/dark,
-   floating header, pill tab bar, bottom sheets, skeletons, motion.
-2. **Mini App** (`/tg`): store, product sheet with packages and fields, checkout
-   from wallet, orders with copy buttons, wallet with the four top-up methods,
-   profile and language. Telegram theme and back button.
-3. **Website** (`/`): the same screens on wider layouts, Supabase login, SEO pages
-   for categories and products.
-4. **Admin** (`/admin`): overview, top-ups to review, orders, catalogue editor
-   with supplier import, stock upload, suppliers, settings (theme picker), users.
-
-Needs `pnpm install` (npm registry) — on your computer, in CI, or in a session
-linked to your computer.
+- Website, Mini App (`/tg`) and admin (`/admin`) in one React app, served as
+  static files (free on Cloudflare). Arabic and English, four themes, light/dark.
+- Store, product sheet with packages and fields, wallet with all four top-up
+  flows (ShamCash, USDT auto, USDT manual with hash check, Stars), orders with
+  copyable codes, profile and preferences.
+- Website sign-in with Telegram (same wallet as the bot), email code, or Google.
+- Admin: overview, top-up review, orders (retry, refund), catalogue editor with
+  supplier import and manual stock, suppliers, users (wallet adjust, roles),
+  settings (theme picker, SYP rate).
+- Free-plan fit: the cron spreads its work across the hour.
 
 ## After that
 
-- Link a Telegram account and a website login into one wallet.
+- Link an email/Google login to a Telegram account (Telegram login already shares the wallet).
 - Referral rewards, coupons, and "buy again" reminders (from the old bot, rebuilt
   on the ledger).
 - Syriatel Cash through SAM.

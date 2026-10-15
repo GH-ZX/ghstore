@@ -280,12 +280,19 @@ export async function updateOffer(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx, "owner");
   const id = uuid(ctx.params.id);
   const body = await readJson(ctx.req);
-  const cur = await must<{ cost_cents: string | number | null; price_cents: string | number; markup_mode: MarkupMode; markup_value: string | number; round_to_cents: number; min_margin_pct: string | number }>(
+  const cur = await must<{ supplier_id: string | null; cost_cents: string | number | null; price_cents: string | number; markup_mode: MarkupMode; markup_value: string | number; round_to_cents: number; min_margin_pct: string | number }>(
     ctx.svc.db,
-    `select cost_cents, price_cents, markup_mode, markup_value, round_to_cents, min_margin_pct from app.offers where id = $1`,
+    `select supplier_id, cost_cents, price_cents, markup_mode, markup_value, round_to_cents, min_margin_pct from app.offers where id = $1`,
     [id],
   );
   const changes: Record<string, unknown> = {};
+  // Supplier costs come from the supplier sync; only manual-stock packages take a typed cost.
+  let costCents = cur.cost_cents === null ? null : n(cur.cost_cents);
+  if (body.costCents !== undefined) {
+    if (cur.supplier_id !== null) throw new ApiError("invalid_input", "costCents");
+    costCents = body.costCents === null ? null : int(body, "costCents", 0, 10_000_000);
+    changes.cost_cents = costCents;
+  }
   if (body.nameAr !== undefined) changes.name_ar = str(body, "nameAr", { max: 120 });
   if (body.nameEn !== undefined) changes.name_en = str(body, "nameEn", { max: 120 });
   const sort = optInt(body, "sort", -10_000, 10_000);
@@ -298,18 +305,18 @@ export async function updateOffer(ctx: Ctx): Promise<Response> {
   // Clearing a system pause is an explicit decision; the next sync pauses again if still needed.
   if (bool(body, "clearPause")) changes.paused_reason = null;
 
-  const touchesPrice = ["markupMode", "markupValue", "roundToCents", "minMarginPct", "priceCents"].some((k) => body[k] !== undefined);
+  const touchesPrice = ["markupMode", "markupValue", "roundToCents", "minMarginPct", "priceCents", "costCents"].some((k) => body[k] !== undefined);
   if (touchesPrice) {
     const base: OfferPricing = { mode: cur.markup_mode, value: Number(cur.markup_value), roundToCents: cur.round_to_cents, minMarginPct: Number(cur.min_margin_pct) };
     const p = pricingFrom(body, base);
-    const cost = cur.cost_cents === null ? null : n(cur.cost_cents);
+    const cost = costCents;
     const manual = optInt(body, "priceCents", 1, 10_000_000) ?? (p.mode === "manual" ? n(cur.price_cents) : undefined);
     const price = resolvePrice(cost, p, manual);
     Object.assign(changes, { markup_mode: p.mode, markup_value: p.value, round_to_cents: p.roundToCents, min_margin_pct: p.minMarginPct, price_cents: price });
     if (price !== n(cur.price_cents)) {
       await ctx.svc.db.query(
-        `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $2, $3, $4, 'manual')`,
-        [id, cost, n(cur.price_cents), price],
+        `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $5, 'manual')`,
+        [id, cur.cost_cents === null ? null : n(cur.cost_cents), cost, n(cur.price_cents), price],
       );
     }
   }

@@ -6,3 +6,4 @@ export * from "./session";
 export * from "./crypto";
 export * from "./pricing";
 export * from "./orders";
+export * from "./search";

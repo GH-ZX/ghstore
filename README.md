@@ -5,9 +5,11 @@ One store, three doors: the **website** (gh-store.me), the **Telegram Mini App**
 catalogue and orders. A multi-supplier reseller for digital goods: game top-ups,
 vouchers, accounts, subscriptions and virtual numbers.
 
-It runs entirely on **Cloudflare Workers + Supabase Postgres**. No server to keep
-alive, and the whole thing is a template: change `store.config.ts` and `/brand`,
-set the secrets, and it is someone else's store.
+It runs entirely on **Cloudflare Workers + Supabase Postgres**, and fits the
+Cloudflare free plan to start: the web app is static files, only `/api`, the bot
+and a once-a-minute cron run code. No server to keep alive, and the whole thing is
+a template: change `store.config.ts` and `/brand`, set the secrets, and it is
+someone else's store.
 
 > متجر واحد بثلاث واجهات: الموقع، تطبيق تيليغرام المصغّر، والبوت — بحساب ومحفظة وطلبات موحّدة.
 
@@ -22,7 +24,7 @@ set the secrets, and it is someone else's store.
 | Bot: /start, Mini App button, Stars checkout | Done |
 | Scheduled jobs: fulfilment, payment re-checks, margin guard, balances, notifications | Done |
 | Brand: logo, icon, favicon, Telegram avatar, 4 themes × light/dark | Done |
-| **Web app: website, Mini App (/tg), admin (/admin)** | **Next milestone** — a branded placeholder page is served meanwhile |
+| Web app: website, Mini App (`/tg`), admin (`/admin`) | Done: React, Arabic/English, 4 themes × light/dark, checked end to end in a browser |
 
 ## How it fits together
 
@@ -43,7 +45,7 @@ More in [docs/architecture.md](docs/architecture.md).
 ```
 store.config.ts        name, mark, languages, default theme, support links (per store)
 brand/                 logo and icons (per store)
-apps/web/              the Worker: routing, wiring, wrangler.jsonc
+apps/web/              the Worker (src/) and the web app (client/): website, Mini App, admin
 packages/core/         money, sessions, Telegram checks, encryption, pricing, adapter contracts
 packages/api/          every endpoint, the bot, scheduled jobs (framework-free)
 packages/suppliers/    one adapter per supplier
@@ -65,7 +67,8 @@ pnpm typecheck
 DATABASE_URL=postgres://postgres@localhost:5432/store_test pnpm db:migrate
 DATABASE_URL=postgres://postgres@localhost:5432/store_test pnpm db:test
 TEST_DATABASE_URL=postgres://postgres@localhost:5432/store_test pnpm test
-pnpm dev                           # wrangler dev; local secrets in apps/web/.dev.vars
+pnpm build                         # web app → apps/web/dist
+pnpm dev                           # build + wrangler dev; local secrets in apps/web/.dev.vars
 ```
 
 Never point `db:test` or `pnpm test` at production. CI runs all of the above on
