@@ -1,0 +1,94 @@
+/**
+ * The store API: one framework-free `handle(request)` used by the web Worker for
+ * /api/*, plus `runScheduled` for the cron trigger. The Mini App, the website and
+ * the admin all call the same endpoints.
+ */
+import * as admin from "./admin";
+import * as adminCatalog from "./admin-catalog";
+import * as auth from "./auth";
+import * as catalog from "./catalog";
+import type { ApiEnv, Services } from "./context";
+import { ApiError, errorResponse, json } from "./http";
+import * as orders from "./orders";
+import * as payments from "./payments";
+import { Router } from "./router";
+
+export type { ApiEnv, AuthedUser, Ctx, Services } from "./context";
+export type { Db } from "./db";
+export { ApiError } from "./http";
+export { runScheduled } from "./jobs";
+export { fulfilOrder } from "./fulfilment";
+export { creditStarsPayment, settlePayment } from "./payments";
+export { normalizeSearch, matchesQuery } from "./search";
+export { renderTemplate, sendOutbox } from "./notify";
+export { handleBotWebhook, handleUpdate } from "./bot";
+export { syncSupplier, syncDueSuppliers } from "./sync";
+
+const router = new Router()
+  .on("GET", "/api/health", async () => json({ ok: true }))
+  // auth
+  .on("POST", "/api/auth/telegram", auth.telegramLogin)
+  .on("POST", "/api/auth/web", auth.webLogin)
+  .on("POST", "/api/auth/logout", auth.logout)
+  .on("GET", "/api/me", auth.me)
+  .on("PATCH", "/api/me", auth.updateMe)
+  // catalog
+  .on("GET", "/api/catalog", catalog.listCatalog)
+  .on("GET", "/api/products/:slug", catalog.getProduct)
+  // orders
+  .on("POST", "/api/orders", orders.placeOrder)
+  .on("GET", "/api/orders", orders.listOrders)
+  .on("GET", "/api/orders/:id", orders.getOrder)
+  .on("POST", "/api/webhooks/suppliers/:id", orders.supplierWebhook)
+  // wallet and top-ups
+  .on("GET", "/api/wallet", payments.walletHistory)
+  .on("GET", "/api/topups/methods", payments.listMethods)
+  .on("POST", "/api/topups", payments.createTopup)
+  .on("GET", "/api/topups/:id", payments.getTopup)
+  .on("POST", "/api/topups/:id/tx", payments.submitTxHash)
+  .on("POST", "/api/webhooks/payments/:method", payments.paymentWebhook)
+  // admin
+  .on("GET", "/api/admin/overview", admin.overview)
+  .on("GET", "/api/admin/payments", admin.listPayments)
+  .on("POST", "/api/admin/payments/:id/approve", admin.approvePayment)
+  .on("POST", "/api/admin/payments/:id/reject", admin.rejectPayment)
+  .on("POST", "/api/admin/payments/:id/recheck", admin.recheckPayment)
+  .on("GET", "/api/admin/orders", admin.listOrders)
+  .on("POST", "/api/admin/orders/:id/refund", admin.refundOrder)
+  .on("POST", "/api/admin/orders/:id/retry", admin.retryOrder)
+  .on("GET", "/api/admin/settings", admin.getSettings)
+  .on("PUT", "/api/admin/settings/:key", admin.putSetting)
+  .on("POST", "/api/admin/users/:id/wallet", admin.adjustWallet)
+  .on("POST", "/api/admin/users/:id/role", admin.setUserRole)
+  .on("POST", "/api/admin/suppliers/:id/sync", admin.runSupplierSync)
+  // admin catalogue
+  .on("GET", "/api/admin/catalog", adminCatalog.getCatalog)
+  .on("POST", "/api/admin/categories", adminCatalog.createCategory)
+  .on("POST", "/api/admin/products", adminCatalog.createProduct)
+  .on("PATCH", "/api/admin/products/:id", adminCatalog.updateProduct)
+  .on("POST", "/api/admin/products/:id/offers", adminCatalog.createOffer)
+  .on("PATCH", "/api/admin/offers/:id", adminCatalog.updateOffer)
+  .on("POST", "/api/admin/offers/:id/stock", adminCatalog.addStock)
+  .on("GET", "/api/admin/suppliers/:id/products", adminCatalog.listSupplierProducts)
+  .on("PATCH", "/api/admin/suppliers/:id", adminCatalog.updateSupplier);
+
+/** Requests that change state must come from our own pages (or carry a bearer token). */
+function sameOriginOrBearer(req: Request, env: ApiEnv, path: string): boolean {
+  if (req.method === "GET" || req.method === "HEAD") return true;
+  if (path.startsWith("/api/webhooks/")) return true;
+  if (req.headers.get("authorization")?.startsWith("Bearer ")) return true;
+  const origin = req.headers.get("origin");
+  return origin === env.PUBLIC_BASE_URL;
+}
+
+export async function handle(req: Request, env: ApiEnv, svc: Services): Promise<Response> {
+  const url = new URL(req.url);
+  try {
+    if (!sameOriginOrBearer(req, env, url.pathname)) throw new ApiError("forbidden");
+    const m = router.match(req.method, url.pathname);
+    if (!m) throw new ApiError("not_found");
+    return await m.handler({ req, url, env, svc, params: m.params });
+  } catch (err) {
+    return errorResponse(err);
+  }
+}

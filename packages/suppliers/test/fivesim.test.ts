@@ -1,0 +1,163 @@
+import { describe, expect, it } from "vitest";
+import { createFiveSim } from "../src/fivesim";
+import { context, json, networkError, text } from "./fake-fetch";
+
+const KEY = "test-key";
+const config = { FIVESIM_API_KEY: KEY };
+
+// Shapes follow the old bot's services/fivesim.py and tests/test_fivesim_service.py.
+const usaPrices = {
+  usa: {
+    telegram: { virtual21: { cost: 45.0, count: 10 }, virtual4: { cost: 40.0, count: 25 }, virtual9: { cost: 10.0, count: 0 } },
+    whatsapp: { virtual4: { cost: 30.0, count: 0 } },
+  },
+};
+
+describe("fivesim listProducts", () => {
+  it("prices each country/service at the cheapest operator with numbers, converting rubles up to cents", async () => {
+    const { ctx, calls } = context(
+      {
+        "GET /v1/guest/prices?country=usa": json(usaPrices),
+        "GET /v1/guest/prices?country=england": json({ england: { telegram: { virtual4: { cost: 20.5, count: 3 } } } }),
+      },
+      { ...config, FIVESIM_COUNTRIES: "usa, England" },
+    );
+    const list = await createFiveSim(ctx).listProducts();
+    // 40 RUB * 0.011 = 0.44 USD; 20.5 * 0.011 = 0.2255 → 23 (rounded up).
+    expect(list.map((p) => [p.externalId, p.costCents, p.available, p.kind])).toEqual([
+      ["usa/telegram", 44, true, "sms"],
+      ["usa/whatsapp", 33, false, "sms"],
+      ["england/telegram", 23, true, "sms"],
+    ]);
+    expect(list[0]?.meta).toMatchObject({ country: "usa", service: "telegram", stock: 35, maxCostCents: 50 });
+    // Guest prices are public: no key goes out.
+    expect(calls.every((c) => c.headers.authorization === undefined)).toBe(true);
+  });
+
+  it("filters services and applies a configured rate", async () => {
+    const { ctx } = context(
+      { "GET /v1/guest/prices": json(usaPrices) },
+      { ...config, FIVESIM_SERVICES: "telegram", FIVESIM_RUB_USD_RATE: "0.0105" },
+    );
+    const list = await createFiveSim(ctx).listProducts();
+    expect(list.map((p) => [p.externalId, p.costCents])).toEqual([["usa/telegram", 42]]);
+  });
+});
+
+describe("fivesim purchase", () => {
+  const req = { externalId: "usa/telegram", quantity: 1, fields: {}, idempotencyKey: "order-5" };
+
+  it("buys a number with operator any and returns it pending", async () => {
+    const { ctx, calls } = context(
+      {
+        "GET /v1/user/buy/activation/usa/any/telegram": json({
+          id: 998877, phone: "+1234567890", operator: "virtual4", product: "telegram", price: 40.0,
+          status: "PENDING", expires: "2026-09-13T12:00:00Z", country: "usa", created_at: "2026-09-13T11:45:00Z",
+        }),
+      },
+      config,
+    );
+    expect(await createFiveSim(ctx).purchase(req)).toEqual({
+      status: "pending",
+      supplierOrderId: "998877",
+      items: [{ kind: "phone", value: "+1234567890" }],
+    });
+    expect(calls[0]?.headers.authorization).toBe(`Bearer ${KEY}`);
+  });
+
+  it.each([
+    [400, "no free phones", false, /out of stock/],
+    [200, "no free phones", false, /out of stock/],
+    [400, "not enough user balance", true, /balance too low/],
+    [401, "", false, /credentials/],
+    [400, "bad country", false, /bad country/],
+    [502, "", true, /server error/],
+  ])("maps HTTP %i %j to a failure", async (status, body, retryable, reason) => {
+    const { ctx } = context({ "GET /v1/user/buy/activation/usa/any/telegram": text(body, status) }, config);
+    const result = await createFiveSim(ctx).purchase(req);
+    expect(result).toMatchObject({ status: "failed", retryable });
+    expect(result.status === "failed" && result.reason).toMatch(reason);
+  });
+
+  it("treats a network error as retryable and rejects bad input without calling out", async () => {
+    const down = context({ "GET /v1/user/buy/activation/usa/any/telegram": networkError() }, config);
+    expect(await createFiveSim(down.ctx).purchase(req)).toMatchObject({ status: "failed", retryable: true });
+    const { ctx, calls } = context({}, config);
+    expect(await createFiveSim(ctx).purchase({ ...req, externalId: "telegram" })).toMatchObject({ status: "failed", retryable: false });
+    expect(await createFiveSim(ctx).purchase({ ...req, quantity: 3 })).toMatchObject({ status: "failed", retryable: false });
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("fivesim checkOrder", () => {
+  it("stays pending until the SMS arrives, then delivers the code and finishes the order", async () => {
+    const { ctx, calls } = context(
+      {
+        "GET /v1/user/check/998877": [
+          json({ id: 998877, phone: "+1234567890", status: "PENDING", sms: [] }),
+          json({
+            id: 998877, phone: "+1234567890", status: "RECEIVED",
+            sms: [{ created_at: "2026-09-13T11:47:00Z", sender: "Telegram", text: "Your login code is 849201", code: "849201" }],
+          }),
+        ],
+        "GET /v1/user/finish/998877": json({ id: 998877, status: "FINISHED" }),
+      },
+      config,
+    );
+    const adapter = createFiveSim(ctx);
+    expect(await adapter.checkOrder("998877")).toEqual({
+      status: "pending", supplierOrderId: "998877", items: [{ kind: "phone", value: "+1234567890" }],
+    });
+    expect(await adapter.checkOrder("998877")).toEqual({
+      status: "delivered",
+      supplierOrderId: "998877",
+      items: [{ kind: "phone", value: "+1234567890" }, { kind: "sms", value: "849201", label: "Your login code is 849201" }],
+    });
+    expect(calls.map((c) => c.path)).toEqual(["/v1/user/check/998877", "/v1/user/check/998877", "/v1/user/finish/998877"]);
+  });
+
+  it.each(["TIMEOUT", "CANCELED", "BANNED"])("fails a %s order without an SMS", async (status) => {
+    const { ctx } = context({ "GET /v1/user/check/1": json({ id: 1, phone: "+1", status, sms: null }) }, config);
+    expect(await createFiveSim(ctx).checkOrder("1")).toMatchObject({ status: "failed", retryable: false, supplierOrderId: "1" });
+  });
+
+  it("throws (retryable) when 5sim is unreachable", async () => {
+    const { ctx } = context({ "GET /v1/user/check/1": networkError() }, config);
+    await expect(createFiveSim(ctx).checkOrder("1")).rejects.toMatchObject({ retryable: true });
+  });
+});
+
+describe("fivesim cancel and ban", () => {
+  it("returns true when 5sim accepts and false when it refuses", async () => {
+    const { ctx } = context(
+      {
+        "GET /v1/user/cancel/1": json({ id: 1, status: "CANCELED" }),
+        "GET /v1/user/cancel/2": text("order has sms", 400),
+        "GET /v1/user/ban/3": json({ id: 3, status: "BANNED" }),
+      },
+      config,
+    );
+    const adapter = createFiveSim(ctx);
+    expect(await adapter.cancel!("1")).toBe(true);
+    expect(await adapter.cancel!("2")).toBe(false);
+    expect(await adapter.ban("3")).toBe(true);
+  });
+
+  it("throws when the outcome is unknown", async () => {
+    const { ctx } = context({ "GET /v1/user/cancel/1": json({}, 503) }, config);
+    await expect(createFiveSim(ctx).cancel!("1")).rejects.toMatchObject({ retryable: true });
+  });
+});
+
+describe("fivesim getBalance", () => {
+  it("converts the ruble balance down to whole cents", async () => {
+    const { ctx } = context({ "GET /v1/user/profile": json({ id: 1234, email: "test@example.com", balance: 150.5, rating: 98 }) }, config);
+    // 150.5 RUB * 0.011 = 1.6555 USD → 165 cents (rounded down).
+    expect(await createFiveSim(ctx).getBalance()).toEqual({ amountCents: 165, currency: "USD" });
+  });
+
+  it("does not retry an invalid key", async () => {
+    const { ctx } = context({ "GET /v1/user/profile": text("Unauthorized", 401) }, config);
+    await expect(createFiveSim(ctx).getBalance()).rejects.toMatchObject({ retryable: false });
+  });
+});

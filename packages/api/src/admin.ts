@@ -1,0 +1,205 @@
+/**
+ * Admin API. Every handler checks the staff role and every change is written to
+ * app.audit_log. `support` can review top-ups and handle orders; only `owner`
+ * can change settings, balances and roles.
+ */
+import { requireStaff } from "./auth";
+import type { Ctx } from "./context";
+import { call, n, one } from "./db";
+import { fulfilOrder } from "./fulfilment";
+import { ApiError, int, json, readJson, str, uuid } from "./http";
+import { settlePayment } from "./payments";
+import { syncSupplier } from "./sync";
+
+async function audit(ctx: Ctx, actor: string, action: string, targetType: string, targetId: string, data: Record<string, unknown> = {}) {
+  await ctx.svc.db.query(
+    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, $2, $3, $4, $5::text::jsonb)`,
+    [actor, action, targetType, targetId, JSON.stringify(data)],
+  );
+}
+
+export async function overview(ctx: Ctx): Promise<Response> {
+  await requireStaff(ctx);
+  const db = ctx.svc.db;
+  const today = await one<Record<string, string | number>>(
+    db,
+    `select
+       (select coalesce(sum(total_cents), 0) from app.orders where status = 'delivered' and created_at >= date_trunc('day', now())) as sales_today,
+       (select coalesce(sum(total_cents - coalesce(cost_cents, total_cents)), 0) from app.orders where status = 'delivered' and created_at >= date_trunc('day', now())) as profit_today,
+       (select count(*) from app.orders where created_at >= date_trunc('day', now())) as orders_today,
+       (select count(*) from app.orders where status in ('paid','processing')) as orders_open,
+       (select count(*) from app.orders where status = 'failed') as orders_failed,
+       (select count(*) from app.payments where status = 'review') as payments_review,
+       (select coalesce(sum(balance_cents), 0) from app.wallets) as wallets_total,
+       (select count(*) from app.users where created_at >= date_trunc('day', now())) as new_users_today`,
+  );
+  const suppliers = await db.query<{ id: string; name: string; enabled: boolean; balance_cents: string | number | null; low_balance_cents: string | number; health: string; last_error: string | null }>(
+    `select id, name, enabled, balance_cents, low_balance_cents, health, last_error from app.suppliers order by id`,
+  );
+  const jobs = await db.query(`select name, last_ok_at, last_error from app.job_heartbeats order by name`);
+  const t = today ?? {};
+  return json({
+    salesTodayCents: n(t.sales_today), profitTodayCents: n(t.profit_today), ordersToday: n(t.orders_today),
+    ordersOpen: n(t.orders_open), ordersFailed: n(t.orders_failed), paymentsToReview: n(t.payments_review),
+    walletsTotalCents: n(t.wallets_total), newUsersToday: n(t.new_users_today),
+    suppliers: suppliers.map((s) => ({
+      id: s.id, name: s.name, enabled: s.enabled, balanceCents: s.balance_cents === null ? null : n(s.balance_cents),
+      low: s.balance_cents !== null && n(s.balance_cents) < n(s.low_balance_cents), health: s.health, lastError: s.last_error,
+    })),
+    jobs,
+  });
+}
+
+export async function listPayments(ctx: Ctx): Promise<Response> {
+  await requireStaff(ctx);
+  const status = ctx.url.searchParams.get("status") ?? "review";
+  if (!["created", "pending", "review", "paid", "partial", "failed", "expired", "rejected"].includes(status)) throw new ApiError("invalid_input", "status");
+  const rows = await ctx.svc.db.query<{ id: string; user_id: string; display_name: string; method: string; amount_cents: string | number; status: string; tx_hash: string | null; provider_ref: string | null; note: string | null; created_at: string }>(
+    `select p.id, p.user_id, u.display_name, p.method, p.amount_cents, p.status, p.tx_hash, p.provider_ref, p.note, p.created_at
+       from app.payments p join app.users u on u.id = p.user_id
+      where p.status = $1 order by p.created_at desc limit 100`,
+    [status],
+  );
+  return json({ payments: rows.map((r) => ({ ...r, amount_cents: undefined, amountCents: n(r.amount_cents) })) });
+}
+
+/** Approve a top-up under review, crediting the amount the staff member confirms they received. */
+export async function approvePayment(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx);
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const amountCents = int(body, "amountCents", 1, 1_000_000);
+  const note = str(body, "note", { min: 3, max: 300 });
+  const rows = await call<{ credited: boolean; balance_cents: string | number }>(
+    ctx.svc.db, `select * from app.credit_payment($1, $2, null, null, $3)`, [id, amountCents, staff.id],
+  );
+  await audit(ctx, staff.id, "payment.approve", "payment", id, { amountCents, note });
+  return json({ credited: rows[0]?.credited ?? false, balanceCents: n(rows[0]?.balance_cents) });
+}
+
+export async function rejectPayment(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx);
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const note = str(body, "note", { min: 3, max: 300 });
+  const res = await ctx.svc.db.query(`update app.payments set status = 'rejected', note = $2 where id = $1 and status in ('created','pending','review','partial') returning id`, [id, note]);
+  if (!res.length) throw new ApiError("bad_state");
+  await audit(ctx, staff.id, "payment.reject", "payment", id, { note });
+  return json({ ok: true });
+}
+
+export async function recheckPayment(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx);
+  const id = uuid(ctx.params.id);
+  const status = await settlePayment(ctx.svc, id);
+  await audit(ctx, staff.id, "payment.recheck", "payment", id, { status });
+  return json({ status });
+}
+
+export async function listOrders(ctx: Ctx): Promise<Response> {
+  await requireStaff(ctx);
+  const status = ctx.url.searchParams.get("status");
+  const rows = await ctx.svc.db.query(
+    `select o.id, o.number, o.status, o.total_cents, o.cost_cents, o.channel, o.supplier_id, o.supplier_order_id, o.attempts,
+            o.last_error, o.created_at, o.delivered_at, u.display_name, p.name_en as product_en, p.name_ar as product_ar
+       from app.orders o join app.users u on u.id = o.user_id join app.products p on p.id = o.product_id
+      where ($1::text is null or o.status = $1)
+      order by o.number desc limit 100`,
+    [status && /^[a-z]+$/.test(status) ? status : null],
+  );
+  return json({ orders: rows });
+}
+
+export async function refundOrder(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx);
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const note = str(body, "note", { min: 3, max: 300 });
+  const rows = await call<{ refunded: boolean; balance_cents: string | number }>(ctx.svc.db, `select * from app.refund_order($1, $2, $3)`, [id, note, staff.id]);
+  await audit(ctx, staff.id, "order.refund", "order", id, { note });
+  return json({ refunded: rows[0]?.refunded ?? false });
+}
+
+export async function retryOrder(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx);
+  const id = uuid(ctx.params.id);
+  await ctx.svc.db.query(`update app.orders set next_check_at = now() where id = $1 and status in ('paid','processing')`, [id]);
+  const result = await fulfilOrder(ctx.svc, ctx.env, id);
+  await audit(ctx, staff.id, "order.retry", "order", id, { result });
+  return json({ result });
+}
+
+/**
+ * Settings the admin may change, with a validator each. Unknown keys are refused.
+ * Provider settings (rates, confirmations, keys) are Worker vars/secrets, not here.
+ */
+const SETTINGS: Record<string, (v: unknown) => boolean> = {
+  "theme.preset": (v) => typeof v === "string" && ["calm", "energetic", "minimal", "warm"].includes(v),
+  "theme.default_mode": (v) => typeof v === "string" && ["system", "light", "dark"].includes(v),
+  "fx.syp_per_usd": (v) => v === null || (typeof v === "number" && v > 0 && v < 1000),
+  "orders.max_pending_hours": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 168,
+};
+
+export async function getSettings(ctx: Ctx): Promise<Response> {
+  await requireStaff(ctx);
+  const rows = await ctx.svc.db.query<{ key: string; value: unknown }>(`select key, value from app.settings where key = any(string_to_array($1::text, ','))`, [Object.keys(SETTINGS).join(",")]);
+  return json({ settings: Object.fromEntries(rows.map((r) => [r.key, r.value])) });
+}
+
+export async function putSetting(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const key = ctx.params.key ?? "";
+  const check = SETTINGS[key];
+  if (!check) throw new ApiError("not_found");
+  const body = await readJson(ctx.req);
+  if (!("value" in body) || !check(body.value)) throw new ApiError("invalid_input", "value");
+  const before = await one<{ value: unknown }>(ctx.svc.db, `select value from app.settings where key = $1`, [key]);
+  await ctx.svc.db.query(
+    `insert into app.settings (key, value, updated_by, updated_at) values ($1, $2::text::jsonb, $3, now())
+     on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
+    [key, JSON.stringify(body.value), staff.id],
+  );
+  await audit(ctx, staff.id, "setting.update", "setting", key, { before: before?.value ?? null, after: body.value });
+  return json({ key, value: body.value });
+}
+
+export async function adjustWallet(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const userId = uuid(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const amountCents = int(body, "amountCents", -1_000_000, 1_000_000);
+  const note = str(body, "note", { min: 3, max: 300 });
+  const key = uuid(str(body, "idempotencyKey", { max: 36 }), "idempotencyKey");
+  const rows = await call<{ applied: boolean; balance_cents: string | number }>(
+    ctx.svc.db, `select * from app.adjust_wallet($1, $2, $3, $4, $5)`, [userId, amountCents, note, staff.id, key],
+  );
+  return json({ applied: rows[0]?.applied ?? false, balanceCents: n(rows[0]?.balance_cents) });
+}
+
+export async function setUserRole(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const userId = uuid(ctx.params.id);
+  if (userId === staff.id) throw new ApiError("not_allowed");
+  const body = await readJson(ctx.req);
+  const role = str(body, "role", { max: 10 });
+  const status = body.status === undefined ? undefined : str(body, "status", { max: 10 });
+  if (!["customer", "support", "owner"].includes(role)) throw new ApiError("invalid_input", "role");
+  if (status !== undefined && !["active", "banned"].includes(status)) throw new ApiError("invalid_input", "status");
+  await ctx.svc.db.query(
+    `update app.users set role = $2, status = coalesce($3, status),
+            sessions_revoked_at = case when $3 = 'banned' or $2 <> role then now() else sessions_revoked_at end
+      where id = $1`,
+    [userId, role, status ?? null],
+  );
+  await audit(ctx, staff.id, "user.update", "user", userId, { role, status });
+  return json({ ok: true });
+}
+
+export async function runSupplierSync(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const id = ctx.params.id ?? "";
+  if (!/^[a-z0-9_]{2,32}$/.test(id)) throw new ApiError("not_found");
+  const report = await syncSupplier(ctx.svc, id);
+  await audit(ctx, staff.id, "supplier.sync", "supplier", id, { ...report });
+  return json(report);
+}

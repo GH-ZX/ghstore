@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.wrangler/
+.react-router/
+coverage/
+*.log
+.DS_Store
+# Secrets never go in git. Copy .env.example to .env / .dev.vars locally.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*

@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+
+# pnpm 11 runs no dependency install scripts unless allowed here.
+# wrangler needs these two (its bundler and the local Workers runtime).
+allowBuilds:
+  esbuild: true
+  workerd: true

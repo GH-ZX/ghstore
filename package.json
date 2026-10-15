@@ -1,0 +1,25 @@
+{
+  "name": "gh-store",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multi-supplier digital goods store: website, Telegram Mini App and bot on one core.",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && pnpm --filter @store/web typecheck",
+    "test": "vitest run",
+    "db:migrate": "node --experimental-strip-types packages/db/scripts/migrate.ts",
+    "db:test": "node --experimental-strip-types packages/db/scripts/test.ts",
+    "setup:store": "node --experimental-strip-types scripts/setup.ts",
+    "dev": "pnpm --filter @store/web run dev",
+    "ship": "pnpm --filter @store/web run deploy"
+  },
+  "devDependencies": {
+    "postgres": "^3.4.7",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

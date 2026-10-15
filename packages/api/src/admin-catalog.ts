@@ -1,0 +1,358 @@
+/**
+ * Admin catalogue: categories, products, offers (packages), manual stock and
+ * supplier settings. Owner only. Every change is written to app.audit_log.
+ *
+ * Importing from a supplier: GET /api/admin/suppliers/:id/products lists what the
+ * supplier sells (and which items are already linked); the admin then creates an
+ * offer with that supplierRef. The hourly sync keeps cost and price in line.
+ */
+import { encryptText, minimumPrice, priceFromCost, type InputField, type MarkupMode } from "@store/core";
+import { requireStaff } from "./auth";
+import type { Ctx } from "./context";
+import { call, must, n } from "./db";
+import { ApiError, int, json, optStr, readJson, str, uuid } from "./http";
+
+const SLUG = /^[a-z0-9-]{1,80}$/;
+const SUPPLIER_ID = /^[a-z0-9_]{2,32}$/;
+const KINDS = ["id", "code", "account", "link", "sms"] as const;
+const MODES: MarkupMode[] = ["percent", "fixed", "manual"];
+
+async function audit(ctx: Ctx, actor: string, action: string, targetType: string, targetId: string, data: Record<string, unknown> = {}) {
+  await ctx.svc.db.query(
+    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, $2, $3, $4, $5::text::jsonb)`,
+    [actor, action, targetType, targetId, JSON.stringify(data)],
+  );
+}
+
+function bool(body: Record<string, unknown>, key: string): boolean | undefined {
+  const v = body[key];
+  if (v === undefined) return undefined;
+  if (typeof v !== "boolean") throw new ApiError("invalid_input", key);
+  return v;
+}
+
+function optInt(body: Record<string, unknown>, key: string, min: number, max: number): number | undefined {
+  return body[key] === undefined || body[key] === null ? undefined : int(body, key, min, max);
+}
+
+function optNum(body: Record<string, unknown>, key: string, min: number, max: number): number | undefined {
+  const v = body[key];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "number" || !Number.isFinite(v) || v < min || v > max) throw new ApiError("invalid_input", key);
+  return Math.round(v * 100) / 100;
+}
+
+function httpsUrl(body: Record<string, unknown>, key: string): string | null | undefined {
+  if (body[key] === null || body[key] === "") return null;
+  const v = optStr(body, key, { max: 500 });
+  if (v === undefined) return undefined;
+  try {
+    if (new URL(v).protocol === "https:") return v;
+  } catch {
+    /* fall through */
+  }
+  throw new ApiError("invalid_input", key);
+}
+
+/** Customer input fields for an offer (player id, server, email...). */
+export function parseInputFields(value: unknown): InputField[] {
+  if (!Array.isArray(value) || value.length > 6) throw new ApiError("invalid_input", "inputFields");
+  const seen = new Set<string>();
+  return value.map((f) => {
+    if (!f || typeof f !== "object") throw new ApiError("invalid_input", "inputFields");
+    const o = f as Record<string, unknown>;
+    const key = str(o, "key", { max: 32, pattern: /^[a-z][a-z0-9_]{0,31}$/ });
+    if (seen.has(key)) throw new ApiError("invalid_input", "inputFields");
+    seen.add(key);
+    const field: InputField = { key, labelEn: str(o, "labelEn", { max: 60 }), required: o.required !== false };
+    const labelAr = optStr(o, "labelAr", { max: 60 });
+    if (labelAr) field.labelAr = labelAr;
+    const pattern = optStr(o, "pattern", { max: 200 });
+    if (pattern) {
+      try {
+        new RegExp(pattern);
+      } catch {
+        throw new ApiError("invalid_input", "inputFields");
+      }
+      field.pattern = pattern;
+    }
+    return field;
+  });
+}
+
+/** Text fields shared by create and update, mapped to their columns. */
+const PRODUCT_TEXT: Array<[string, string, number]> = [
+  ["nameAr", "name_ar", 120], ["nameEn", "name_en", 120],
+  ["descriptionAr", "description_ar", 4000], ["descriptionEn", "description_en", 4000],
+  ["instructionsAr", "instructions_ar", 2000], ["instructionsEn", "instructions_en", 2000],
+  ["warrantyAr", "warranty_ar", 1000], ["warrantyEn", "warranty_en", 1000],
+  ["searchTerms", "search_terms", 500],
+];
+
+function productChanges(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, col, max] of PRODUCT_TEXT) {
+    const v = body[key];
+    if (v === undefined) continue;
+    if (col.startsWith("name_")) {
+      out[col] = str(body, key, { max });
+    } else {
+      if (typeof v !== "string" || v.length > max) throw new ApiError("invalid_input", key);
+      out[col] = v.trim();
+    }
+  }
+  if (body.slug !== undefined) out.slug = str(body, "slug", { max: 80, pattern: SLUG });
+  if (body.categoryId !== undefined) out.category_id = uuid(body.categoryId as string, "categoryId");
+  if (body.kind !== undefined) {
+    const kind = str(body, "kind", { max: 10 });
+    if (!(KINDS as readonly string[]).includes(kind)) throw new ApiError("invalid_input", "kind");
+    out.kind = kind;
+  }
+  const image = httpsUrl(body, "imageUrl");
+  if (image !== undefined) out.image_url = image;
+  for (const [key, col] of [["active", "active"], ["featured", "featured"]] as const) {
+    const v = bool(body, key);
+    if (v !== undefined) out[col] = v;
+  }
+  const sort = optInt(body, "sort", -10_000, 10_000);
+  if (sort !== undefined) out.sort = sort;
+  return out;
+}
+
+/** Build `update ... set a = $2, b = $3` from a column map. Column names come from our own lists only. */
+async function updateRow(ctx: Ctx, table: string, id: string, changes: Record<string, unknown>): Promise<void> {
+  const cols = Object.keys(changes);
+  if (!cols.length) throw new ApiError("bad_request");
+  const sets = cols.map((c, i) => (c === "input_fields" ? `${c} = $${i + 2}::text::jsonb` : `${c} = $${i + 2}`));
+  const params = cols.map((c) => (c === "input_fields" ? JSON.stringify(changes[c]) : changes[c]));
+  const rows = await call(ctx.svc.db, `update app.${table} set ${sets.join(", ")} where id = $1 returning id`, [id, ...params]);
+  if (!rows.length) throw new ApiError("not_found");
+}
+
+// ─────────────────────────────────────────────────────────────── read
+
+export async function getCatalog(ctx: Ctx): Promise<Response> {
+  await requireStaff(ctx, "owner");
+  const db = ctx.svc.db;
+  const categories = await db.query(`select id, slug, name_ar, name_en, sort, active from app.categories order by sort, slug`);
+  const products = await db.query(
+    `select id, slug, category_id, name_ar, name_en, description_ar, description_en, instructions_ar, instructions_en,
+            warranty_ar, warranty_en, search_terms, image_url, kind, active, featured, sort
+       from app.products order by sort, name_en`,
+  );
+  const offers = await db.query<Record<string, unknown> & { cost_cents: unknown; price_cents: unknown }>(
+    `select o.id, o.product_id, o.name_ar, o.name_en, o.sort, o.supplier_id, o.supplier_ref, o.cost_cents, o.price_cents,
+            o.markup_mode, o.markup_value, o.round_to_cents, o.min_margin_pct, o.input_fields, o.max_quantity, o.active,
+            o.paused_reason, o.cost_checked_at,
+            (select count(*) from app.stock_items s where s.offer_id = o.id and s.status = 'available') as stock_available
+       from app.offers o order by o.sort, o.price_cents`,
+  );
+  const suppliers = await db.query(`select id, name, enabled, low_balance_cents, balance_cents, health, last_sync_at, last_error from app.suppliers order by id`);
+  return json({
+    categories,
+    products,
+    offers: offers.map((o) => ({
+      ...o,
+      cost_cents: o.cost_cents === null ? null : n(o.cost_cents),
+      price_cents: n(o.price_cents),
+      stock_available: n(o.stock_available),
+    })),
+    suppliers,
+  });
+}
+
+/** What a supplier sells right now, with the offer each item is linked to (if any). */
+export async function listSupplierProducts(ctx: Ctx): Promise<Response> {
+  await requireStaff(ctx, "owner");
+  const id = ctx.params.id ?? "";
+  if (!SUPPLIER_ID.test(id)) throw new ApiError("not_found");
+  const adapter = ctx.svc.supplier(id);
+  if (!adapter) throw new ApiError("bad_state");
+  const items = await adapter.listProducts();
+  const linked = await ctx.svc.db.query<{ id: string; supplier_ref: string }>(`select id, supplier_ref from app.offers where supplier_id = $1`, [id]);
+  const byRef = new Map(linked.map((l) => [l.supplier_ref, l.id]));
+  return json({
+    supplier: id,
+    items: items.map((p) => ({ ...p, offerId: byRef.get(p.externalId) ?? null })),
+  });
+}
+
+// ─────────────────────────────────────────────────────────────── write
+
+export async function createCategory(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const body = await readJson(ctx.req);
+  const slug = str(body, "slug", { max: 48, pattern: /^[a-z0-9-]{1,48}$/ });
+  const rows = await call<{ id: string }>(
+    ctx.svc.db,
+    `insert into app.categories (slug, name_ar, name_en, sort) values ($1, $2, $3, $4) returning id`,
+    [slug, str(body, "nameAr", { max: 40 }), str(body, "nameEn", { max: 40 }), optInt(body, "sort", -10_000, 10_000) ?? 0],
+  );
+  const id = rows[0]!.id;
+  await audit(ctx, staff.id, "category.create", "category", id, { slug });
+  return json({ id }, { status: 201 });
+}
+
+export async function createProduct(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const body = await readJson(ctx.req);
+  for (const k of ["slug", "categoryId", "nameAr", "nameEn", "kind"]) if (body[k] === undefined) throw new ApiError("invalid_input", k);
+  const c = productChanges(body);
+  const cols = Object.keys(c);
+  const rows = await call<{ id: string }>(
+    ctx.svc.db,
+    `insert into app.products (${cols.join(", ")}) values (${cols.map((_, i) => `$${i + 1}`).join(", ")}) returning id`,
+    cols.map((k) => c[k]),
+  );
+  const id = rows[0]!.id;
+  await audit(ctx, staff.id, "product.create", "product", id, { slug: c.slug });
+  return json({ id }, { status: 201 });
+}
+
+export async function updateProduct(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req, 65_536);
+  const changes = productChanges(body);
+  await updateRow(ctx, "products", id, changes);
+  await audit(ctx, staff.id, "product.update", "product", id, { fields: Object.keys(changes) });
+  return json({ ok: true });
+}
+
+interface OfferPricing {
+  mode: MarkupMode;
+  value: number;
+  roundToCents: number;
+  minMarginPct: number;
+}
+
+/** The price an offer should have: computed from cost, or the manual price checked against the margin floor. */
+function resolvePrice(cost: number | null, p: OfferPricing, manualPrice: number | undefined): number {
+  if (p.mode === "manual") {
+    if (manualPrice === undefined) throw new ApiError("invalid_input", "priceCents");
+    if (cost !== null && manualPrice < minimumPrice(cost, p.minMarginPct)) throw new ApiError("invalid_input", "priceCents");
+    return manualPrice;
+  }
+  if (cost === null) throw new ApiError("invalid_input", "costCents");
+  return priceFromCost(cost, { mode: p.mode, value: p.value, roundToCents: p.roundToCents, minMarginPct: p.minMarginPct });
+}
+
+function pricingFrom(body: Record<string, unknown>, base?: OfferPricing): OfferPricing {
+  const mode = body.markupMode === undefined ? base?.mode ?? "percent" : (str(body, "markupMode", { max: 10 }) as MarkupMode);
+  if (!MODES.includes(mode)) throw new ApiError("invalid_input", "markupMode");
+  return {
+    mode,
+    value: optNum(body, "markupValue", 0, mode === "fixed" ? 100_000 : 1000) ?? base?.value ?? 15,
+    roundToCents: optInt(body, "roundToCents", 1, 10_000) ?? base?.roundToCents ?? 1,
+    minMarginPct: optNum(body, "minMarginPct", 0, 500) ?? base?.minMarginPct ?? 5,
+  };
+}
+
+export async function createOffer(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const productId = uuid(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const supplierId = optStr(body, "supplierId", { max: 32 }) ?? null;
+  if (supplierId !== null && !SUPPLIER_ID.test(supplierId)) throw new ApiError("invalid_input", "supplierId");
+  const supplierRef = supplierId ? str(body, "supplierRef", { max: 120 }) : null;
+  const cost = optInt(body, "costCents", 0, 10_000_000) ?? null;
+  const pricing = pricingFrom(body);
+  const price = resolvePrice(cost, pricing, optInt(body, "priceCents", 1, 10_000_000));
+  const fields = body.inputFields === undefined ? [] : parseInputFields(body.inputFields);
+  const rows = await call<{ id: string }>(
+    ctx.svc.db,
+    `insert into app.offers (product_id, name_ar, name_en, sort, supplier_id, supplier_ref, cost_cents, price_cents,
+                             markup_mode, markup_value, round_to_cents, min_margin_pct, input_fields, max_quantity, active, cost_checked_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text::jsonb, $14, $15, case when $7::bigint is null then null else now() end)
+     returning id`,
+    [
+      productId, str(body, "nameAr", { max: 120 }), str(body, "nameEn", { max: 120 }), optInt(body, "sort", -10_000, 10_000) ?? 0,
+      supplierId, supplierRef, cost, price, pricing.mode, pricing.value, pricing.roundToCents, pricing.minMarginPct,
+      JSON.stringify(fields), optInt(body, "maxQuantity", 1, 100) ?? 1, bool(body, "active") ?? true,
+    ],
+  );
+  const id = rows[0]!.id;
+  await audit(ctx, staff.id, "offer.create", "offer", id, { productId, supplierId, supplierRef, price });
+  return json({ id, priceCents: price }, { status: 201 });
+}
+
+export async function updateOffer(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const cur = await must<{ cost_cents: string | number | null; price_cents: string | number; markup_mode: MarkupMode; markup_value: string | number; round_to_cents: number; min_margin_pct: string | number }>(
+    ctx.svc.db,
+    `select cost_cents, price_cents, markup_mode, markup_value, round_to_cents, min_margin_pct from app.offers where id = $1`,
+    [id],
+  );
+  const changes: Record<string, unknown> = {};
+  if (body.nameAr !== undefined) changes.name_ar = str(body, "nameAr", { max: 120 });
+  if (body.nameEn !== undefined) changes.name_en = str(body, "nameEn", { max: 120 });
+  const sort = optInt(body, "sort", -10_000, 10_000);
+  if (sort !== undefined) changes.sort = sort;
+  const maxQ = optInt(body, "maxQuantity", 1, 100);
+  if (maxQ !== undefined) changes.max_quantity = maxQ;
+  const active = bool(body, "active");
+  if (active !== undefined) changes.active = active;
+  if (body.inputFields !== undefined) changes.input_fields = parseInputFields(body.inputFields);
+  // Clearing a system pause is an explicit decision; the next sync pauses again if still needed.
+  if (bool(body, "clearPause")) changes.paused_reason = null;
+
+  const touchesPrice = ["markupMode", "markupValue", "roundToCents", "minMarginPct", "priceCents"].some((k) => body[k] !== undefined);
+  if (touchesPrice) {
+    const base: OfferPricing = { mode: cur.markup_mode, value: Number(cur.markup_value), roundToCents: cur.round_to_cents, minMarginPct: Number(cur.min_margin_pct) };
+    const p = pricingFrom(body, base);
+    const cost = cur.cost_cents === null ? null : n(cur.cost_cents);
+    const manual = optInt(body, "priceCents", 1, 10_000_000) ?? (p.mode === "manual" ? n(cur.price_cents) : undefined);
+    const price = resolvePrice(cost, p, manual);
+    Object.assign(changes, { markup_mode: p.mode, markup_value: p.value, round_to_cents: p.roundToCents, min_margin_pct: p.minMarginPct, price_cents: price });
+    if (price !== n(cur.price_cents)) {
+      await ctx.svc.db.query(
+        `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $2, $3, $4, 'manual')`,
+        [id, cost, n(cur.price_cents), price],
+      );
+    }
+  }
+  await updateRow(ctx, "offers", id, changes);
+  await audit(ctx, staff.id, "offer.update", "offer", id, { fields: Object.keys(changes) });
+  return json({ ok: true, priceCents: (changes.price_cents as number | undefined) ?? n(cur.price_cents) });
+}
+
+/** Upload codes/accounts for a manual-stock offer, one item per entry. Stored encrypted. */
+export async function addStock(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req, 262_144);
+  const items = body.items;
+  if (!Array.isArray(items) || items.length < 1 || items.length > 500) throw new ApiError("invalid_input", "items");
+  const clean = items.map((v) => {
+    if (typeof v !== "string" || !v.trim() || v.length > 2000) throw new ApiError("invalid_input", "items");
+    return v.trim();
+  });
+  const key = ctx.env.DATA_KEY;
+  if (typeof key !== "string" || !key) throw new ApiError("bad_state");
+  await must(ctx.svc.db, `select id from app.offers where id = $1 and supplier_id is null`, [id], "bad_state");
+  const sealed = await Promise.all(clean.map((v) => encryptText(v, key)));
+  await ctx.svc.db.query(
+    `insert into app.stock_items (offer_id, payload_enc) select $1, x from unnest(string_to_array($2::text, chr(10))) as x`,
+    [id, sealed.join("\n")],
+  );
+  await audit(ctx, staff.id, "stock.add", "offer", id, { count: clean.length });
+  return json({ added: clean.length }, { status: 201 });
+}
+
+export async function updateSupplier(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const id = ctx.params.id ?? "";
+  if (!SUPPLIER_ID.test(id)) throw new ApiError("not_found");
+  const body = await readJson(ctx.req);
+  const changes: Record<string, unknown> = {};
+  const enabled = bool(body, "enabled");
+  if (enabled !== undefined) changes.enabled = enabled;
+  const low = optInt(body, "lowBalanceCents", 0, 100_000_000);
+  if (low !== undefined) changes.low_balance_cents = low;
+  if (body.name !== undefined) changes.name = str(body, "name", { max: 60 });
+  await updateRow(ctx, "suppliers", id, changes);
+  await audit(ctx, staff.id, "supplier.update", "supplier", id, changes);
+  return json({ ok: true });
+}

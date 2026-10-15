@@ -1,0 +1,7 @@
+{
+  "name": "@store/db",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "SQL migrations and SQL tests. Run from the repo root: pnpm db:migrate, pnpm db:test."
+}
