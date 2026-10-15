@@ -393,6 +393,7 @@ describe("bot", () => {
   });
 
   it("takes Stars only for the right payer and amount, and credits once", async () => {
+    await db.query(`update app.settings set value = '100' where key = 'payments.stars_per_usd'`);
     const id = tg(9);
     const token = await h.login(id);
     h.payments.set("stars", {

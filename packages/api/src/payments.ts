@@ -6,10 +6,12 @@
  * through app.credit_payment, which is idempotent per payment.
  */
 import type { PaymentEvent, PaymentMethod } from "@store/core";
+import { starsForCents } from "@store/payments";
 import { requireUser } from "./auth";
 import type { ApiEnv, Ctx, Services } from "./context";
 import { call, isUniqueViolation, n, one } from "./db";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
+import { starsPerUsd } from "./settings";
 
 const ALL_METHODS: PaymentMethod[] = ["sam", "nowpayments", "bep20", "stars"];
 /** Note on a manual USDT top-up whose submitted hash did not match; the customer may paste another. */
@@ -23,8 +25,15 @@ export function enabledMethods(env: ApiEnv): PaymentMethod[] {
   return ALL_METHODS.filter((m) => list.includes(m));
 }
 
+/** Methods customers can use now: switched on in the Worker, and Stars only while the admin has a rate set. */
+export async function availableMethods(env: ApiEnv, svc: Pick<Services, "db">): Promise<PaymentMethod[]> {
+  const methods = enabledMethods(env);
+  if (!methods.includes("stars")) return methods;
+  return (await starsPerUsd(svc.db)) === null ? methods.filter((m) => m !== "stars") : methods;
+}
+
 export async function listMethods(ctx: Ctx): Promise<Response> {
-  return json({ methods: enabledMethods(ctx.env), minCents: MIN_TOPUP_CENTS, maxCents: MAX_TOPUP_CENTS });
+  return json({ methods: await availableMethods(ctx.env, ctx.svc), minCents: MIN_TOPUP_CENTS, maxCents: MAX_TOPUP_CENTS });
 }
 
 export async function createTopup(ctx: Ctx): Promise<Response> {
@@ -34,7 +43,10 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
   if (!enabledMethods(ctx.env).includes(method)) throw new ApiError("payment_method_unavailable");
   if (method === "stars" && user.channel !== "miniapp") throw new ApiError("payment_method_unavailable");
   const amountCents = int(body, "amountCents", MIN_TOPUP_CENTS, MAX_TOPUP_CENTS);
-  const adapter = ctx.svc.payment(method);
+  // Stars: the rate is the admin's setting (Admin → Settings); none set = Stars off.
+  const rate = method === "stars" ? await starsPerUsd(ctx.svc.db) : null;
+  if (method === "stars" && rate === null) throw new ApiError("payment_method_unavailable");
+  const adapter = rate === null ? ctx.svc.payment(method) : ctx.svc.payment(method, { STARS_PER_USD: String(rate) });
   if (!adapter) throw new ApiError("payment_method_unavailable");
 
   // Limit open top-ups per user so nobody floods the providers.
@@ -72,10 +84,12 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
     callbackUrl: `${base}/api/webhooks/payments/${method}`,
     returnUrl: `${base}/wallet?payment=${payment.id}`,
   });
+  // A Stars invoice keeps its price in Stars, so a later rate change never affects it.
+  const action = rate !== null && created.action.type === "telegram_invoice" ? { ...created.action, stars: starsForCents(payAmount, rate) } : created.action;
   await ctx.svc.db.query(`update app.payments set status = 'pending', provider_ref = $2, action = $3::text::jsonb where id = $1`, [
-    payment.id, created.providerRef, JSON.stringify(created.action),
+    payment.id, created.providerRef, JSON.stringify(action),
   ]);
-  return json({ paymentId: payment.id, amountCents: payAmount, action: created.action, expiresAt: created.expiresAt ?? null }, { status: 201 });
+  return json({ paymentId: payment.id, amountCents: payAmount, action, expiresAt: created.expiresAt ?? null }, { status: 201 });
 }
 
 /** Manual BEP20: the customer pastes the transaction hash; we check the chain right away. */
@@ -203,14 +217,25 @@ async function applyEvent(svc: Services, paymentId: string, ev: PaymentEvent): P
  * webhook, so the update itself is the proof. We still check that the Stars paid
  * cover the invoice and that it is the customer's own payment.
  */
+/**
+ * Stars a top-up must be paid with: the price stored on its invoice, or (for an
+ * invoice made before prices were stored) today's rate. Null = cannot tell.
+ */
+export function expectedStars(storedStars: unknown, amountCents: number, rate: number | null): number | null {
+  if (typeof storedStars === "number" && Number.isSafeInteger(storedStars) && storedStars > 0) return storedStars;
+  const s = typeof storedStars === "string" && /^\d+$/.test(storedStars) ? Number(storedStars) : null;
+  if (s !== null && s > 0) return s;
+  return rate === null ? null : starsForCents(amountCents, rate);
+}
+
 export async function creditStarsPayment(
   svc: Services,
-  input: { paymentId: string; chargeId: string; totalStars: number; telegramUserId: string; expectedStars: (cents: number) => number },
+  input: { paymentId: string; chargeId: string; totalStars: number; telegramUserId: string },
 ): Promise<"paid" | "ignored" | "review"> {
   if (!/^[0-9a-f-]{36}$/.test(input.paymentId)) return "ignored";
-  const p = await one<{ id: string; amount_cents: string | number; status: string; method: string; subject: string | null }>(
+  const p = await one<{ id: string; amount_cents: string | number; status: string; method: string; subject: string | null; stars: unknown }>(
     svc.db,
-    `select pay.id, pay.amount_cents, pay.status, pay.method, i.subject
+    `select pay.id, pay.amount_cents, pay.status, pay.method, i.subject, pay.action->'stars' as stars
        from app.payments pay left join app.identities i on i.user_id = pay.user_id and i.provider = 'telegram'
       where pay.id = $1`,
     [input.paymentId],
@@ -218,7 +243,10 @@ export async function creditStarsPayment(
   if (!p || p.method !== "stars") return "ignored";
   if (p.status === "paid") return "paid";
   const amount = n(p.amount_cents);
-  if (p.subject !== input.telegramUserId || input.totalStars < input.expectedStars(amount)) {
+  // The money has already left the customer: never drop it. If the amount or payer
+  // does not match, a person reviews it (Admin → Top-ups).
+  const expected = expectedStars(p.stars, amount, await starsPerUsd(svc.db));
+  if (p.subject !== input.telegramUserId || expected === null || input.totalStars < expected) {
     await svc.db.query(`update app.payments set status = 'review', provider_ref = $2, note = 'stars amount or payer mismatch' where id = $1 and status <> 'paid'`, [p.id, input.chargeId]);
     return "review";
   }

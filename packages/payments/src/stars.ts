@@ -7,9 +7,12 @@
  * Config keys (ctx.config):
  *   TELEGRAM_BOT_TOKEN   required  The bot's token. It is part of every Bot API URL, so
  *                                  no URL is ever quoted in an error.
- *   STARS_PER_USD        required  How many Stars one US dollar costs, e.g. "77". Prices
- *                                  round UP to whole Stars. (The old bot's
- *                                  GHSTORE_STARS_TO_USD=0.01 equals STARS_PER_USD=100.)
+ *   STARS_PER_USD        required  How many Stars one US dollar costs, e.g. "80". Prices
+ *                                  round UP to whole Stars. In the store this comes
+ *                                  from the admin setting payments.stars_per_usd, not
+ *                                  from a secret; each invoice keeps the Stars it was
+ *                                  issued for. (The old bot's GHSTORE_STARS_TO_USD=0.01
+ *                                  equals 100.)
  *   STARS_INVOICE_TITLE  optional  Invoice title (1-32 chars), default "Payment".
  *   TELEGRAM_API_BASE    optional  Default "https://api.telegram.org".
  *

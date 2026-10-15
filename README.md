@@ -26,6 +26,7 @@ someone else's store.
 | Catalogue import from the current site (75 products, 673 packages) | Done; dry-run on the live data, rolled back |
 | Link previews and search: product pages, sitemap, robots | Done |
 | Owner tools: daily Telegram summary, CSV exports | Done |
+| Store settings in the database: support contacts, Stars price, invite rewards (Admin → Settings) | Done, tested |
 | Scheduled jobs: fulfilment, payment re-checks, margin guard, balances, reminders, notifications | Done |
 | Brand: logo, icon, favicon, Telegram avatar, 4 themes × light/dark | Done |
 | Web app: website, Mini App (`/tg`), admin (`/admin`) | Done: React, Arabic/English, 4 themes × light/dark, checked end to end in a browser |
@@ -47,7 +48,7 @@ More in [docs/architecture.md](docs/architecture.md).
 ## Repository
 
 ```
-store.config.ts        name, URL, tagline, mark, languages, time zone, theme, support links (per store)
+store.config.ts        name, URL, tagline, mark, languages, time zone, theme (per store)
 brand/                 logo and icons (per store)
 apps/web/              the Worker (src/) and the web app (client/): website, Mini App, admin
 packages/core/         money, sessions, Telegram checks, encryption, pricing, adapter contracts

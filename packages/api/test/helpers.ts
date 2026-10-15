@@ -17,7 +17,6 @@ export const env: ApiEnv = {
   OWNER_TELEGRAM_IDS: "900001",
   PAYMENT_METHODS: "sam,nowpayments,bep20,stars",
   TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret-abcdef123456",
-  STARS_PER_USD: "100",
 };
 
 /** A Db over any driver exposing unsafe(text, params) and begin(fn) (Bun.SQL here, postgres.js in production). */

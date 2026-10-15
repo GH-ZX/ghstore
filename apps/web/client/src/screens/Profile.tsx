@@ -25,8 +25,15 @@ export function Profile() {
 
 function ProfileView() {
   const { t, lang } = useT();
-  const { me, mode, miniApp } = useApp();
+  const { me, mode, miniApp, config } = useApp();
   if (!me) return null;
+  // Support channels the owner set in Admin → Settings.
+  const sup = config?.support;
+  const supportLinks = [
+    sup?.telegram && { key: "tg", title: t("supportTelegram"), detail: `@${sup.telegram}`, href: `https://t.me/${sup.telegram}`, telegram: true },
+    sup?.whatsapp && { key: "wa", title: t("supportWhatsapp"), detail: `+${sup.whatsapp}`, href: `https://wa.me/${sup.whatsapp}`, telegram: false },
+    sup?.email && { key: "em", title: t("supportEmail"), detail: sup.email, href: `mailto:${sup.email}`, telegram: false },
+  ].filter((x): x is { key: string; title: string; detail: string; href: string; telegram: boolean } => Boolean(x));
   const u = me.user;
   const initial = (u.name || u.telegramUsername || u.email || "?").trim().charAt(0).toUpperCase();
   const handle = u.telegramUsername ? `@${u.telegramUsername}` : u.email ?? "";
@@ -113,16 +120,17 @@ function ProfileView() {
       </div>
 
       <div className="list">
-        {store.support.telegram && !store.support.telegram.includes("REPLACE") && (
-          <button type="button" className="list-row press" onClick={() => openExternal(store.support.telegram)}>
+        {supportLinks.map((s) => (
+          <button key={s.key} type="button" className="list-row press" onClick={() => (s.telegram ? openTelegramLink(s.href) : openExternal(s.href))}>
             <span className="list-row__main">
-              <span className="list-row__title">{t("support")}</span>
+              <span className="list-row__title">{s.title}</span>
+              <span className="list-row__meta num" dir="ltr">{s.detail}</span>
             </span>
             <span className="muted">
               <ChevronIcon />
             </span>
           </button>
-        )}
+        ))}
         {!miniApp && u.hasTelegram === false && (
           <a className="list-row" href={`https://t.me/${store.telegramBot}`} target="_blank" rel="noopener">
             <span className="list-row__main">

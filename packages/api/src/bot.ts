@@ -8,12 +8,13 @@
  */
 import { store } from "@store/config";
 import { formatUsd, verifyBotWebhook } from "@store/core";
-import { parsePreCheckoutQuery, parseSuccessfulPayment, starsForCents } from "@store/payments";
+import { parsePreCheckoutQuery, parseSuccessfulPayment } from "@store/payments";
 import type { ApiEnv, Services } from "./context";
 import { n, one } from "./db";
 import { json } from "./http";
-import { creditStarsPayment } from "./payments";
+import { creditStarsPayment, expectedStars } from "./payments";
 import { referralSettings } from "./promo";
+import { starsPerUsd, supportContacts, type SupportContacts } from "./settings";
 
 type Update = Record<string, any>;
 
@@ -29,6 +30,7 @@ const TEXT = {
       "",
       "للمساعدة تواصل مع الدعم من داخل المتجر (حسابي ← المساعدة والدعم).",
     ].join("\n"),
+    helpCommands: ["الأوامر:", "/balance — رصيدك", "/orders — آخر طلباتك", "/invite — رابط دعوة الأصدقاء"].join("\n"),
     unknown: "استخدم زر المتجر في الأسفل لتصفح المنتجات والشراء، أو /help لرؤية الأوامر.",
     payFailed: "انتهت صلاحية هذا الدفع. ابدأ من جديد من المتجر.",
     balance: (amount: string) => `رصيدك: ${amount}`,
@@ -54,6 +56,7 @@ const TEXT = {
       "",
       "For help, contact support inside the store (Profile → Help and support).",
     ].join("\n"),
+    helpCommands: ["Commands:", "/balance — your balance", "/orders — your latest orders", "/invite — your invite link"].join("\n"),
     unknown: "Use the store button below to browse and buy, or /help for commands.",
     payFailed: "This payment has expired. Please start again from the store.",
     balance: (amount: string) => `Your balance: ${amount}`,
@@ -94,6 +97,17 @@ async function botUser(svc: Services, from: Record<string, any>): Promise<string
     locale,
   ]);
   return row?.id ?? null;
+}
+
+/** The support channels set in Admin → Settings, one per line. */
+function supportLines(s: SupportContacts, l: "ar" | "en"): string {
+  const ar = l === "ar";
+  const lines = [
+    s.telegram ? `${ar ? "تيليجرام" : "Telegram"}: @${s.telegram}` : "",
+    s.whatsapp ? `${ar ? "واتساب" : "WhatsApp"}: https://wa.me/${s.whatsapp}` : "",
+    s.email ? `${ar ? "البريد" : "Email"}: ${s.email}` : "",
+  ].filter(Boolean);
+  return lines.length ? `${ar ? "للمساعدة تواصل معنا:" : "Need help? Contact us:"}\n${lines.join("\n")}` : "";
 }
 
 async function command(cmd: string, userId: string, chatId: unknown, l: "ar" | "en", env: ApiEnv, svc: Services): Promise<boolean> {
@@ -139,7 +153,13 @@ async function command(cmd: string, userId: string, chatId: unknown, l: "ar" | "
     return true;
   }
   if (cmd === "/help") {
-    await svc.telegram("sendMessage", { chat_id: chatId, text: T.help, reply_markup: storeButton(env, l) });
+    const contact = supportLines(await supportContacts(svc.db), l);
+    await svc.telegram("sendMessage", {
+      chat_id: chatId,
+      text: contact ? `${T.helpCommands}\n\n${contact}` : T.help,
+      link_preview_options: { is_disabled: true },
+      reply_markup: storeButton(env, l),
+    });
     return true;
   }
   return false;
@@ -165,22 +185,21 @@ export async function handleBotWebhook(req: Request, env: ApiEnv, svc: Services)
 }
 
 export async function handleUpdate(update: Update, env: ApiEnv, svc: Services): Promise<void> {
-  const rate = env.STARS_PER_USD;
-
   const pre = parsePreCheckoutQuery(update);
   if (pre) {
     const l = lang(update.pre_checkout_query?.from?.language_code);
     let ok = false;
-    if (pre.currency === "XTR" && rate && /^[0-9a-f-]{36}$/.test(pre.paymentId)) {
-      const p = await one<{ amount_cents: string | number; status: string; subject: string | null }>(
+    if (pre.currency === "XTR" && /^[0-9a-f-]{36}$/.test(pre.paymentId)) {
+      const p = await one<{ amount_cents: string | number; status: string; subject: string | null; stars: unknown }>(
         svc.db,
-        `select pay.amount_cents, pay.status, i.subject
+        `select pay.amount_cents, pay.status, i.subject, pay.action->'stars' as stars
            from app.payments pay left join app.identities i on i.user_id = pay.user_id and i.provider = 'telegram'
           where pay.id = $1 and pay.method = 'stars'`,
         [pre.paymentId],
       );
+      const expected = p ? expectedStars(p.stars, n(p.amount_cents), await starsPerUsd(svc.db)) : null;
       ok = !!p && ["created", "pending"].includes(p.status) && p.subject === String(pre.fromId) &&
-        pre.totalStars >= starsForCents(n(p.amount_cents), rate);
+        expected !== null && pre.totalStars >= expected;
     }
     await svc.telegram("answerPreCheckoutQuery", ok
       ? { pre_checkout_query_id: pre.queryId, ok: true }
@@ -194,13 +213,12 @@ export async function handleUpdate(update: Update, env: ApiEnv, svc: Services): 
   const l = lang(from.language_code);
 
   const paid = parseSuccessfulPayment(update);
-  if (paid && rate) {
+  if (paid) {
     await creditStarsPayment(svc, {
       paymentId: paid.paymentId ?? "",
       chargeId: paid.providerRef,
       totalStars: n(msg.successful_payment?.total_amount),
       telegramUserId: String(from.id),
-      expectedStars: (cents) => starsForCents(cents, rate),
     });
     return;
   }

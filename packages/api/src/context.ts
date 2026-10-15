@@ -24,8 +24,6 @@ export interface ApiEnv {
   SUPABASE_PUBLISHABLE_KEY?: string;
   /** Comma-separated payment methods to offer: sam,nowpayments,bep20,stars */
   PAYMENT_METHODS?: string;
-  /** Stars per US dollar for Telegram Stars top-ups. */
-  STARS_PER_USD?: string;
   /** Website sign-in options, comma separated: telegram,email,google (default telegram,email). */
   WEB_LOGIN_METHODS?: string;
   /** Anything else (supplier and payment keys, bindings) — strings are passed to adapters as config. */
@@ -35,7 +33,8 @@ export interface ApiEnv {
 export interface Services {
   db: Db;
   supplier(id: string): SupplierAdapter | null;
-  payment(method: PaymentMethod): PaymentAdapter | null;
+  /** A payment adapter; `config` adds settings that come from the database (the Stars rate). */
+  payment(method: PaymentMethod, config?: Record<string, string>): PaymentAdapter | null;
   now(): Date;
   /** fetch for outgoing calls (Supabase Auth checks). Injected so tests can fake it. */
   fetch: typeof fetch;

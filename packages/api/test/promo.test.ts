@@ -287,3 +287,55 @@ describe("customer fields", () => {
     expect(e.status).toBe(201);
   });
 });
+
+describe("store settings in the database", () => {
+  it("takes the Stars rate from the admin, stores each invoice's price, and credits even after a change", async () => {
+    const owner = await h.login(900001, "Owner", "en");
+    h.payments.set("stars", {
+      id: "stars",
+      createPayment: async (i) => ({ providerRef: i.paymentId, action: { type: "telegram_invoice", url: "https://t.me/$inv" } }),
+    });
+    expect((await h.call("PUT", "/api/admin/settings/payments.stars_per_usd", { token: owner, body: { value: 0 } })).status).toBe(400);
+    expect((await h.call("PUT", "/api/admin/settings/payments.stars_per_usd", { token: owner, body: { value: 77.5 } })).status).toBe(400);
+    expect((await h.call("PUT", "/api/admin/settings/payments.stars_per_usd", { token: owner, body: { value: 80 } })).status).toBe(200);
+    const cfg = await h.call("GET", "/api/config");
+    expect(cfg.data.payments.starsPerUsd).toBe(80);
+    expect(cfg.data.payments.methods).toContain("stars");
+
+    const id = tg(50);
+    const token = await h.login(id, "Stars", "en");
+    const t = await h.call("POST", "/api/topups", { token, body: { method: "stars", amountCents: 1000 } });
+    expect(t.status).toBe(201);
+    expect(t.data.action).toMatchObject({ type: "telegram_invoice", stars: 800 });
+
+    // The owner changes the rate, then switches Stars off: this invoice keeps its price.
+    await h.call("PUT", "/api/admin/settings/payments.stars_per_usd", { token: owner, body: { value: 120 } });
+    h.telegramCalls.length = 0;
+    await bot({ pre_checkout_query: { id: "s1", from: { id }, currency: "XTR", total_amount: 800, invoice_payload: t.data.paymentId } });
+    expect(h.telegramCalls[0]!.payload.ok).toBe(true);
+    await h.call("PUT", "/api/admin/settings/payments.stars_per_usd", { token: owner, body: { value: null } });
+    expect((await h.call("GET", "/api/config")).data.payments.methods).not.toContain("stars");
+    expect((await h.call("POST", "/api/topups", { token, body: { method: "stars", amountCents: 1000 } })).data.error.code).toBe("payment_method_unavailable");
+    await bot({ message: { chat: { id, type: "private" }, from: { id }, successful_payment: { currency: "XTR", total_amount: 800, invoice_payload: t.data.paymentId, telegram_payment_charge_id: `stars-${run}` } } });
+    expect((await h.call("GET", "/api/me", { token })).data.balanceCents).toBe(1000);
+    await h.call("PUT", "/api/admin/settings/payments.stars_per_usd", { token: owner, body: { value: 80 } });
+  });
+
+  it("shows the support contacts the owner sets, in the app and in the bot", async () => {
+    const owner = await h.login(900001, "Owner", "en");
+    for (const [key, value] of [["support.telegram", "@bad"], ["support.telegram", "ab"], ["support.whatsapp", "+963 9"], ["support.email", "nope"]] as const) {
+      expect((await h.call("PUT", `/api/admin/settings/${key}`, { token: owner, body: { value } })).status).toBe(400);
+    }
+    expect((await h.call("PUT", "/api/admin/settings/support.telegram", { token: owner, body: { value: "gh_help_desk" } })).status).toBe(200);
+    expect((await h.call("PUT", "/api/admin/settings/support.whatsapp", { token: owner, body: { value: "963911222333" } })).status).toBe(200);
+    expect((await h.call("PUT", "/api/admin/settings/support.email", { token: owner, body: { value: null } })).status).toBe(200);
+    expect((await h.call("GET", "/api/config")).data.support).toEqual({ telegram: "gh_help_desk", whatsapp: "963911222333", email: null });
+    const help = String((await botText(tg(51), "/help")).text);
+    expect(help).toContain("Telegram: @gh_help_desk");
+    expect(help).toContain("WhatsApp: https://wa.me/963911222333");
+    expect(help).not.toContain("Email");
+    // A customer cannot change them.
+    const customer = await h.login(tg(52), "C", "en");
+    expect((await h.call("PUT", "/api/admin/settings/support.telegram", { token: customer, body: { value: "evil_desk" } })).status).toBe(403);
+  });
+});

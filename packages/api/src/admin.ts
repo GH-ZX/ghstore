@@ -5,6 +5,7 @@
  */
 import { requireStaff } from "./auth";
 import { TIME_ZONE } from "./reports";
+import { EMAIL, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder } from "./fulfilment";
@@ -148,6 +149,12 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "referral.percent": (v) => typeof v === "number" && v >= 0 && v <= 20 && Math.abs(Math.round(v * 100) - v * 100) < 1e-9,
   "referral.days": (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 3650,
   "reports.daily": (v) => typeof v === "boolean",
+  // Support contacts customers see in the app and the bot (null hides one).
+  "support.telegram": (v) => v === null || (typeof v === "string" && TELEGRAM_USERNAME.test(v)),
+  "support.whatsapp": (v) => v === null || (typeof v === "string" && WHATSAPP_NUMBER.test(v)),
+  "support.email": (v) => v === null || (typeof v === "string" && v.length <= 120 && EMAIL.test(v)),
+  // Telegram Stars charged per US dollar of balance (null = Stars top-ups off).
+  "payments.stars_per_usd": (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 1000),
   "reports.daily_hour": (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 23,
 };
 

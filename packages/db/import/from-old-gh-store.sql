@@ -21,6 +21,8 @@
 --   so the hourly sync keeps prices in step with supplier costs. Customer fields
 --   come from the package or the game, with supplier field names kept exactly and
 --   server lists as choices.
+-- - Support contacts: the support Telegram, WhatsApp and email the old site
+--   published (only where Admin → Settings has none yet).
 -- - Not copied: customers, balances, orders (settled by hand, decided), coupons,
 --   reviews, stock (none), Telegram links.
 
@@ -148,6 +150,35 @@ select x.product_id, x.name_ar, x.name_en, x.sort, x.supplier_id, x.supplier_ref
   from _offers x
  where x.supplier_ref is not null and jsonb_array_length(x.input_fields) <= 6
 on conflict do nothing;
+
+-- ───────────────────────────────────────────────────────────── support contacts
+
+-- The contact channels the old site published (store_settings.contact.channels):
+-- the support Telegram account (not the store bot), WhatsApp and email. Only fills
+-- settings that are still empty, so anything set in the admin is kept.
+do $$
+declare
+  v_tg text; v_wa text; v_email text;
+begin
+  if to_regclass('public.store_settings') is null then return; end if;
+  -- first of each kind, in the order the old site listed them; "@name",
+  -- "t.me/name" and "https://t.me/name" all become "name"
+  select regexp_replace(btrim(c->>'value'), '^(https?://)?(t\.me/|telegram\.me/)?@?', '', 'i') into v_tg
+    from public.store_settings s, jsonb_array_elements(s.contact->'channels') with ordinality as ch(c, n)
+   where c->>'kind' = 'telegram' and btrim(c->>'value') !~* 'bot/?$' order by n limit 1;
+  select regexp_replace(regexp_replace(c->>'value', '[^0-9]', '', 'g'), '^00', '') into v_wa
+    from public.store_settings s, jsonb_array_elements(s.contact->'channels') with ordinality as ch(c, n)
+   where c->>'kind' = 'whatsapp' order by n limit 1;
+  select btrim(c->>'value') into v_email
+    from public.store_settings s, jsonb_array_elements(s.contact->'channels') with ordinality as ch(c, n)
+   where c->>'kind' = 'email' order by n limit 1;
+  update app.settings set value = to_jsonb(v_tg), updated_at = now()
+   where key = 'support.telegram' and value = 'null'::jsonb and v_tg ~ '^[A-Za-z][A-Za-z0-9_]{4,31}$';
+  update app.settings set value = to_jsonb(v_wa), updated_at = now()
+   where key = 'support.whatsapp' and value = 'null'::jsonb and v_wa ~ '^[1-9][0-9]{7,14}$';
+  update app.settings set value = to_jsonb(v_email), updated_at = now()
+   where key = 'support.email' and value = 'null'::jsonb and v_email ~ '^[^[:space:]@]+@[^[:space:]@]+\.[A-Za-z]{2,24}$';
+end $$;
 
 -- ───────────────────────────────────────────────────────────── report
 

@@ -8,7 +8,9 @@ export type Kind = "id" | "code" | "account" | "link" | "sms";
 export interface PublicConfig {
   theme: { preset: "calm" | "energetic" | "minimal" | "warm"; defaultMode: "system" | "light" | "dark" };
   sypPerUsd: number | null;
-  payments: { methods: PaymentMethod[]; minCents: number; maxCents: number };
+  payments: { methods: PaymentMethod[]; minCents: number; maxCents: number; starsPerUsd: number | null };
+  /** How customers reach the store, set in Admin → Settings. */
+  support: { telegram: string | null; whatsapp: string | null; email: string | null };
   login: ("telegram" | "email" | "google")[];
   supabase: { url: string; key: string } | null;
 }
@@ -142,7 +144,7 @@ export interface Wallet {
 export type PaymentAction =
   | { type: "redirect"; url: string }
   | { type: "address"; network: string; asset: string; address: string; amount: string; memo?: string }
-  | { type: "telegram_invoice"; url: string }
+  | { type: "telegram_invoice"; url: string; stars?: number }
   | { type: "instructions"; textEn: string; textAr: string };
 
 export interface CreatedTopup {

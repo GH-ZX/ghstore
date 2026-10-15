@@ -21,11 +21,21 @@ export function Settings() {
   const [refPct, setRefPct] = useState("2");
   const [refDays, setRefDays] = useState("90");
   const [hour, setHour] = useState("9");
+  const [tg, setTg] = useState("");
+  const [wa, setWa] = useState("");
+  const [email, setEmail] = useState("");
+  const [stars, setStars] = useState("");
 
   useEffect(() => {
     if (!data) return;
     const p = data.settings["referral.percent"];
     setRefPct(typeof p === "number" ? String(p) : "0");
+    const text = (k: string) => (typeof data.settings[k] === "string" ? (data.settings[k] as string) : "");
+    setTg(text("support.telegram"));
+    setWa(text("support.whatsapp"));
+    setEmail(text("support.email"));
+    const sr = data.settings["payments.stars_per_usd"];
+    setStars(typeof sr === "number" ? String(sr) : "");
     const dh = data.settings["reports.daily_hour"];
     setHour(typeof dh === "number" ? String(dh) : "9");
     const d = data.settings["referral.days"];
@@ -46,6 +56,8 @@ export function Settings() {
     if (key === "theme.preset") setState({ config: { ...cur, theme: { ...cur.theme, preset: value as PublicConfig["theme"]["preset"] } } });
     if (key === "theme.default_mode") setState({ config: { ...cur, theme: { ...cur.theme, defaultMode: value as PublicConfig["theme"]["defaultMode"] } } });
     if (key === "fx.syp_per_usd") setState({ config: { ...cur, sypPerUsd: value as number | null } });
+    if (key.startsWith("support.")) setState({ config: { ...cur, support: { ...cur.support, [key.slice(8)]: value as string | null } } });
+    if (key === "payments.stars_per_usd") setState({ config: { ...cur, payments: { ...cur.payments, starsPerUsd: value as number | null } } });
     applyTheme();
   }
 
@@ -131,6 +143,67 @@ export function Settings() {
             await put("referral.percent", Math.round(Number(refPct) * 100) / 100);
             await put("referral.days", Number(refDays));
           }}
+        >
+          {t("save")}
+        </button>
+      </section>
+
+      <section className="card card--pad stack-sm">
+        <div>
+          <h2>{t("supportTitle")}</h2>
+          <p className="hint">{t("supportHint")}</p>
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>{t("supportTelegram")}</span>
+            <input className="input" dir="ltr" value={tg} placeholder={t("supportTgPh")} autoComplete="off"
+              onChange={(e) => setTg(e.target.value.trim().replace(/^(https?:\/\/)?(t\.me\/|telegram\.me\/)/i, "").replace(/^@/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 32))} />
+          </label>
+          <label className="field">
+            <span>{t("supportWhatsapp")}</span>
+            <input className="input num" dir="ltr" inputMode="tel" value={wa} placeholder={t("supportWaPh")}
+              onChange={(e) => setWa(e.target.value.replace(/[^0-9]/g, "").replace(/^00/, "").slice(0, 15))} />
+          </label>
+          <label className="field span-2">
+            <span>{t("supportEmail")}</span>
+            <input className="input" dir="ltr" type="email" value={email} placeholder={t("supportEmailPh")} onChange={(e) => setEmail(e.target.value.trim())} />
+          </label>
+        </div>
+        <button
+          type="button"
+          className="btn btn--sm press"
+          style={{ alignSelf: "flex-start" }}
+          disabled={action.busy || (tg !== "" && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(tg)) || (wa !== "" && !/^[1-9][0-9]{7,14}$/.test(wa)) || (email !== "" && !/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,24}$/.test(email))}
+          onClick={async () => {
+            await put("support.telegram", tg || null);
+            await put("support.whatsapp", wa || null);
+            await put("support.email", email || null);
+          }}
+        >
+          {t("save")}
+        </button>
+      </section>
+
+      <section className="card card--pad stack-sm">
+        <div>
+          <h2>{t("starsTitle")}</h2>
+          <p className="hint">{t("starsHint")}</p>
+        </div>
+        <label className="field">
+          <span>{t("starsRate")}</span>
+          <input className="input num" inputMode="numeric" value={stars} placeholder="—" onChange={(e) => setStars(e.target.value.replace(/\D/g, "").slice(0, 4))} />
+          {Number(stars) >= 1 && (
+            <span className="hint num">
+              {t("starsExample", { stars: (Number(stars) * 10).toLocaleString("en-US"), usd: `$${(Number(stars) * 10 * 0.013).toFixed(2)}` })}
+            </span>
+          )}
+        </label>
+        <button
+          type="button"
+          className="btn btn--sm press"
+          style={{ alignSelf: "flex-start" }}
+          disabled={action.busy || (stars !== "" && !(Number(stars) >= 1 && Number(stars) <= 1000))}
+          onClick={() => put("payments.stars_per_usd", stars === "" ? null : Number(stars))}
         >
           {t("save")}
         </button>

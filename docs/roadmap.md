@@ -15,6 +15,9 @@
 | Themes | Four presets (Calm, Energetic, Minimal, Warm), each light and dark, chosen in the admin; visitors follow their device. |
 | Mobile UX | Floating header and pill tab bar, bottom sheets, two-column product cards, gentle motion — the patterns liked in Duskyr and Verifier Bot, in GH's own identity. Prototype: "GH. Identity Directions" design canvas. |
 | Template | Everything store-specific is in `store.config.ts`, `brand/`, secrets and the seed migration. |
+| Store settings | Support contacts, the Stars price and invite rewards live in the database and are changed in Admin → Settings, never in code. |
+| Stars price | 80 Stars per $1 to start (Telegram pays about $0.013 per Star, so 77 ≈ $1). Each invoice keeps the price it was issued at. |
+| Invite rewards | On at 2% of what invited friends spend, for 90 days, never more than the sale's margin. |
 
 ## Done in v0.1
 
@@ -61,6 +64,8 @@
   store's time zone.
 - The web app's types checked against a strict React 19 stand-in (the real
   types install in CI).
+- Support contacts and the Telegram Stars price as admin settings; the import
+  fills the contacts from the old site's published channels.
 
 ## After that
 
@@ -76,4 +81,3 @@
   old code; test with a real $1 order before enabling.
 - **USDT on BSC decimals**: 18, taken from the old code and the token contract
   convention; confirm with the first real transfer.
-- **Stars rate**: `STARS_PER_USD` must cover Telegram's cut; decide the number.

@@ -17,11 +17,12 @@ time. Nothing here needs the old work server.
 
 `store.config.ts` holds the name, the website address (`url`, the same as
 `PUBLIC_BASE_URL`), the one-line tagline used in search results and link
-previews, the languages, the time zone for daily numbers, and support links.
+previews, the languages and the time zone for daily numbers. Support contacts and
+the Telegram Stars price are store settings in the admin (step 4 below).
 
 1. Create a new **private** GitHub repository and upload this folder.
 2. Edit `store.config.ts`: name, mark, default language and theme, Telegram bot
-   username, support links, order prefix.
+   username, order prefix.
 3. Replace the files in `brand/` (keep the names). See `brand/README.md`.
 4. In `apps/web/wrangler.jsonc`: `name`, `PUBLIC_BASE_URL`, `SUPABASE_URL`,
    `placement.region` (your Supabase region), and the route for your domain.
@@ -211,7 +212,14 @@ good. Do it when the Worker is ready; the old Python bot can then be stopped.
    yourself go in a package with "Manual stock" → "Add stock".
 4. **Admin → Settings**: pick the theme (Calm, Energetic, Minimal, Warm) and the
    default light/dark mode, and the SYP rate if you want Syrian pound prices shown.
-   Invite rewards start **on at 2% for 90 days**; change or switch them off here.
+   - **Support contact**: the Telegram username, WhatsApp number and email shown
+     under Profile → Help and support and in the bot's /help. (For gh-store the
+     import copies them from the old site.)
+   - **Telegram Stars**: Stars per $1, starting at **80**. Telegram pays you about
+     $0.013 per Star, so 77 Stars is about $1; 80 leaves a small margin. Each
+     invoice keeps the price it was issued at. Empty switches Stars off.
+   - **Invite rewards** start **on at 2% for 90 days**; change or switch them off
+     here.
 5. Optional: **Admin → Coupons** for launch codes, and "Buy-again reminder after
    (days)" on subscription packages in the catalogue (28 for a 1-month plan).
 6. Make a $1 test top-up with each method and a test order.

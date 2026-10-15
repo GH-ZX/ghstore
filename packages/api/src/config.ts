@@ -5,7 +5,8 @@
  */
 import type { Ctx } from "./context";
 import { json } from "./http";
-import { enabledMethods, MAX_TOPUP_CENTS, MIN_TOPUP_CENTS } from "./payments";
+import { availableMethods, MAX_TOPUP_CENTS, MIN_TOPUP_CENTS } from "./payments";
+import { starsPerUsd, supportContacts } from "./settings";
 
 const LOGIN_METHODS = ["telegram", "email", "google"] as const;
 type LoginMethod = (typeof LOGIN_METHODS)[number];
@@ -22,7 +23,14 @@ export async function publicConfig(ctx: Ctx): Promise<Response> {
     {
       theme: { preset: s["theme.preset"] ?? "energetic", defaultMode: s["theme.default_mode"] ?? "system" },
       sypPerUsd: typeof s["fx.syp_per_usd"] === "number" ? s["fx.syp_per_usd"] : null,
-      payments: { methods: enabledMethods(ctx.env), minCents: MIN_TOPUP_CENTS, maxCents: MAX_TOPUP_CENTS },
+      payments: {
+        methods: await availableMethods(ctx.env, ctx.svc),
+        minCents: MIN_TOPUP_CENTS,
+        maxCents: MAX_TOPUP_CENTS,
+        starsPerUsd: await starsPerUsd(ctx.svc.db),
+      },
+      // How customers reach the store (Admin → Settings → Support).
+      support: await supportContacts(ctx.svc.db),
       login,
       supabase: supabaseReady ? { url: ctx.env.SUPABASE_URL, key: ctx.env.SUPABASE_PUBLISHABLE_KEY } : null,
     },

@@ -76,7 +76,16 @@ export function createServices(env: WorkerEnv): RequestServices {
       }
       return suppliers.get(id) ?? null;
     },
-    payment(method) {
+    payment(method, extra) {
+      if (extra) {
+        // Settings from the database (e.g. the Stars rate) on top of the Worker's own.
+        try {
+          return paymentFactories[method]({ ...adapterCtx, config: { ...config, ...extra } });
+        } catch (err) {
+          console.error(`payment ${method} not configured:`, err instanceof Error ? err.message : String(err));
+          return null;
+        }
+      }
       if (!payments.has(method)) {
         let adapter: PaymentAdapter | null = null;
         try {

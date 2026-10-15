@@ -56,6 +56,9 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
 
   const cents = dollarsToCents(amountText);
   const amountOk = cents !== null && cents >= min && cents <= max;
+  // Stars for this amount, rounded up as Telegram's invoice will be.
+  const rate = config?.payments.starsPerUsd ?? null;
+  const starsFor = rate !== null && cents !== null ? Math.max(1, Math.ceil((cents * rate) / 100)) : null;
 
   const finish = useCallback((o: Outcome) => {
     if (!alive.current) return;
@@ -343,7 +346,9 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
           <button key={m} type="button" role="radio" aria-checked={method === m} className="method press" onClick={() => setMethod(m)}>
             <MethodMark method={m} />
             <span style={{ fontWeight: 700, fontSize: 14 }}>{t(`m_${m}`)}</span>
-            <span className="small muted">{t(`m_${m}_sub`)}</span>
+            <span className="small muted">
+              {m === "stars" && starsFor !== null ? t("starsCount", { n: starsFor.toLocaleString("en-US") }) : t(`m_${m}_sub`)}
+            </span>
           </button>
         ))}
       </div>
