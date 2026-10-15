@@ -99,7 +99,12 @@ npx wrangler hyperdrive create gh-store-db --caching-disabled \
   --connection-string="postgres://store_app.<project-ref>:<password>@<session-pooler-host>:5432/postgres"
 ```
 
-Put the printed id in `wrangler.jsonc` → `hyperdrive[0].id`.
+Or in the dashboard: Storage & Databases → Hyperdrive → Create configuration
+(public database). Host = the Session pooler host from Supabase → Connect, port
+5432, database `postgres`, **user `store_app.<project-ref>`** with its password
+(not the `postgres` login Supabase shows there), caching off.
+
+Put the id in `wrangler.jsonc` → `hyperdrive[0].id`.
 
 - Use the **Session pooler** string (port 5432) unless your project has IPv4 on the
   direct connection. Never the transaction pooler (port 6543): Hyperdrive already
@@ -113,7 +118,8 @@ Put the printed id in `wrangler.jsonc` → `hyperdrive[0].id`.
 ## 6. Website login
 
 Choose the options in `wrangler.jsonc` → `vars.WEB_LOGIN_METHODS`
-(`telegram,email,google`; default `telegram,email`).
+(`telegram,email,google`; gh-store starts with `telegram` only, so nothing in
+Supabase Auth has to be set up for launch).
 
 **Telegram (recommended: same account and wallet as the bot).** In @BotFather:
 `/setdomain` → your bot → `your-domain.com`. Nothing else to set.
@@ -127,17 +133,20 @@ Choose the options in `wrangler.jsonc` → `vars.WEB_LOGIN_METHODS`
 - URL configuration: Site URL `https://your-domain.com`; add
   `https://your-domain.com/login` to the redirect URLs (Google comes back there).
 
-Then `npx wrangler secret put SUPABASE_PUBLISHABLE_KEY` (Project Settings → API
-keys → publishable key). It is meant for browsers; the website reads it from
-`/api/config`.
+`SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (Project Settings → API keys →
+publishable key) are plain vars in `wrangler.jsonc`: both are meant for browsers,
+and the website reads them from `/api/config`.
 
 ## 7. Worker secrets
 
 From `apps/web`, one `npx wrangler secret put NAME` per line of the `setup:store`
-output. Required: `SESSION_SECRET`, `DATA_KEY`, `TELEGRAM_BOT_TOKEN`,
-`TELEGRAM_WEBHOOK_SECRET`, `OWNER_TELEGRAM_IDS`. Then only the payment methods and
-suppliers you use (`.env.example` lists every name, and each adapter file
-explains its own keys at the top).
+output, or in the dashboard: Workers & Pages → `ghstore` → Settings → Variables
+and Secrets → Add (type **Secret**). Required: `SESSION_SECRET`, `DATA_KEY`,
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `OWNER_TELEGRAM_IDS`. Then only
+the payment methods and suppliers you use (`.env.example` lists every name, and
+each adapter file explains its own keys at the top). Names already set as vars in
+`wrangler.jsonc` (`SUPABASE_PUBLISHABLE_KEY`, `G2BULK_CALLBACK_URL`) are not added
+again as secrets.
 
 `PAYMENT_METHODS` in `wrangler.jsonc` decides which top-up methods are offered.
 
@@ -146,9 +155,20 @@ explains its own keys at the top).
 Either:
 
 - **Git deploys (recommended, like gh-store-dev today)**: Cloudflare → Workers &
-  Pages → Create → Import a repository. Root directory: the repository root;
-  deploy command: `pnpm ship`. Every push to `main` deploys, so keep `main` green
-  (CI runs on every push and pull request).
+  Pages → Create → Import a repository → pick the repository, then:
+
+  | Setting | Value |
+  | --- | --- |
+  | Project (Worker) name | `ghstore` (must match `wrangler.jsonc`) |
+  | Root directory | `apps/web` |
+  | Build command | `cd ../.. && pnpm install --no-frozen-lockfile` |
+  | Deploy command | `pnpm run deploy` |
+  | Build variable | `SKIP_DEPENDENCY_INSTALL` = `1` |
+
+  The build variable stops Cloudflare's own install step, which would pick npm
+  while the repository has no `pnpm-lock.yaml`; the build command installs the
+  pnpm workspace from the repository root instead. Every push to `main` deploys,
+  so keep `main` green (CI runs on every push and pull request).
 - **By hand**: `pnpm ship`.
 
 The Worker is named `ghstore`. **Do not rename it to `gh-store`**: that name
@@ -166,6 +186,27 @@ the old `gh-store` Worker to `ghstore` (or add `routes` with `custom_domain: tru
 in `wrangler.jsonc`). That is the moment customers see the new store.
 
 ## 9. Telegram
+
+In @BotFather (once):
+
+- `/mybots` → your bot → Bot Settings → Configure Mini App → Main Mini App →
+  `https://your-domain.com/tg` (this makes `t.me/<bot>?startapp=…` links open the
+  store, and puts an **Open** button on the bot's profile)
+- `/setdomain` → your bot → `your-domain.com` (Telegram login on the website)
+- Edit Bot → Edit Botpic → `brand/telegram-avatar.png`
+- Payments are not needed for Stars.
+
+Then open the bot's Mini App with the Telegram account in `OWNER_TELEGRAM_IDS`
+(it becomes the owner), go to Profile → Admin → **Settings → Telegram bot** and tap
+**Connect bot**. That sets the webhook with your `TELEGRAM_WEBHOOK_SECRET`, the
+command menu in Arabic and English, and the menu button that opens the store, and
+shows whether Telegram delivers the bot's messages to the store.
+
+Connecting switches the bot away from the old server for good (a bot has one
+webhook, and polling stops once it is set). The old Python bot can then be stopped.
+
+<details>
+<summary>The same by hand (Bot API calls)</summary>
 
 ```bash
 curl -sS "https://api.telegram.org/bot<TOKEN>/setWebhook" \
@@ -191,22 +232,15 @@ curl -sS "https://api.telegram.org/bot<TOKEN>/setMyCommands" -H 'content-type: a
   {"command":"help","description":"المساعدة"}]}'
 ```
 
-In @BotFather:
+Menu button: @BotFather → `/mybots` → your bot → Bot Settings → Menu Button →
+`https://your-domain.com/tg`.
 
-- `/mybots` → your bot → Bot Settings → Configure Mini App → Main Mini App →
-  `https://your-domain.com/tg` (this makes `t.me/<bot>?startapp=…` links open the
-  store: products, invites, the wallet)
-- `/mybots` → your bot → Bot Settings → Menu Button → `https://your-domain.com/tg`
-- Edit Bot → Edit Botpic → `brand/telegram-avatar.png`
-- Payments are not needed for Stars.
-
-Pointing the webhook at the Worker switches the bot away from the old server for
-good. Do it when the Worker is ready; the old Python bot can then be stopped.
+</details>
 
 ## 10. First run
 
-1. Open the bot and the Mini App with the Telegram account in
-   `OWNER_TELEGRAM_IDS`: it becomes the owner.
+1. Sign in with the Telegram account in `OWNER_TELEGRAM_IDS` (done in § 9): it
+   becomes the owner.
 2. In **Admin → Suppliers**, switch on the suppliers you set keys for and set a
    low-balance alert.
 3. Add products in **Admin → Catalogue**: create a product, then "Import from

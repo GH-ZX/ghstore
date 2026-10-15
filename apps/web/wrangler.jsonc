@@ -10,6 +10,10 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // Run next to the database (Supabase, Singapore): each request makes several
+  // queries, so this saves a round trip to Asia per query. Static files are still
+  // served from the visitor's nearest location.
+  "placement": { "region": "aws:ap-southeast-1" },
   // Works on the free plan: the web app is static files (free and unlimited), and
   // only /api and the bot webhook run code. Workers Paid ($5/month) raises limits later.
   "triggers": { "crons": ["* * * * *"] },
@@ -22,10 +26,10 @@
     "run_worker_first": ["/api/*", "/telegram/*", "/p/*", "/sitemap.xml", "/robots.txt"]
   },
   "hyperdrive": [
-    // Create with caching off (see `pnpm setup:store` for the full command):
-    //   npx wrangler hyperdrive create gh-store-db --caching-disabled --connection-string="postgres://store_app.<ref>:...@<pooler-host>:5432/postgres"
+    // "gh-store-db": the store_app login through the Supabase session pooler, caching off.
+    // (Template copies: see `pnpm setup:store` for the create command.)
     // For `wrangler dev`, set CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE to a local database.
-    { "binding": "HYPERDRIVE", "id": "REPLACE_WITH_HYPERDRIVE_ID" }
+    { "binding": "HYPERDRIVE", "id": "69571c2a712049b39ce463767a30782a" }
   ],
   "vars": {
     // While testing on workers.dev set this to that address (https://ghstore.<account>.workers.dev):
@@ -33,9 +37,14 @@
     "PUBLIC_BASE_URL": "https://gh-store.me",
     "PAYMENT_METHODS": "sam,nowpayments,bep20,stars",
     // Website sign-in options: telegram (same wallet as the bot), email (code), google.
-    "WEB_LOGIN_METHODS": "telegram,email",
-    // Public project URL (not a secret). Used only to check website logins.
-    "SUPABASE_URL": "https://njlzgfddfnnqujaodbta.supabase.co"
+    // Email and Google also need Supabase Auth set up first (docs/launch-a-store.md § 6).
+    "WEB_LOGIN_METHODS": "telegram",
+    // Public project URL and publishable key (both are meant for browsers; not secrets).
+    // Used only for website logins by email or Google.
+    "SUPABASE_URL": "https://njlzgfddfnnqujaodbta.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_gtOxP1au24qFXwzVppy0vw_oFWaSIH2",
+    // Where G2Bulk reports order updates (the webhook secret is appended automatically).
+    "G2BULK_CALLBACK_URL": "https://gh-store.me/api/webhooks/suppliers/g2bulk"
   }
   // "routes": [{ "pattern": "gh-store.me", "custom_domain": true }]
 }

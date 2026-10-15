@@ -73,6 +73,27 @@ const TEXT = {
   },
 };
 
+/** The label of the button that opens the store (also the bot's menu button). */
+export const OPEN_STORE = { ar: TEXT.ar.open, en: TEXT.en.open } as const;
+
+/** The command menu Telegram shows in the chat, per language (set by Admin → Settings → Connect bot). */
+export const BOT_COMMANDS = {
+  en: [
+    { command: "start", description: "Open the store" },
+    { command: "balance", description: "Your balance" },
+    { command: "orders", description: "Your latest orders" },
+    { command: "invite", description: "Invite friends" },
+    { command: "help", description: "Help" },
+  ],
+  ar: [
+    { command: "start", description: "افتح المتجر" },
+    { command: "balance", description: "رصيدك" },
+    { command: "orders", description: "آخر طلباتك" },
+    { command: "invite", description: "ادعُ أصدقاءك" },
+    { command: "help", description: "المساعدة" },
+  ],
+};
+
 function lang(code: unknown): "ar" | "en" {
   return typeof code === "string" && !code.startsWith("ar") ? "en" : "ar";
 }

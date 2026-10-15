@@ -15,6 +15,7 @@ import * as payments from "./payments";
 import * as promo from "./promo";
 import * as reports from "./reports";
 import { Router } from "./router";
+import * as telegramSetup from "./telegram-setup";
 
 export type { ApiEnv, AuthedUser, Ctx, Services } from "./context";
 export type { Db } from "./db";
@@ -72,6 +73,8 @@ const router = new Router()
   .on("POST", "/api/admin/users/:id/wallet", admin.adjustWallet)
   .on("POST", "/api/admin/users/:id/role", admin.setUserRole)
   .on("POST", "/api/admin/suppliers/:id/sync", admin.runSupplierSync)
+  .on("GET", "/api/admin/telegram", telegramSetup.getBotStatus)
+  .on("POST", "/api/admin/telegram/connect", telegramSetup.connectBot)
   .on("GET", "/api/admin/export/:kind", reports.exportCsv)
   .on("GET", "/api/admin/coupons", promo.listCoupons)
   .on("POST", "/api/admin/coupons", promo.createCoupon)

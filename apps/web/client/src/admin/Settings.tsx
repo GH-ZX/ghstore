@@ -1,4 +1,4 @@
-/** Store settings: the theme for everyone, the SYP rate, how long orders wait for a person, invite rewards. */
+/** Store settings: the Telegram bot connection, the theme for everyone, the SYP rate, how long orders wait for a person, invite rewards. */
 import { useEffect, useState } from "react";
 import { THEMES, type ThemePreset } from "@store/ui";
 import { store } from "@store/config";
@@ -6,10 +6,73 @@ import { applyTheme, getState, PRESETS, setState, useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
 import type { PublicConfig } from "../lib/types";
 import { ErrorBox, Seg, Spinner, Switch } from "../ui/kit";
-import { useAction } from "./common";
+import { ago, useAction } from "./common";
 
 interface SettingsData {
   settings: Record<string, unknown>;
+}
+
+interface BotStatus {
+  configured: boolean;
+  bot: string | null;
+  expectedUrl: string;
+  url: string | null;
+  connected: boolean;
+  pendingUpdates: number;
+  lastError: { message: string; at: string | null } | null;
+  error: string | null;
+}
+
+/** Owner only: is Telegram sending the bot's messages to this store? One tap connects it. */
+function BotCard() {
+  const { t, lang } = useT();
+  const { data, error, reload } = useApi<BotStatus>("/api/admin/telegram");
+  const action = useAction();
+  const [fresh, setFresh] = useState<BotStatus | null>(null);
+  if (error) return null; // support staff: the bot belongs to the owner
+  const s = fresh ?? data;
+  return (
+    <section className="card card--pad stack-sm">
+      <div>
+        <h2>{t("botTitle")}</h2>
+        <p className="hint">{t("botHint")}</p>
+      </div>
+      {!s ? (
+        <div className="skeleton" style={{ height: 48 }} />
+      ) : (
+        <div className="stack-sm">
+          <div className="pref-row">
+            <span>{s.bot ? `@${s.bot}` : t("botTitle")}</span>
+            {s.connected ? <span className="badge badge--good">{t("botConnected")}</span> : <span className="badge badge--warn">{t("botNotConnected")}</span>}
+          </div>
+          {!s.configured && <p className="hint">{t("botNoSecrets")}</p>}
+          {s.error && <p className="hint">{t("botError", { msg: s.error })}</p>}
+          {!s.connected && s.url && (
+            <p className="hint">
+              {t("botElsewhere")} <span dir="ltr" className="num">{s.url}</span>
+            </p>
+          )}
+          {s.lastError && <p className="hint">{t("botLastError", { msg: s.lastError.message, when: ago(s.lastError.at, lang) })}</p>}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          className="btn btn--sm press"
+          disabled={action.busy || !s?.configured}
+          onClick={async () => {
+            const r = await action.run<BotStatus>("/api/admin/telegram/connect", {}, t("botDone"));
+            if (r) setFresh(r);
+          }}
+        >
+          {action.busy ? <Spinner small /> : s?.connected ? t("botReconnect") : t("botConnect")}
+        </button>
+        <button type="button" className="btn btn--sm btn--ghost press" disabled={action.busy} onClick={() => { setFresh(null); void reload(); }}>
+          {t("botCheck")}
+        </button>
+      </div>
+    </section>
+  );
 }
 
 export function Settings() {
@@ -68,6 +131,8 @@ export function Settings() {
 
   return (
     <div className="stack">
+      <BotCard />
+
       <section className="card card--pad stack">
         <div>
           <h2>{t("theme")}</h2>
