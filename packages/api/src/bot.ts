@@ -1,16 +1,19 @@
 /**
- * The Telegram bot: a thin launcher for the Mini App, the Stars payment flow,
- * and nothing else. Browsing and buying happen in the Mini App.
+ * The Telegram bot: a launcher for the Mini App, the Stars payment flow and a few
+ * quick commands (/balance, /orders, /invite, /help). Browsing and buying happen
+ * in the Mini App.
  *
  * Telegram calls POST /telegram/webhook with the secret we registered; anything
  * without that header is refused.
  */
-import { verifyBotWebhook } from "@store/core";
+import { store } from "@store/config";
+import { formatUsd, verifyBotWebhook } from "@store/core";
 import { parsePreCheckoutQuery, parseSuccessfulPayment, starsForCents } from "@store/payments";
 import type { ApiEnv, Services } from "./context";
 import { n, one } from "./db";
 import { json } from "./http";
 import { creditStarsPayment } from "./payments";
+import { referralSettings } from "./promo";
 
 type Update = Record<string, any>;
 
@@ -18,16 +21,52 @@ const TEXT = {
   ar: {
     welcome: (name: string) => `أهلاً ${name} 👋\nكل منتجاتك في مكان واحد: ألعاب، اشتراكات، بطاقات وأكثر.\nاضغط الزر لفتح المتجر.`,
     open: "افتح المتجر",
-    help: "للمساعدة تواصل مع الدعم من داخل المتجر (حسابي ← المساعدة والدعم).",
-    unknown: "استخدم زر المتجر في الأسفل لتصفح المنتجات والشراء.",
+    help: [
+      "الأوامر:",
+      "/balance — رصيدك",
+      "/orders — آخر طلباتك",
+      "/invite — رابط دعوة الأصدقاء",
+      "",
+      "للمساعدة تواصل مع الدعم من داخل المتجر (حسابي ← المساعدة والدعم).",
+    ].join("\n"),
+    unknown: "استخدم زر المتجر في الأسفل لتصفح المنتجات والشراء، أو /help لرؤية الأوامر.",
     payFailed: "انتهت صلاحية هذا الدفع. ابدأ من جديد من المتجر.",
+    balance: (amount: string) => `رصيدك: ${amount}`,
+    topUp: "شحن الرصيد",
+    noOrders: "لا توجد طلبات بعد.",
+    lastOrders: "آخر طلباتك:",
+    allOrders: "كل الطلبات",
+    status: { paid: "قيد التنفيذ", processing: "قيد التنفيذ", delivered: "تم التسليم", failed: "تعذّر التنفيذ", refunded: "مُسترد" } as Record<string, string>,
+    invite: (link: string, pct: number, days: number) =>
+      `ادعُ أصدقاءك واحصل على ${pct}% من قيمة طلباتهم${days > 0 ? ` خلال أول ${days} يوماً` : ""} في رصيدك.\n\nرابطك:\n${link}`,
+    inviteOff: "الدعوات غير متاحة حالياً.",
+    share: "مشاركة الرابط",
+    shareText: "تسوّق ألعاب واشتراكات وبطاقات من هنا:",
   },
   en: {
     welcome: (name: string) => `Hi ${name} 👋\nGames, subscriptions, gift cards and more, all in one place.\nTap the button to open the store.`,
     open: "Open store",
-    help: "For help, contact support inside the store (Profile → Help and support).",
-    unknown: "Use the store button below to browse and buy.",
+    help: [
+      "Commands:",
+      "/balance — your balance",
+      "/orders — your latest orders",
+      "/invite — your invite link",
+      "",
+      "For help, contact support inside the store (Profile → Help and support).",
+    ].join("\n"),
+    unknown: "Use the store button below to browse and buy, or /help for commands.",
     payFailed: "This payment has expired. Please start again from the store.",
+    balance: (amount: string) => `Your balance: ${amount}`,
+    topUp: "Add funds",
+    noOrders: "No orders yet.",
+    lastOrders: "Your latest orders:",
+    allOrders: "All orders",
+    status: { paid: "Processing", processing: "Processing", delivered: "Delivered", failed: "Failed", refunded: "Refunded" } as Record<string, string>,
+    invite: (link: string, pct: number, days: number) =>
+      `Invite friends and get ${pct}% of what they spend${days > 0 ? ` in their first ${days} days` : ""}, added to your balance.\n\nYour link:\n${link}`,
+    inviteOff: "Invites are not available right now.",
+    share: "Share link",
+    shareText: "Games, subscriptions and gift cards:",
   },
 };
 
@@ -35,9 +74,75 @@ function lang(code: unknown): "ar" | "en" {
   return typeof code === "string" && !code.startsWith("ar") ? "en" : "ar";
 }
 
-function storeButton(env: ApiEnv, l: "ar" | "en", startParam?: string) {
-  const url = `${env.PUBLIC_BASE_URL}/tg${startParam ? `?startapp=${encodeURIComponent(startParam)}` : ""}`;
-  return { inline_keyboard: [[{ text: TEXT[l].open, web_app: { url } }]] };
+function webAppUrl(env: ApiEnv, startParam?: string): string {
+  return `${env.PUBLIC_BASE_URL}/tg${startParam ? `?startapp=${encodeURIComponent(startParam)}` : ""}`;
+}
+
+function storeButton(env: ApiEnv, l: "ar" | "en", startParam?: string, label: string = TEXT[l].open) {
+  return { inline_keyboard: [[{ text: label, web_app: { url: webAppUrl(env, startParam) } }]] };
+}
+
+/** The store user behind this Telegram account, created on first contact. */
+async function botUser(svc: Services, from: Record<string, any>): Promise<string | null> {
+  if (typeof from.id !== "number") return null;
+  const name = [from.first_name, from.last_name].filter((x) => typeof x === "string").join(" ");
+  const locale = typeof from.language_code === "string" && !from.language_code.startsWith("ar") ? "en" : "ar";
+  const row = await one<{ id: string }>(svc.db, `select app.ensure_telegram_user($1, $2, $3, $4) as id`, [
+    String(from.id),
+    typeof from.username === "string" ? from.username : null,
+    name,
+    locale,
+  ]);
+  return row?.id ?? null;
+}
+
+async function command(cmd: string, userId: string, chatId: unknown, l: "ar" | "en", env: ApiEnv, svc: Services): Promise<boolean> {
+  const T = TEXT[l];
+  if (cmd === "/balance") {
+    const w = await one<{ balance_cents: string | number }>(svc.db, `select balance_cents from app.wallets where user_id = $1`, [userId]);
+    await svc.telegram("sendMessage", { chat_id: chatId, text: T.balance(formatUsd(n(w?.balance_cents))), reply_markup: storeButton(env, l, "wallet", T.topUp) });
+    return true;
+  }
+  if (cmd === "/orders") {
+    const rows = await svc.db.query<{ number: string | number; status: string; total_cents: string | number; name_ar: string; name_en: string; offer_ar: string; offer_en: string }>(
+      `select o.number, o.status, o.total_cents, p.name_ar, p.name_en, f.name_ar as offer_ar, f.name_en as offer_en
+         from app.orders o join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
+        where o.user_id = $1 order by o.number desc limit 5`,
+      [userId],
+    );
+    const lines = rows.map((r) => {
+      const name = l === "ar" ? `${r.name_ar} · ${r.offer_ar}` : `${r.name_en} · ${r.offer_en}`;
+      return `${store.orderPrefix}${n(r.number)} — ${name}\n${T.status[r.status] ?? r.status} · ${formatUsd(n(r.total_cents))}`;
+    });
+    await svc.telegram("sendMessage", {
+      chat_id: chatId,
+      text: rows.length ? `${T.lastOrders}\n\n${lines.join("\n\n")}` : T.noOrders,
+      reply_markup: storeButton(env, l, rows.length ? "orders" : undefined, rows.length ? T.allOrders : T.open),
+    });
+    return true;
+  }
+  if (cmd === "/invite") {
+    const s = await referralSettings({ svc });
+    if (!s.enabled || s.percent <= 0) {
+      await svc.telegram("sendMessage", { chat_id: chatId, text: T.inviteOff, reply_markup: storeButton(env, l) });
+      return true;
+    }
+    const row = await one<{ code: string }>(svc.db, `select app.ensure_referral_code($1) as code`, [userId]);
+    const link = `https://t.me/${store.telegramBot}?start=r_${row?.code ?? ""}`;
+    const share = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(T.shareText)}`;
+    await svc.telegram("sendMessage", {
+      chat_id: chatId,
+      text: T.invite(link, s.percent, s.days),
+      link_preview_options: { is_disabled: true },
+      reply_markup: { inline_keyboard: [[{ text: T.share, url: share }], [{ text: T.open, web_app: { url: webAppUrl(env, "invite") } }]] },
+    });
+    return true;
+  }
+  if (cmd === "/help") {
+    await svc.telegram("sendMessage", { chat_id: chatId, text: T.help, reply_markup: storeButton(env, l) });
+    return true;
+  }
+  return false;
 }
 
 export async function handleBotWebhook(req: Request, env: ApiEnv, svc: Services): Promise<Response> {
@@ -102,19 +207,27 @@ export async function handleUpdate(update: Update, env: ApiEnv, svc: Services): 
 
   if (msg.chat?.type !== "private") return;
   const text = typeof msg.text === "string" ? msg.text.trim() : "";
-  if (text.startsWith("/start")) {
+  // "/orders@gh_store1_bot" and "/orders" are the same command.
+  const cmd = (text.split(/\s+/)[0] ?? "").replace(/@\w+$/, "").toLowerCase();
+
+  if (cmd === "/start") {
     const param = text.split(/\s+/)[1];
     const safeParam = param && /^[A-Za-z0-9_-]{1,64}$/.test(param) ? param : undefined;
+    const userId = await botUser(svc, from);
+    // t.me/<bot>?start=r_<code>: a friend's invite link.
+    if (userId && safeParam?.startsWith("r_")) {
+      await svc.db.query(`select app.set_referrer($1, $2)`, [userId, safeParam.slice(2)]);
+    }
     await svc.telegram("sendMessage", {
       chat_id: msg.chat.id,
       text: TEXT[l].welcome(String(from.first_name ?? "").slice(0, 40)),
-      reply_markup: storeButton(env, l, safeParam),
+      reply_markup: storeButton(env, l, safeParam?.startsWith("r_") ? undefined : safeParam),
     });
     return;
   }
-  await svc.telegram("sendMessage", {
-    chat_id: msg.chat.id,
-    text: text === "/help" ? TEXT[l].help : TEXT[l].unknown,
-    reply_markup: storeButton(env, l),
-  });
+  if (cmd.startsWith("/")) {
+    const userId = await botUser(svc, from);
+    if (userId && (await command(cmd, userId, msg.chat.id, l, env, svc))) return;
+  }
+  await svc.telegram("sendMessage", { chat_id: msg.chat.id, text: TEXT[l].unknown, reply_markup: storeButton(env, l) });
 }

@@ -80,6 +80,7 @@ curl -sS "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \\
   -d secret_token="${secrets.TELEGRAM_WEBHOOK_SECRET}" \\
   -d 'allowed_updates=["message","callback_query","pre_checkout_query"]'
 
+# Command menu (/balance, /orders, /invite, /help): see docs/launch-a-store.md § 9
 # Mini App button: @BotFather → /mybots → @${bot} → Bot Settings → Menu Button → https://${domain}/tg
 
 Webhooks:

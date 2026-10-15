@@ -56,6 +56,7 @@ interface Off {
   max_quantity: number;
   active: boolean;
   paused_reason: string | null;
+  remind_after_days: number | null;
   stock_available: number;
 }
 interface Sup {
@@ -328,6 +329,7 @@ interface OfferDraft {
   minMarginPct: string;
   price: string;
   maxQuantity: string;
+  remindDays: string;
   active: boolean;
   sort: string;
   fields: InputField[];
@@ -349,6 +351,7 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
     minMarginPct: String(offer ? Number(offer.min_margin_pct) : 5),
     price: offer ? (offer.price_cents / 100).toFixed(2) : "",
     maxQuantity: String(offer?.max_quantity ?? 1),
+    remindDays: offer?.remind_after_days ? String(offer.remind_after_days) : "",
     active: offer?.active ?? true,
     sort: String(offer?.sort ?? 0),
     fields: offer?.input_fields ?? [],
@@ -381,6 +384,7 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
       nameAr: d.nameAr,
       nameEn: d.nameEn,
       maxQuantity: Math.max(1, Math.min(100, Number(d.maxQuantity) || 1)),
+      remindAfterDays: Number(d.remindDays) >= 1 ? Math.min(365, Math.round(Number(d.remindDays))) : null,
       sort: Number(d.sort) || 0,
       active: d.active,
       inputFields: d.fields.filter((x) => x.key.trim() && x.labelEn.trim()),
@@ -498,6 +502,11 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
         <label className="field">
           <span>{t("sort")}</span>
           <input className="input num" inputMode="numeric" value={d.sort} onChange={(e) => set("sort", e.target.value)} />
+        </label>
+        <label className="field">
+          <span>{t("remindAfter")}</span>
+          <input className="input num" inputMode="numeric" value={d.remindDays} placeholder="—" onChange={(e) => set("remindDays", e.target.value.replace(/\D/g, "").slice(0, 3))} />
+          <span className="hint">{t("remindHint")}</span>
         </label>
         <div className="pref-row">
           <span>{t("active")}</span>

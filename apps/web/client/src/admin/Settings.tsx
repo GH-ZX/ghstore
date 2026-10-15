@@ -1,10 +1,10 @@
-/** Store settings: the theme for everyone, the SYP rate, how long orders wait for a person. */
+/** Store settings: the theme for everyone, the SYP rate, how long orders wait for a person, invite rewards. */
 import { useEffect, useState } from "react";
 import { THEMES, type ThemePreset } from "@store/ui";
 import { applyTheme, getState, PRESETS, setState, useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
 import type { PublicConfig } from "../lib/types";
-import { ErrorBox, Seg, Spinner } from "../ui/kit";
+import { ErrorBox, Seg, Spinner, Switch } from "../ui/kit";
 import { useAction } from "./common";
 
 interface SettingsData {
@@ -17,9 +17,15 @@ export function Settings() {
   const action = useAction();
   const [rate, setRate] = useState("");
   const [hours, setHours] = useState("24");
+  const [refPct, setRefPct] = useState("2");
+  const [refDays, setRefDays] = useState("90");
 
   useEffect(() => {
     if (!data) return;
+    const p = data.settings["referral.percent"];
+    setRefPct(typeof p === "number" ? String(p) : "0");
+    const d = data.settings["referral.days"];
+    setRefDays(typeof d === "number" ? String(d) : "0");
     const r = data.settings["fx.syp_per_usd"];
     setRate(typeof r === "number" ? String(r) : "");
     const h = data.settings["orders.max_pending_hours"];
@@ -90,6 +96,39 @@ export function Settings() {
         </label>
         <button type="button" className="btn btn--sm press" style={{ alignSelf: "flex-start" }} disabled={action.busy || (rate.trim() !== "" && !(Number(rate) > 0 && Number(rate) < 1000))} onClick={() => put("fx.syp_per_usd", rate.trim() ? Number(rate) : null)}>
           {action.busy ? <Spinner small /> : t("save")}
+        </button>
+      </section>
+
+      <section className="card card--pad stack-sm">
+        <div>
+          <h2>{t("referralTitle")}</h2>
+          <p className="hint">{t("referralHint")}</p>
+        </div>
+        <div className="pref-row">
+          <span>{t("referralOn")}</span>
+          <Switch checked={data.settings["referral.enabled"] === true} onChange={(v) => put("referral.enabled", v)} label={t("referralOn")} />
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>{t("referralPct")}</span>
+            <input className="input num" inputMode="decimal" value={refPct} onChange={(e) => setRefPct(e.target.value.replace(/[^\d.]/g, ""))} />
+          </label>
+          <label className="field">
+            <span>{t("referralDays")}</span>
+            <input className="input num" inputMode="numeric" value={refDays} onChange={(e) => setRefDays(e.target.value.replace(/\D/g, ""))} />
+          </label>
+        </div>
+        <button
+          type="button"
+          className="btn btn--sm press"
+          style={{ alignSelf: "flex-start" }}
+          disabled={action.busy || !(Number(refPct) >= 0 && Number(refPct) <= 20) || refDays === "" || Number(refDays) > 3650}
+          onClick={async () => {
+            await put("referral.percent", Math.round(Number(refPct) * 100) / 100);
+            await put("referral.days", Number(refDays));
+          }}
+        >
+          {t("save")}
         </button>
       </section>
 

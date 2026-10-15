@@ -103,4 +103,11 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   if (minute % 10 === 5) await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
   if (minute % 15 === 7) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
   if (minute % 5 === 3) await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 60, 1));
+  if (minute % 30 === 11) await heartbeat(svc, "buy_again", () => queueBuyAgain(svc));
+}
+
+/** Queue due "buy again" reminders; the outbox sends them on the next ticks. */
+export async function queueBuyAgain(svc: Services, limit = 100): Promise<number> {
+  const rows = await svc.db.query<{ queued: number }>(`select app.queue_buy_again($1) as queued`, [limit]);
+  return n(rows[0]?.queued);
 }

@@ -25,7 +25,9 @@ export async function overview(ctx: Ctx): Promise<Response> {
     db,
     `select
        (select coalesce(sum(total_cents), 0) from app.orders where status = 'delivered' and created_at >= date_trunc('day', now())) as sales_today,
-       (select coalesce(sum(total_cents - coalesce(cost_cents, total_cents)), 0) from app.orders where status = 'delivered' and created_at >= date_trunc('day', now())) as profit_today,
+       -- Profit after supplier cost and the invite rewards paid today.
+       (select coalesce(sum(total_cents - coalesce(cost_cents, total_cents)), 0) from app.orders where status = 'delivered' and created_at >= date_trunc('day', now()))
+         - (select coalesce(sum(amount_cents), 0) from app.ledger where kind = 'referral' and created_at >= date_trunc('day', now())) as profit_today,
        (select count(*) from app.orders where created_at >= date_trunc('day', now())) as orders_today,
        (select count(*) from app.orders where status in ('paid','processing')) as orders_open,
        (select count(*) from app.orders where status = 'failed') as orders_failed,
@@ -100,7 +102,7 @@ export async function listOrders(ctx: Ctx): Promise<Response> {
   await requireStaff(ctx);
   const status = ctx.url.searchParams.get("status");
   const rows = await ctx.svc.db.query(
-    `select o.id, o.number, o.status, o.total_cents, o.cost_cents, o.channel, o.supplier_id, o.supplier_order_id, o.attempts,
+    `select o.id, o.number, o.status, o.total_cents, o.discount_cents, o.cost_cents, o.channel, o.supplier_id, o.supplier_order_id, o.attempts,
             o.last_error, o.created_at, o.delivered_at, u.display_name, p.name_en as product_en, p.name_ar as product_ar
        from app.orders o join app.users u on u.id = o.user_id join app.products p on p.id = o.product_id
       where ($1::text is null or o.status = $1)
@@ -138,6 +140,9 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "theme.default_mode": (v) => typeof v === "string" && ["system", "light", "dark"].includes(v),
   "fx.syp_per_usd": (v) => v === null || (typeof v === "number" && v > 0 && v < 1000),
   "orders.max_pending_hours": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 168,
+  "referral.enabled": (v) => typeof v === "boolean",
+  "referral.percent": (v) => typeof v === "number" && v >= 0 && v <= 20 && Math.abs(Math.round(v * 100) - v * 100) < 1e-9,
+  "referral.days": (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 3650,
 };
 
 export async function getSettings(ctx: Ctx): Promise<Response> {

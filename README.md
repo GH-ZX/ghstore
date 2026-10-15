@@ -21,8 +21,9 @@ someone else's store.
 | API: auth, catalogue, wallet, top-ups, orders, admin, catalogue editor | Done, tested end to end |
 | Suppliers: G2Bulk, BatStore, ProdSeller, 5SIM, MaxStore | Done, tested with recorded responses |
 | Payments: Telegram Stars, ShamCash (SAM), NOWPayments, manual USDT BEP20 | Done, tested with recorded responses |
-| Bot: /start, Mini App button, Stars checkout | Done |
-| Scheduled jobs: fulfilment, payment re-checks, margin guard, balances, notifications | Done |
+| Bot: /start, Mini App button, Stars checkout, /balance, /orders, /invite, /help | Done |
+| Invite rewards, coupon codes, "buy again" reminders | Done, tested (SQL + API + browser) |
+| Scheduled jobs: fulfilment, payment re-checks, margin guard, balances, reminders, notifications | Done |
 | Brand: logo, icon, favicon, Telegram avatar, 4 themes × light/dark | Done |
 | Web app: website, Mini App (`/tg`), admin (`/admin`) | Done: React, Arabic/English, 4 themes × light/dark, checked end to end in a browser |
 

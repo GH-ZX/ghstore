@@ -12,6 +12,7 @@ import type { ApiEnv, Services } from "./context";
 import { ApiError, errorResponse, json } from "./http";
 import * as orders from "./orders";
 import * as payments from "./payments";
+import * as promo from "./promo";
 import { Router } from "./router";
 
 export type { ApiEnv, AuthedUser, Ctx, Services } from "./context";
@@ -35,6 +36,8 @@ const router = new Router()
   .on("POST", "/api/auth/logout", auth.logout)
   .on("GET", "/api/me", auth.me)
   .on("PATCH", "/api/me", auth.updateMe)
+  .on("GET", "/api/me/referral", promo.getReferral)
+  .on("POST", "/api/me/referral", promo.claimReferral)
   // catalog
   .on("GET", "/api/catalog", catalog.listCatalog)
   .on("GET", "/api/products/:slug", catalog.getProduct)
@@ -42,6 +45,7 @@ const router = new Router()
   .on("POST", "/api/orders", orders.placeOrder)
   .on("GET", "/api/orders", orders.listOrders)
   .on("GET", "/api/orders/:id", orders.getOrder)
+  .on("POST", "/api/coupons/quote", promo.quoteCoupon)
   .on("POST", "/api/webhooks/suppliers/:id", orders.supplierWebhook)
   // wallet and top-ups
   .on("GET", "/api/wallet", payments.walletHistory)
@@ -65,6 +69,9 @@ const router = new Router()
   .on("POST", "/api/admin/users/:id/wallet", admin.adjustWallet)
   .on("POST", "/api/admin/users/:id/role", admin.setUserRole)
   .on("POST", "/api/admin/suppliers/:id/sync", admin.runSupplierSync)
+  .on("GET", "/api/admin/coupons", promo.listCoupons)
+  .on("POST", "/api/admin/coupons", promo.createCoupon)
+  .on("PATCH", "/api/admin/coupons/:id", promo.updateCoupon)
   // admin catalogue
   .on("GET", "/api/admin/catalog", adminCatalog.getCatalog)
   .on("POST", "/api/admin/categories", adminCatalog.createCategory)

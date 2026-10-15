@@ -4,6 +4,7 @@
  */
 import { createRoot } from "react-dom/client";
 import { api, hasToken, setToken } from "./lib/api";
+import { captureReferralFromUrl, stashReferral } from "./lib/referral";
 import { navigate } from "./lib/router";
 import { applyLang, applyTheme, getState, refreshMe, setState } from "./lib/state";
 import { loadTelegram } from "./lib/telegram";
@@ -26,9 +27,15 @@ async function start() {
     applyLang(lang);
     setState({ miniApp: true, lang });
     w.onEvent("themeChanged", applyTheme);
-    // Deep links from the bot: t.me/<bot>?startapp=p_<slug> opens a product.
+    // Deep links: startapp=p_<slug> opens a product, r_<code> is a friend's invite,
+    // and the bot's buttons open the wallet, orders or the invite card.
     const sp = w.initDataUnsafe.start_param ?? new URLSearchParams(location.search).get("startapp") ?? undefined;
     if (sp?.startsWith("p_")) navigate(`/p/${sp.slice(2).replace(/[^a-z0-9-]/g, "")}`, { replace: true });
+    else if (sp?.startsWith("r_")) stashReferral(sp.slice(2));
+    else if (sp === "wallet" || sp === "orders") navigate(`/${sp}`, { replace: true });
+    else if (sp === "invite") navigate("/profile", { replace: true });
+  } else {
+    captureReferralFromUrl();
   }
   applyTheme();
   root.render(<App />);

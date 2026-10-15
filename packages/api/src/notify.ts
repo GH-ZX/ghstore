@@ -21,6 +21,18 @@ const TEMPLATES: Record<string, { ar: (d: Data) => string; en: (d: Data) => stri
     ar: (d) => `أُضيف ${formatUsd(n(d.amount_cents))} إلى رصيدك.`,
     en: (d) => `${formatUsd(n(d.amount_cents))} was added to your balance.`,
   },
+  referral_joined: {
+    ar: () => "انضم صديق إلى المتجر عن طريق رابط دعوتك 🎉\nستحصل على مكافأة في رصيدك عن طلباته المسلَّمة.",
+    en: () => "A friend joined through your invite link 🎉\nYou'll get a reward in your balance for their delivered orders.",
+  },
+  referral_reward: {
+    ar: (d) => `حصلت على مكافأة دعوة بقيمة ${formatUsd(n(d.amount_cents))}، وأُضيفت إلى رصيدك.`,
+    en: (d) => `You earned a ${formatUsd(n(d.amount_cents))} referral reward. It's in your balance.`,
+  },
+  buy_again: {
+    ar: (d) => `حان وقت التجديد؟ اشتريت ${String(d.name_ar ?? "")} (${String(d.offer_ar ?? "")}) قبل فترة.\nاطلبه مجدداً بضغطة واحدة.`,
+    en: (d) => `Time to renew? You bought ${String(d.name_en ?? "")} (${String(d.offer_en ?? "")}) a while ago.\nGet it again in one tap.`,
+  },
   staff_alert: {
     ar: (d) => `تنبيه: ${String(d.text ?? "")}`,
     en: (d) => `Alert: ${String(d.text ?? "")}`,
@@ -52,11 +64,11 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
       continue;
     }
     try {
-      await svc.telegram("sendMessage", {
-        chat_id: r.chat_id,
-        text,
-        reply_markup: { inline_keyboard: [[{ text: r.locale === "en" ? "Open store" : "افتح المتجر", web_app: { url: `${env.PUBLIC_BASE_URL}/tg` } }]] },
-      });
+      // "Buy again" opens the product itself; everything else opens the store.
+      const slug = r.template === "buy_again" && typeof r.data?.slug === "string" && /^[a-z0-9-]{1,80}$/.test(r.data.slug) ? r.data.slug : null;
+      const label = slug ? (r.locale === "en" ? "Buy again" : "اطلبه مجدداً") : r.locale === "en" ? "Open store" : "افتح المتجر";
+      const url = slug ? `${env.PUBLIC_BASE_URL}/tg?startapp=p_${slug}` : `${env.PUBLIC_BASE_URL}/tg`;
+      await svc.telegram("sendMessage", { chat_id: r.chat_id, text, reply_markup: { inline_keyboard: [[{ text: label, web_app: { url } }]] } });
       await svc.db.query(`update app.outbox set status = 'sent', sent_at = now() where id = $1`, [r.id]);
       sent++;
     } catch (err) {

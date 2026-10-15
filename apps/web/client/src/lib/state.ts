@@ -7,6 +7,7 @@ import { googleFontsHref, isPreset, themeCss, THEMES } from "@store/ui";
 import { store as storeConfig } from "@store/config";
 import { api, setToken } from "./api";
 import { translate, type MsgKey } from "./i18n";
+import { claimReferral } from "./referral";
 import { paintTelegram, tg } from "./telegram";
 import type { Lang, Me, PublicConfig } from "./types";
 
@@ -129,6 +130,7 @@ export async function refreshMe(): Promise<Me | null> {
   try {
     const me = await api<Me>("/api/me");
     setState({ me, authChecked: true });
+    void claimReferral();
     return me;
   } catch {
     setState({ me: null, authChecked: true });

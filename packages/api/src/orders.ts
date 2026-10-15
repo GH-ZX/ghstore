@@ -5,6 +5,7 @@ import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder, validateInput } from "./fulfilment";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
+import { couponCode } from "./promo";
 
 const CHANNELS = new Set(["web", "miniapp", "bot"]);
 
@@ -16,6 +17,7 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
   const idem = str(body, "idempotencyKey", { min: 8, max: 100, pattern: /^[A-Za-z0-9_-]+$/ });
   const channel = user.channel === "miniapp" ? "miniapp" : "web";
   if (!CHANNELS.has(channel)) throw new ApiError("bad_request");
+  const coupon = body.coupon === undefined || body.coupon === null || body.coupon === "" ? null : couponCode(body.coupon);
 
   const offer = await one<{ input_fields: InputField[] }>(ctx.svc.db, `select input_fields from app.offers where id = $1`, [offerId]);
   if (!offer) throw new ApiError("offer_unavailable");
@@ -23,10 +25,10 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
   const input = validateInput(offer.input_fields, rawInput);
   if ("error" in input && typeof input.error === "string") throw new ApiError("invalid_input", `input.${input.error}`);
 
-  const rows = await call<{ order_id: string; order_number: string | number; status: string; total_cents: string | number; balance_cents: string | number; created: boolean }>(
+  const rows = await call<{ order_id: string; order_number: string | number; status: string; total_cents: string | number; discount_cents: string | number; balance_cents: string | number; created: boolean }>(
     ctx.svc.db,
-    `select * from app.place_order($1, $2, $3, $4::text::jsonb, $5, $6)`,
-    [user.id, offerId, quantity, JSON.stringify(input), idem, channel],
+    `select * from app.place_order($1, $2, $3, $4::text::jsonb, $5, $6, $7)`,
+    [user.id, offerId, quantity, JSON.stringify(input), idem, channel, coupon],
   );
   const r = rows[0];
   if (!r) throw new ApiError("internal");
@@ -34,7 +36,10 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
     ctx.svc.waitUntil(fulfilOrder(ctx.svc, ctx.env, r.order_id).catch((e) => console.error("fulfil failed", r.order_id, String(e))));
   }
   return json(
-    { orderId: r.order_id, number: n(r.order_number), status: r.status, totalCents: n(r.total_cents), balanceCents: n(r.balance_cents), created: r.created },
+    {
+      orderId: r.order_id, number: n(r.order_number), status: r.status, totalCents: n(r.total_cents),
+      discountCents: n(r.discount_cents), balanceCents: n(r.balance_cents), created: r.created,
+    },
     { status: r.created ? 201 : 200 },
   );
 }
@@ -81,9 +86,10 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
   const id = uuid(ctx.params.id);
   // Ownership is part of the query: another user's order is simply "not found".
-  const o = await one<{ id: string; number: string | number; status: string; total_cents: string | number; created_at: string; delivered_at: string | null; input: Record<string, string>; name_ar: string; name_en: string; offer_ar: string; offer_en: string; input_fields: InputField[] }>(
+  const o = await one<{ id: string; number: string | number; status: string; total_cents: string | number; discount_cents: string | number; created_at: string; delivered_at: string | null; input: Record<string, string>; slug: string; product_active: boolean; name_ar: string; name_en: string; offer_ar: string; offer_en: string; input_fields: InputField[] }>(
     ctx.svc.db,
-    `select o.id, o.number, o.status, o.total_cents, o.created_at, o.delivered_at, o.input, p.name_ar, p.name_en,
+    `select o.id, o.number, o.status, o.total_cents, o.discount_cents, o.created_at, o.delivered_at, o.input,
+            p.slug, p.active as product_active, p.name_ar, p.name_en,
             f.name_ar as offer_ar, f.name_en as offer_en, f.input_fields
        from app.orders o join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
       where o.id = $1 and o.user_id = $2`,
@@ -99,9 +105,11 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
   for (const d of dels) deliveries.push({ kind: d.kind, label: d.label, value: await decryptText(d.value_enc, ctx.env.DATA_KEY) });
   return json({
     order: {
-      id: o.id, number: n(o.number), status: o.status, totalCents: n(o.total_cents), createdAt: o.created_at,
+      id: o.id, number: n(o.number), status: o.status, totalCents: n(o.total_cents), discountCents: n(o.discount_cents), createdAt: o.created_at,
       deliveredAt: o.delivered_at, input: o.input, productAr: o.name_ar, productEn: o.name_en,
       packageAr: o.offer_ar, packageEn: o.offer_en,
+      // For "Buy again" (only while the product is on sale).
+      productSlug: o.product_active ? o.slug : null,
       // Labels for the details the customer typed (player ID, server...).
       fields: (o.input_fields ?? []).map((f) => ({ key: f.key, labelEn: f.labelEn, labelAr: f.labelAr ?? null })),
     },

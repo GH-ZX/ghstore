@@ -24,7 +24,7 @@ export async function must<T>(db: Db, text: string, params?: readonly unknown[],
   return row;
 }
 
-/** Messages raised by the SQL functions (see packages/db/migrations/0002). */
+/** Messages raised by the SQL functions (see packages/db/migrations/0002 and 0004). */
 const DB_CODES = new Set<ErrorCode>([
   "insufficient_balance",
   "offer_unavailable",
@@ -36,6 +36,11 @@ const DB_CODES = new Set<ErrorCode>([
   "tx_reused",
   "bad_state",
   "not_allowed",
+  "coupon_invalid",
+  "coupon_not_applicable",
+  "coupon_used",
+  "coupon_exhausted",
+  "coupon_min_order",
 ]);
 
 /** SQLSTATE 23505 (unique violation): `code` in node-postgres/postgres.js, `errno` in Bun.SQL. */

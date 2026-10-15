@@ -115,13 +115,14 @@ export async function getTopup(ctx: Ctx): Promise<Response> {
 export async function walletHistory(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
   const kind = ctx.url.searchParams.get("kind");
-  const kinds = kind === "topup" ? ["topup"] : kind === "purchase" ? ["purchase", "refund"] : ["topup", "purchase", "refund", "adjustment"];
+  const kinds = kind === "topup" ? ["topup"] : kind === "purchase" ? ["purchase", "refund"] : ["topup", "purchase", "refund", "adjustment", "referral"];
   const balance = await one<{ balance_cents: string | number }>(ctx.svc.db, `select balance_cents from app.wallets where user_id = $1`, [user.id]);
   const rows = await ctx.svc.db.query<{ id: string | number; amount_cents: string | number; kind: string; ref_type: string; ref_id: string; created_at: string; note: string | null; method: string | null; product_ar: string | null; product_en: string | null }>(
     `select l.id, l.amount_cents, l.kind, l.ref_type, l.ref_id, l.created_at, l.note, pay.method, p.name_ar as product_ar, p.name_en as product_en
        from app.ledger l
        left join app.payments pay on l.ref_type = 'payment' and pay.id = l.ref_id
-       left join app.orders o on l.ref_type = 'order' and o.id = l.ref_id
+       -- Referral rewards point at the friend's order: never show what the friend bought.
+       left join app.orders o on l.ref_type = 'order' and l.kind in ('purchase', 'refund') and o.id = l.ref_id
        left join app.products p on p.id = o.product_id
       where l.user_id = $1 and l.kind = any(string_to_array($2::text, ','))
       order by l.id desc limit 50`,

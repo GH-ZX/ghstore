@@ -7,6 +7,7 @@ import type { MsgKey } from "../lib/i18n";
 import { Logo, Seg, Toast } from "../ui/kit";
 import { AdminOrders } from "./Orders";
 import { Catalog } from "./Catalog";
+import { Coupons } from "./Coupons";
 import { Overview } from "./Overview";
 import { Settings } from "./Settings";
 import { Suppliers } from "./Suppliers";
@@ -18,6 +19,7 @@ const SECTIONS: { path: string; key: MsgKey; owner?: boolean }[] = [
   { path: "/admin/topups", key: "topups" },
   { path: "/admin/orders", key: "orders" },
   { path: "/admin/catalog", key: "catalog", owner: true },
+  { path: "/admin/coupons", key: "coupons", owner: true },
   { path: "/admin/suppliers", key: "suppliers", owner: true },
   { path: "/admin/users", key: "users" },
   { path: "/admin/settings", key: "settings", owner: true },
@@ -78,6 +80,7 @@ export function Admin() {
         {section.key === "topups" && <Topups />}
         {section.key === "orders" && <AdminOrders />}
         {section.key === "catalog" && <Catalog />}
+        {section.key === "coupons" && <Coupons />}
         {section.key === "suppliers" && <Suppliers />}
         {section.key === "users" && <Users owner={owner} />}
         {section.key === "settings" && <Settings />}

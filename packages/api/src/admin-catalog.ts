@@ -143,7 +143,7 @@ export async function getCatalog(ctx: Ctx): Promise<Response> {
   const offers = await db.query<Record<string, unknown> & { cost_cents: unknown; price_cents: unknown }>(
     `select o.id, o.product_id, o.name_ar, o.name_en, o.sort, o.supplier_id, o.supplier_ref, o.cost_cents, o.price_cents,
             o.markup_mode, o.markup_value, o.round_to_cents, o.min_margin_pct, o.input_fields, o.max_quantity, o.active,
-            o.paused_reason, o.cost_checked_at,
+            o.paused_reason, o.cost_checked_at, o.remind_after_days,
             (select count(*) from app.stock_items s where s.offer_id = o.id and s.status = 'available') as stock_available
        from app.offers o order by o.sort, o.price_cents`,
   );
@@ -262,13 +262,16 @@ export async function createOffer(ctx: Ctx): Promise<Response> {
   const rows = await call<{ id: string }>(
     ctx.svc.db,
     `insert into app.offers (product_id, name_ar, name_en, sort, supplier_id, supplier_ref, cost_cents, price_cents,
-                             markup_mode, markup_value, round_to_cents, min_margin_pct, input_fields, max_quantity, active, cost_checked_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text::jsonb, $14, $15, case when $7::bigint is null then null else now() end)
+                             markup_mode, markup_value, round_to_cents, min_margin_pct, input_fields, max_quantity, active,
+                             remind_after_days, cost_checked_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text::jsonb, $14, $15, $16,
+             case when $7::bigint is null then null else now() end)
      returning id`,
     [
       productId, str(body, "nameAr", { max: 120 }), str(body, "nameEn", { max: 120 }), optInt(body, "sort", -10_000, 10_000) ?? 0,
       supplierId, supplierRef, cost, price, pricing.mode, pricing.value, pricing.roundToCents, pricing.minMarginPct,
       JSON.stringify(fields), optInt(body, "maxQuantity", 1, 100) ?? 1, bool(body, "active") ?? true,
+      optInt(body, "remindAfterDays", 1, 365) ?? null,
     ],
   );
   const id = rows[0]!.id;
@@ -301,6 +304,8 @@ export async function updateOffer(ctx: Ctx): Promise<Response> {
   if (maxQ !== undefined) changes.max_quantity = maxQ;
   const active = bool(body, "active");
   if (active !== undefined) changes.active = active;
+  // "Buy again" reminder after this many days (null turns it off).
+  if (body.remindAfterDays !== undefined) changes.remind_after_days = body.remindAfterDays === null ? null : int(body, "remindAfterDays", 1, 365);
   if (body.inputFields !== undefined) changes.input_fields = parseInputFields(body.inputFields);
   // Clearing a system pause is an explicit decision; the next sync pauses again if still needed.
   if (bool(body, "clearPause")) changes.paused_reason = null;

@@ -141,6 +141,23 @@ curl -sS "https://api.telegram.org/bot<TOKEN>/setWebhook" \
   -d 'allowed_updates=["message","callback_query","pre_checkout_query"]'
 ```
 
+The bot's command menu (once):
+
+```bash
+curl -sS "https://api.telegram.org/bot<TOKEN>/setMyCommands" -H 'content-type: application/json' -d '{"commands":[
+  {"command":"start","description":"Open the store"},
+  {"command":"balance","description":"Your balance"},
+  {"command":"orders","description":"Your latest orders"},
+  {"command":"invite","description":"Invite friends"},
+  {"command":"help","description":"Help"}]}'
+curl -sS "https://api.telegram.org/bot<TOKEN>/setMyCommands" -H 'content-type: application/json' -d '{"language_code":"ar","commands":[
+  {"command":"start","description":"افتح المتجر"},
+  {"command":"balance","description":"رصيدك"},
+  {"command":"orders","description":"آخر طلباتك"},
+  {"command":"invite","description":"ادعُ أصدقاءك"},
+  {"command":"help","description":"المساعدة"}]}'
+```
+
 In @BotFather:
 
 - `/mybots` → your bot → Bot Settings → Menu Button → `https://your-domain.com/tg`
@@ -162,7 +179,10 @@ good. Do it when the Worker is ready; the old Python bot can then be stopped.
    yourself go in a package with "Manual stock" → "Add stock".
 4. **Admin → Settings**: pick the theme (Calm, Energetic, Minimal, Warm) and the
    default light/dark mode, and the SYP rate if you want Syrian pound prices shown.
-5. Make a $1 test top-up with each method and a test order.
+   Invite rewards start **on at 2% for 90 days**; change or switch them off here.
+5. Optional: **Admin → Coupons** for launch codes, and "Buy-again reminder after
+   (days)" on subscription packages in the catalogue (28 for a 1-month plan).
+6. Make a $1 test top-up with each method and a test order.
 
 ## Moving from the old setup
 

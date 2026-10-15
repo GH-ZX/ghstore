@@ -11,6 +11,7 @@ export default defineConfig({
       "@store/payments": r("./packages/payments/src/index.ts"),
       "@store/api": r("./packages/api/src/index.ts"),
       "@store/ui": r("./packages/ui/src/index.ts"),
+      "@store/config": r("./store.config.ts"),
     },
   },
   test: {

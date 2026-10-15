@@ -106,6 +106,7 @@ export interface OrderDetail {
     number: number;
     status: OrderStatus;
     totalCents: number;
+    discountCents: number;
     createdAt: string;
     deliveredAt: string | null;
     input: Record<string, string>;
@@ -113,6 +114,7 @@ export interface OrderDetail {
     productEn: string;
     packageAr: string;
     packageEn: string;
+    productSlug: string | null;
     fields: { key: string; labelEn: string; labelAr: string | null }[];
   };
   deliveries: { kind: string; label: string | null; value: string }[];
@@ -121,7 +123,7 @@ export interface OrderDetail {
 export interface WalletEntry {
   id: string;
   amountCents: number;
-  kind: "topup" | "purchase" | "refund" | "adjustment";
+  kind: "topup" | "purchase" | "refund" | "adjustment" | "referral";
   createdAt: string;
   method: PaymentMethod | null;
   productAr: string | null;
@@ -159,4 +161,35 @@ export interface Topup {
   txHash: string | null;
   /** Manual USDT only: waiting for a hash, checking it on chain, or it did not match. */
   stage: "await_hash" | "checking" | "mismatch" | null;
+}
+
+export interface CouponQuote {
+  code: string;
+  discountCents: number;
+  totalCents: number;
+}
+
+export type Referral =
+  | { enabled: false }
+  | { enabled: true; percent: number; days: number; code: string; invited: number; buyers: number; earnedCents: number };
+
+export interface AdminCoupon {
+  id: string;
+  code: string;
+  percentOff: number | null;
+  amountOffCents: number | null;
+  maxDiscountCents: number | null;
+  minOrderCents: number;
+  productId: string | null;
+  productEn: string | null;
+  productAr: string | null;
+  maxUses: number | null;
+  maxUsesPerUser: number;
+  uses: number;
+  startsAt: string | null;
+  expiresAt: string | null;
+  active: boolean;
+  note: string;
+  createdAt: string;
+  discountTotalCents: number;
 }

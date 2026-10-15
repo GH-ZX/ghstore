@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { copyText, dateTime, usd } from "../lib/format";
 import { pick } from "../lib/i18n";
-import { linkHandler } from "../lib/router";
+import { linkHandler, navigate } from "../lib/router";
 import { toast, useT } from "../lib/state";
 import { haptic } from "../lib/telegram";
 import { useApi } from "../lib/useApi";
@@ -153,6 +153,11 @@ function OrderView({ id }: { id: string }) {
             ● {t(`st_${o.status}`)}
           </span>
         </div>
+        {o.discountCents > 0 && (
+          <span className="small good">
+            {t("discount")} <span className="num">−{usd(o.discountCents)}</span>
+          </span>
+        )}
       </div>
 
       {data.deliveries.length > 0 && (
@@ -187,6 +192,12 @@ function OrderView({ id }: { id: string }) {
             </div>
           ))}
         </div>
+      )}
+
+      {o.productSlug && !open && (
+        <button type="button" className="btn btn--block btn--soft press" onClick={() => navigate(`/p/${o.productSlug}`)}>
+          {t("buyAgain")}
+        </button>
       )}
     </div>
   );

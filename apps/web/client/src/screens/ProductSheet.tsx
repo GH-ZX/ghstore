@@ -1,5 +1,5 @@
 /** Product sheet: pick a package, fill its fields, buy from the wallet. */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiFail, idempotencyKey } from "../lib/api";
 import { toLatinDigits, usd } from "../lib/format";
 import { errorText, pick } from "../lib/i18n";
@@ -7,7 +7,7 @@ import { navigate } from "../lib/router";
 import { refreshMe, toast, useApp, useT } from "../lib/state";
 import { haptic } from "../lib/telegram";
 import { invalidate, useApi } from "../lib/useApi";
-import type { InputField, Offer, ProductDetail } from "../lib/types";
+import type { CouponQuote, InputField, Offer, ProductDetail } from "../lib/types";
 import { CheckIcon } from "../ui/icons";
 import { ErrorBox, Sheet, Spinner, Tile } from "../ui/kit";
 
@@ -42,11 +42,17 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const [busy, setBusy] = useState(false);
   const [placed, setPlaced] = useState<Placed | null>(null);
   const [failure, setFailure] = useState<ApiFail | null>(null);
+  const [coupon, setCoupon] = useState<CouponQuote | null>(null);
+  const [couponOpen, setCouponOpen] = useState(false);
+  const [couponText, setCouponText] = useState("");
+  const [couponErr, setCouponErr] = useState<string | null>(null);
+  const [couponBusy, setCouponBusy] = useState(false);
   const key = useRef(idempotencyKey());
 
   const offer: Offer | undefined = useMemo(() => data?.offers.find((o) => o.id === offerId) ?? data?.offers[0], [data, offerId]);
   const name = data ? pick(lang, data.product.nameAr, data.product.nameEn) : "";
-  const total = (offer?.priceCents ?? 0) * qty;
+  const listTotal = (offer?.priceCents ?? 0) * qty;
+  const total = coupon ? coupon.totalCents : listTotal;
   const balance = me?.balanceCents ?? 0;
   const enough = balance >= total;
   const invalid = offer ? offer.fields.some((f) => fieldError(f, values[f.key] ?? "")) : true;
@@ -56,6 +62,34 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
     setQty(1);
     key.current = idempotencyKey();
   }
+
+  async function applyCoupon(code: string): Promise<void> {
+    if (!offer || !code.trim()) return;
+    setCouponBusy(true);
+    setCouponErr(null);
+    try {
+      const q = await api<CouponQuote>("/api/coupons/quote", { body: { offerId: offer.id, quantity: qty, code: code.trim() } });
+      setCoupon(q);
+      setCouponOpen(false);
+      haptic("success");
+    } catch (e) {
+      setCoupon(null);
+      setCouponOpen(true);
+      setCouponText(code);
+      setCouponErr(errorText(lang, e instanceof ApiFail ? e.code : "internal"));
+      haptic("error");
+    } finally {
+      setCouponBusy(false);
+    }
+  }
+
+  // A different package or quantity changes the discount: ask again.
+  const appliedCode = useRef<string | null>(null);
+  appliedCode.current = coupon?.code ?? null;
+  useEffect(() => {
+    if (appliedCode.current) void applyCoupon(appliedCode.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offer?.id, qty]);
 
   async function buy() {
     setTouched(true);
@@ -73,7 +107,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
     try {
       const input: Record<string, string> = {};
       for (const f of offer.fields) if ((values[f.key] ?? "").trim()) input[f.key] = values[f.key]!.trim();
-      const r = await api<Placed>("/api/orders", { body: { offerId: offer.id, quantity: qty, input, idempotencyKey: key.current } });
+      const r = await api<Placed>("/api/orders", { body: { offerId: offer.id, quantity: qty, input, idempotencyKey: key.current, coupon: coupon?.code } });
       haptic("success");
       setPlaced(r);
       key.current = idempotencyKey();
@@ -86,6 +120,11 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
       setFailure(f);
       toast(errorText(lang, f.code), true);
       if (f.code === "offer_unavailable") void reload();
+      if (f.code.startsWith("coupon_")) {
+        setCoupon(null);
+        setCouponOpen(true);
+        setCouponErr(errorText(lang, f.code));
+      }
     } finally {
       setBusy(false);
     }
@@ -121,6 +160,12 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
         data &&
         offer && (
           <>
+            {coupon && (
+              <div className="row-between small">
+                <span className="good">{t("discount")} · {coupon.code}</span>
+                <span className="num good">−{usd(coupon.discountCents)}</span>
+              </div>
+            )}
             {me && (
               <div className="row-between small muted">
                 <span>{t("balanceAfter")}</span>
@@ -128,7 +173,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
               </div>
             )}
             {me && !enough && <span className="error-text">{t("notEnough")}</span>}
-            <button type="button" className="btn btn--block press" onClick={buy} disabled={busy || (touched && invalid)}>
+            <button type="button" className="btn btn--block press" onClick={buy} disabled={busy || couponBusy || (touched && invalid)}>
               {busy ? (
                 <Spinner small />
               ) : !me && !miniApp ? (
@@ -159,8 +204,15 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
           <Tile name={data.product.nameEn} imageUrl={data.product.imageUrl} className="product-tile" />
           <h2>{name}</h2>
           <div className="row-between">
-            <span className="num" style={{ fontSize: 26, fontWeight: 700, color: "var(--accent-text)" }}>
-              {usd(total)}
+            <span className="wrap" style={{ gap: 8, alignItems: "baseline" }}>
+              <span className="num" style={{ fontSize: 26, fontWeight: 700, color: "var(--accent-text)" }}>
+                {usd(total)}
+              </span>
+              {coupon && (
+                <s className="num muted" style={{ fontSize: 15 }}>
+                  {usd(listTotal)}
+                </s>
+              )}
             </span>
             <span className="badge badge--good">● {t("instant")}</span>
           </div>
@@ -224,6 +276,56 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
               </label>
             );
           })}
+
+          {me && (
+            <div className="stack-sm">
+              {coupon ? (
+                <div className="copy-box" style={{ fontFamily: "inherit" }}>
+                  <span className="good wrap" style={{ fontWeight: 600, gap: 6, flexWrap: "nowrap" }}>
+                    <CheckIcon />
+                    {t("couponApplied", { code: coupon.code })}
+                  </span>
+                  <button type="button" className="btn btn--xs btn--ghost press" onClick={() => { setCoupon(null); setCouponText(""); }}>
+                    {t("removeCoupon")}
+                  </button>
+                </div>
+              ) : couponOpen ? (
+                <form
+                  className="wrap"
+                  style={{ gap: 8, flexWrap: "nowrap" }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void applyCoupon(couponText);
+                  }}
+                >
+                  <input
+                    className="input"
+                    dir="ltr"
+                    style={{ flex: 1, minWidth: 0, textTransform: "uppercase" }}
+                    value={couponText}
+                    placeholder={t("couponPh")}
+                    aria-label={t("couponPh")}
+                    aria-invalid={couponErr ? true : undefined}
+                    autoComplete="off"
+                    autoCapitalize="characters"
+                    maxLength={32}
+                    onChange={(e) => {
+                      setCouponText(toLatinDigits(e.target.value).replace(/[^A-Za-z0-9_-]/g, ""));
+                      setCouponErr(null);
+                    }}
+                  />
+                  <button className="btn btn--sm btn--soft press" disabled={couponBusy || couponText.trim().length < 3}>
+                    {couponBusy ? <Spinner small /> : t("apply")}
+                  </button>
+                </form>
+              ) : (
+                <button type="button" className="btn btn--xs btn--ghost press" style={{ alignSelf: "flex-start" }} onClick={() => setCouponOpen(true)}>
+                  {t("haveCode")}
+                </button>
+              )}
+              {couponErr && <span className="error-text">{couponErr}</span>}
+            </div>
+          )}
 
           {pick(lang, data.product.descriptionAr, data.product.descriptionEn) ? (
             <div className="prose">{pick(lang, data.product.descriptionAr, data.product.descriptionEn)}</div>

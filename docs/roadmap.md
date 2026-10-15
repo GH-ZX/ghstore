@@ -23,7 +23,7 @@
   working.
 - This repository: schema and money functions, the full API, five suppliers, four
   payment methods, the bot, scheduled jobs, the catalogue editor API, brand assets,
-  theme tokens, CI, docs. 220 automated tests plus the SQL tests.
+  theme tokens, CI, docs. 220 automated tests plus the SQL tests (231 after milestone 3).
 - Migrations verified on the gh-store project's Postgres 17 inside a transaction
   that was rolled back (nothing created yet).
 
@@ -40,11 +40,20 @@
   settings (theme picker, SYP rate).
 - Free-plan fit: the cron spreads its work across the hour.
 
+## Done in milestone 3 (old-bot features)
+
+- Invite rewards on the ledger: invite code and links (bot, Mini App, website),
+  reward paid when the friend's order is delivered, settings in the admin,
+  "Invite friends" card on the profile.
+- Coupons: percent or fixed, caps, minimum order, one product or all, limits and
+  dates; checked at checkout, never below cost; admin page with uses and totals.
+- "Buy again" reminders per package, sent once on Telegram with a button to the product;
+  "Buy again" button on finished orders.
+- Bot commands: /balance, /orders, /invite, /help.
+
 ## After that
 
 - Link an email/Google login to a Telegram account (Telegram login already shares the wallet).
-- Referral rewards, coupons, and "buy again" reminders (from the old bot, rebuilt
-  on the ledger).
 - Syriatel Cash through SAM.
 - Notifications beyond Telegram (email receipts).
 - Admin: daily summary to the owners, CSV export.

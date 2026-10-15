@@ -104,6 +104,12 @@ export function openExternal(url: string): void {
   else window.open(url, "_blank", "noopener");
 }
 
+/** Open a t.me link: inside Telegram without leaving the app, else a new tab. */
+export function openTelegramLink(url: string): void {
+  if (webApp) webApp.openTelegramLink(url);
+  else window.open(url, "_blank", "noopener");
+}
+
 /**
  * Telegram's back button, shared by pages and sheets: the newest handler wins,
  * and the button hides when nothing needs it.

@@ -58,7 +58,9 @@ three doors from the same code:
   respects reduced-motion settings.
 - Routes: `/` store, `/p/:slug` product sheet, `/orders`, `/orders/:id`,
   `/wallet` (`?topup=` opens add-funds, `?payment=` shows a top-up's status),
-  `/profile`, `/login`, `/admin/*`. Deep link from the bot: `t.me/<bot>?startapp=p_<slug>`.
+  `/profile`, `/login`, `/admin/*`. Deep links into the Mini App: `?startapp=p_<slug>`
+  (a product), `r_<code>` (a friend's invite), `wallet`, `orders`, `invite`.
+  Website invite links are `/?ref=<code>`; the code is kept until sign-in.
 - No router or state library: a 90-line history router and a small store.
   Admin code is split into its own chunk, so customers never download it.
 - `_headers` sets a strict Content-Security-Policy; Telegram's iframe on
@@ -84,9 +86,14 @@ node-postgres as `store_app`, a login role that only has the rights of
 | `submit_tx_hash` | Attaches a USDT transaction hash to a top-up; a hash can be used once, store-wide. |
 | `adjust_wallet` | Owner-only manual adjustment with a note. |
 | `claim_due_orders` | Leases orders for the fulfilment job (`FOR UPDATE SKIP LOCKED`). |
+| `quote_coupon` | Previews a coupon for an offer and quantity; `place_order` applies the same rules with the coupon row locked. |
+| `ensure_referral_code` / `set_referrer` | A customer's invite code; links a brand-new customer to an inviter (once, no self-invites, no loops). |
+| `queue_buy_again` | Queues due "buy again" reminders and clears them. |
 
 Guard triggers stop anything else from setting an order or payment to
-`paid`/`refunded`. IDs are UUIDv7 (time ordered). Order numbers are a sequence
+`paid`/`refunded`. A trigger pays invite rewards when an invited customer's order
+becomes `delivered` (ledger kind `referral`, one per order), and another sets the
+order's "buy again" time from its package. IDs are UUIDv7 (time ordered). Order numbers are a sequence
 from 1001, shown as `GH-1001`.
 
 ## Order flow
@@ -139,6 +146,7 @@ admin (`GET /api/admin/suppliers/:id/products`, then create an offer).
 | `supplier_balances` | Every 15 min; alert once when a balance drops under its threshold |
 | `supplier_sync` | Hourly per supplier: costs, availability, margin guard |
 | `outbox` | Send queued Telegram notifications |
+| `buy_again` | Twice an hour: queue due "buy again" reminders |
 
 Each job records `last_ok_at` / `last_error` in `app.job_heartbeats`, shown on the
 admin overview.
@@ -165,8 +173,26 @@ admin overview.
 | Wallet | `GET /api/wallet`, `GET /api/topups/methods`, `POST /api/topups`, `GET /api/topups/:id`, `POST /api/topups/:id/tx` |
 | Webhooks | `POST /api/webhooks/payments/:method`, `POST /api/webhooks/suppliers/:id` |
 | Admin (staff) | overview; payments list/approve/reject/recheck; orders list/refund/retry; settings |
-| Admin (owner) | wallet adjust, user role/ban, supplier sync, catalogue (`/api/admin/catalog`, categories, products, offers, stock, supplier settings) |
+| Promotions | `POST /api/coupons/quote`, `GET/POST /api/me/referral` |
+| Admin (owner) | wallet adjust, user role/ban, supplier sync, catalogue (`/api/admin/catalog`, categories, products, offers, stock, supplier settings), coupons (`GET/POST /api/admin/coupons`, `PATCH /api/admin/coupons/:id`) |
 
 Errors are `{ "error": { "code": "...", "field": "..." } }` with stable codes the
 UI translates. State-changing requests must come from the store's own origin or
 carry a bearer token.
+
+## Promotions
+
+- **Invite rewards.** Every customer has a 7-character code. Links:
+  `t.me/<bot>?start=r_<code>` (the bot links the friend on /start),
+  `?startapp=r_<code>` (Mini App) and `/?ref=<code>` (website). Only customers who
+  joined in the last day and have no orders can be linked, once. The inviter gets
+  `referral.percent`% of what the friend pays for each delivered order during
+  `referral.days` days (0 = always). Settings in Admin → Settings.
+- **Coupons.** Percent (optionally capped) or fixed amount; minimum order; one
+  product or all; total and per-customer limits; start/end dates. A discount never
+  takes an order below its cost or to zero. `orders.total_cents` is what the
+  customer paid (`unit price × quantity − discount_cents`), so refunds, revenue and
+  profit stay right. A refunded order gives its coupon use back.
+- **Buy again.** `offers.remind_after_days` (e.g. 28 for a 1-month plan). One
+  Telegram message with a button that opens the product, unless the customer
+  already bought it again or turned notifications off.

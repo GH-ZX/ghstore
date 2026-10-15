@@ -90,6 +90,27 @@ const en = {
   adjustHint: "Positive adds, negative removes. Written to the ledger with your note.", ban: "Block", unban: "Unblock",
   r_customer: "Customer", r_support: "Support", r_owner: "Owner", searchUsers: "Name, @username, Telegram id or email",
   ok: "OK", yes: "Yes", no: "No", apply: "Apply", confirmRefund: "Refund this order to the customer's wallet?",
+  // coupons and invites
+  haveCode: "Have a promo code?", couponPh: "Promo code", couponApplied: "{code} applied", discount: "Discount",
+  removeCoupon: "Remove", subtotal: "Subtotal",
+  e_coupon_invalid: "This code isn't valid.", e_coupon_not_applicable: "This code can't be used on this item.",
+  e_coupon_used: "You've already used this code.", e_coupon_exhausted: "This code has been fully used.",
+  e_coupon_min_order: "This code needs a bigger order.",
+  t_referral: "Invite reward", inviteTitle: "Invite friends", inviteText: "Get {pct}% of what friends spend, added to your balance.",
+  inviteTextDays: "Get {pct}% of what friends spend in their first {days} days, added to your balance.",
+  inviteTelegram: "Telegram link", inviteWeb: "Website link", share: "Share", invited: "Joined", buyers: "Bought", earned: "Earned",
+  shareText: "Games, subscriptions and gift cards:",
+  // admin: coupons and invite rewards
+  coupons: "Coupons", newCoupon: "New coupon", couponCode: "Code", discountType: "Discount", dt_percent: "Percent", dt_amount: "Fixed amount",
+  percentOff: "Percent off", amountOff: "Amount off (USD)", maxDiscount: "Up to (USD, optional)", minOrder: "Minimum order (USD)",
+  onlyProduct: "Only for", anyProduct: "Any product", maxUses: "Total uses (empty = no limit)", perUser: "Uses per customer",
+  startsAt: "Starts (optional)", expiresAt: "Ends (optional)", uses: "Uses", discountGiven: "Discount given", unlimited: "No limit", ends: "Ends",
+  buyAgain: "Buy again", remindAfter: "Buy-again reminder after (days)",
+  remindHint: "Optional. For things that run out: 28 for a 1-month plan. The customer gets one Telegram message.",
+  couponHint: "A discount never brings an order below its cost, so a code may take off less on low-margin items.",
+  inactive: "Off", referralTitle: "Invite rewards", referralOn: "Invite rewards on", referralPct: "Reward (% of what the friend pays)",
+  referralDays: "Days a friend's orders count (0 = always)",
+  referralHint: "Paid to the inviter's balance when the invited friend's order is delivered. Only new customers can be invited.",
 } as const;
 
 export type MsgKey = keyof typeof en;
@@ -171,6 +192,25 @@ const ar: Record<MsgKey, string> = {
   adjustHint: "الموجب يضيف والسالب يخصم، ويُسجّل في السجل مع ملاحظتك.", ban: "حظر", unban: "إلغاء الحظر",
   r_customer: "عميل", r_support: "دعم", r_owner: "مالك", searchUsers: "الاسم أو @المعرّف أو رقم تيليجرام أو البريد",
   ok: "حسناً", yes: "نعم", no: "لا", apply: "تطبيق", confirmRefund: "استرجاع مبلغ هذا الطلب إلى محفظة العميل؟",
+  haveCode: "لديك كود خصم؟", couponPh: "كود الخصم", couponApplied: "تم تطبيق {code}", discount: "الخصم",
+  removeCoupon: "إزالة", subtotal: "المجموع",
+  e_coupon_invalid: "هذا الكود غير صالح.", e_coupon_not_applicable: "لا يمكن استخدام هذا الكود على هذا المنتج.",
+  e_coupon_used: "استخدمت هذا الكود من قبل.", e_coupon_exhausted: "انتهت استخدامات هذا الكود.",
+  e_coupon_min_order: "هذا الكود يحتاج طلباً أكبر.",
+  t_referral: "مكافأة دعوة", inviteTitle: "ادعُ أصدقاءك", inviteText: "احصل على {pct}% من قيمة طلبات أصدقائك في رصيدك.",
+  inviteTextDays: "احصل على {pct}% من قيمة طلبات أصدقائك خلال أول {days} يوماً، في رصيدك.",
+  inviteTelegram: "رابط تيليجرام", inviteWeb: "رابط الموقع", share: "مشاركة", invited: "انضموا", buyers: "اشتروا", earned: "ربحت",
+  shareText: "تسوّق ألعاب واشتراكات وبطاقات من هنا:",
+  coupons: "الكوبونات", newCoupon: "كوبون جديد", couponCode: "الكود", discountType: "الخصم", dt_percent: "نسبة", dt_amount: "مبلغ ثابت",
+  percentOff: "نسبة الخصم", amountOff: "قيمة الخصم (USD)", maxDiscount: "حتى (USD، اختياري)", minOrder: "أقل قيمة للطلب (USD)",
+  onlyProduct: "فقط لـ", anyProduct: "كل المنتجات", maxUses: "عدد الاستخدامات (فارغ = بلا حد)", perUser: "استخدامات لكل عميل",
+  startsAt: "يبدأ (اختياري)", expiresAt: "ينتهي (اختياري)", uses: "الاستخدامات", discountGiven: "مجموع الخصم", unlimited: "بلا حد", ends: "ينتهي",
+  buyAgain: "اطلبه مجدداً", remindAfter: "تذكير بإعادة الشراء بعد (أيام)",
+  remindHint: "اختياري. للأشياء التي تنتهي: 28 لاشتراك شهري. يصل العميلَ تذكير واحد على تيليجرام.",
+  couponHint: "الخصم لا ينزل بالطلب تحت التكلفة أبداً، لذلك قد يكون أقل على المنتجات قليلة الربح.",
+  inactive: "متوقف", referralTitle: "مكافآت الدعوة", referralOn: "تفعيل مكافآت الدعوة", referralPct: "المكافأة (% مما يدفعه الصديق)",
+  referralDays: "عدد الأيام التي تُحتسب فيها طلبات الصديق (0 = دائماً)",
+  referralHint: "تُضاف إلى رصيد صاحب الدعوة عند تسليم طلب الصديق. يمكن دعوة العملاء الجدد فقط.",
 };
 
 export const DICTS: Record<Lang, Record<MsgKey, string>> = { en, ar };

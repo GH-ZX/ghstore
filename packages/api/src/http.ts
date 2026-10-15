@@ -18,6 +18,11 @@ export type ErrorCode =
   | "tx_reused"
   | "bad_state"
   | "not_allowed"
+  | "coupon_invalid"
+  | "coupon_not_applicable"
+  | "coupon_used"
+  | "coupon_exhausted"
+  | "coupon_min_order"
   | "internal";
 
 const STATUS: Record<ErrorCode, number> = {
@@ -38,6 +43,11 @@ const STATUS: Record<ErrorCode, number> = {
   tx_reused: 409,
   bad_state: 409,
   not_allowed: 403,
+  coupon_invalid: 400,
+  coupon_not_applicable: 409,
+  coupon_used: 409,
+  coupon_exhausted: 409,
+  coupon_min_order: 409,
   internal: 500,
 };
 

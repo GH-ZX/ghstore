@@ -1,11 +1,13 @@
 /** Profile: who you are, totals, preferences, support, admin link and sign-out. */
 import { store } from "@store/config";
 import { api } from "../lib/api";
-import { usd } from "../lib/format";
+import { copyText, usd } from "../lib/format";
 import { navigate } from "../lib/router";
-import { refreshMe, setLang, setMode, signOut, useApp, useT, type Mode } from "../lib/state";
-import { openExternal } from "../lib/telegram";
-import { ChevronIcon, WalletIcon } from "../ui/icons";
+import { refreshMe, setLang, setMode, signOut, toast, useApp, useT, type Mode } from "../lib/state";
+import { haptic, openExternal, openTelegramLink } from "../lib/telegram";
+import type { Referral } from "../lib/types";
+import { useApi } from "../lib/useApi";
+import { ChevronIcon, GiftIcon, WalletIcon } from "../ui/icons";
 import { Seg, Switch } from "../ui/kit";
 import { AdminLink, Shell } from "../ui/Shell";
 import { RequireUser } from "./Login";
@@ -72,6 +74,8 @@ function ProfileView() {
           {t("topUp")}
         </button>
       </div>
+
+      <InviteCard />
 
       <div className="card" style={{ padding: "6px 16px" }}>
         <div className="small muted" style={{ padding: "10px 0 2px" }}>
@@ -145,6 +149,83 @@ function ProfileView() {
             </span>
           </a>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** "Invite friends": the customer's links and what they have earned (hidden when rewards are off). */
+function InviteCard() {
+  const { t } = useT();
+  const { miniApp } = useApp();
+  const { data } = useApi<Referral>("/api/me/referral");
+  if (!data?.enabled) return null;
+  const botLink = `https://t.me/${store.telegramBot}?start=r_${data.code}`;
+  const webLink = `${location.origin}/?ref=${data.code}`;
+  const shareLink = miniApp ? botLink : webLink;
+
+  async function copy(text: string) {
+    if (await copyText(text)) {
+      haptic("success");
+      toast(t("copied"));
+    }
+  }
+
+  async function share() {
+    if (miniApp) {
+      openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(botLink)}&text=${encodeURIComponent(t("shareText"))}`);
+      return;
+    }
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ url: shareLink, text: t("shareText") });
+        return;
+      } catch {
+        /* closed, or not allowed: copy instead */
+      }
+    }
+    await copy(shareLink);
+  }
+
+  const links: [string, string][] = miniApp ? [[t("inviteTelegram"), botLink]] : [[t("inviteWeb"), webLink], [t("inviteTelegram"), botLink]];
+  return (
+    <div className="card card--pad stack" id="invite">
+      <div className="wrap" style={{ gap: 12, flexWrap: "nowrap" }}>
+        <span className="round-icon" style={{ borderRadius: 14, background: "var(--tile)", color: "var(--accent-text)", flex: "none" }}>
+          <GiftIcon />
+        </span>
+        <span className="stack-sm" style={{ gap: 2 }}>
+          <span style={{ fontWeight: 700 }}>{t("inviteTitle")}</span>
+          <span className="small muted">{data.days > 0 ? t("inviteTextDays", { pct: data.percent, days: data.days }) : t("inviteText", { pct: data.percent })}</span>
+        </span>
+      </div>
+      {links.map(([label, link]) => (
+        <div key={link} className="stack-sm" style={{ gap: 6 }}>
+          <span className="small muted">{label}</span>
+          <div className="copy-box">
+            <span>{link}</span>
+            <button type="button" className="btn btn--xs btn--ghost press" onClick={() => copy(link)}>
+              {t("copy")}
+            </button>
+          </div>
+        </div>
+      ))}
+      <button type="button" className="btn btn--block press" onClick={share}>
+        {t("share")}
+      </button>
+      <div className="stats" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+        <div className="stat">
+          <span className="num">{data.invited}</span>
+          <span className="small muted">{t("invited")}</span>
+        </div>
+        <div className="stat">
+          <span className="num">{data.buyers}</span>
+          <span className="small muted">{t("buyers")}</span>
+        </div>
+        <div className="stat">
+          <span className="num">{usd(data.earnedCents)}</span>
+          <span className="small muted">{t("earned")}</span>
+        </div>
       </div>
     </div>
   );

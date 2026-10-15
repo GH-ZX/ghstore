@@ -121,7 +121,7 @@ function EntryRow({ e }: { e: WalletEntry }) {
       <span className="list-row__main">
         <span className="list-row__title">{title}</span>
         <span className="list-row__meta">
-          {t(`t_${e.kind}`)} · {dateTime(e.createdAt, lang)}
+          {title === t(`t_${e.kind}`) ? dateTime(e.createdAt, lang) : `${t(`t_${e.kind}`)} · ${dateTime(e.createdAt, lang)}`}
         </span>
       </span>
       <span className="num" style={{ fontWeight: 700, color: incoming ? "var(--good)" : "var(--ink)" }}>
