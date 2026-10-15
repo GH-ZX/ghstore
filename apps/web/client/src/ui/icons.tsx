@@ -76,6 +76,12 @@ export const BoltIcon = ({ size = 12 }: P) => (
   </Svg>
 );
 
+export const ShareIcon = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
 export const GiftIcon = ({ size = 22 }: P) => (
   <Svg size={size}>
     <path d="M4 11h16v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8ZM3 7h18v4H3zM12 7v14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />

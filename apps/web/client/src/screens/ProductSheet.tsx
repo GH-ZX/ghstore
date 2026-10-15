@@ -1,14 +1,14 @@
 /** Product sheet: pick a package, fill its fields, buy from the wallet. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiFail, idempotencyKey } from "../lib/api";
-import { toLatinDigits, usd } from "../lib/format";
+import { copyText, toLatinDigits, usd } from "../lib/format";
 import { errorText, pick } from "../lib/i18n";
 import { navigate } from "../lib/router";
 import { refreshMe, toast, useApp, useT } from "../lib/state";
-import { haptic } from "../lib/telegram";
+import { haptic, openTelegramLink } from "../lib/telegram";
 import { invalidate, useApi } from "../lib/useApi";
 import type { CouponQuote, InputField, Offer, ProductDetail } from "../lib/types";
-import { CheckIcon } from "../ui/icons";
+import { CheckIcon, ShareIcon } from "../ui/icons";
 import { ErrorBox, Sheet, Spinner, Tile } from "../ui/kit";
 
 interface Placed {
@@ -57,6 +57,25 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const balance = me?.balanceCents ?? 0;
   const enough = balance >= total;
   const invalid = offer ? offer.fields.some((f) => fieldError(f, values[f.key] ?? "")) : true;
+
+  /** Share the product's page (it shows a preview with its name, picture and price). */
+  async function share() {
+    const link = `${location.origin}/p/${slug}`;
+    haptic();
+    if (miniApp) {
+      openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(name)}`);
+      return;
+    }
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ url: link, title: name });
+        return;
+      } catch {
+        /* closed: copy instead */
+      }
+    }
+    if (await copyText(link)) toast(t("linkCopied"));
+  }
 
   function choose(o: Offer) {
     setOfferId(o.id);
@@ -156,7 +175,16 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
     <Sheet
       onClose={onClose}
       label={name || t("loading")}
-      head={<span className="small muted">{data ? t(`kind_${data.product.kind}`) : ""}</span>}
+      head={
+        <span className="wrap" style={{ gap: 10, flexWrap: "nowrap" }}>
+          <span className="small muted">{data ? t(`kind_${data.product.kind}`) : ""}</span>
+          {data && (
+            <button type="button" className="icon-btn press" aria-label={t("share")} onClick={share}>
+              <ShareIcon />
+            </button>
+          )}
+        </span>
+      }
       foot={
         data &&
         offer && (

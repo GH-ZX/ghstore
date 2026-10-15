@@ -73,8 +73,11 @@ const meta = await build({
 });
 const { store, themeCss, googleFontsHref } = await import(`data:text/javascript;base64,${Buffer.from(meta.outputFiles[0].contents).toString("base64")}`);
 
+const attr = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 const html = (await readFile(join(here, "index.html"), "utf8"))
-  .replaceAll("%NAME%", store.name)
+  .replaceAll("%NAME%", attr(store.name))
+  .replaceAll("%URL%", attr(store.url))
+  .replaceAll("%DESC%", attr(store.defaultLocale === "en" ? store.tagline.en : store.tagline.ar))
   .replaceAll("%LANG%", store.defaultLocale === "en" ? "en" : "ar")
   .replaceAll("%DIR%", store.defaultLocale === "en" ? "ltr" : "rtl")
   .replace("%THEME%", themeCss(store.theme.preset, store.theme.mode))
@@ -104,6 +107,6 @@ await writeFile(
 );
 
 await copyFile(join(here, "public", "_headers"), join(out, "_headers"));
-await copyFile(join(here, "public", "robots.txt"), join(out, "robots.txt"));
+// robots.txt and sitemap.xml are answered by the Worker (they need the live product list).
 
 console.log(`built ${jsName} (${(js.length / 1024).toFixed(0)} KB), ${cssName} (${(css.length / 1024).toFixed(0)} KB)`);

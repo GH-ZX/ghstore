@@ -6,6 +6,13 @@
 export const store = {
   /** Full name, typed where the name appears in text. */
   name: "GH Store",
+  /** The website's address (no trailing slash): link previews need absolute URLs. Same as PUBLIC_BASE_URL. */
+  url: "https://gh-store.me",
+  /** One line for search results and link previews. */
+  tagline: {
+    ar: "شحن ألعاب، بطاقات، اشتراكات وأكثر — تسليم فوري.",
+    en: "Game top-ups, gift cards, subscriptions and more, delivered instantly.",
+  },
   /** The logo mark. */
   mark: "GH.",
   /** Default language; Arabic is right-to-left. */

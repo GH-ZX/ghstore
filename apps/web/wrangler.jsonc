@@ -16,7 +16,8 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/telegram/*"]
+    // Product pages get their own link preview (title, picture, price) from the Worker.
+    "run_worker_first": ["/api/*", "/telegram/*", "/p/*", "/sitemap.xml", "/robots.txt"]
   },
   "hyperdrive": [
     // Create with caching off (see `pnpm setup:store` for the full command):
