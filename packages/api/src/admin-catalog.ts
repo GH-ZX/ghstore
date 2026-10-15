@@ -55,14 +55,20 @@ function httpsUrl(body: Record<string, unknown>, key: string): string | null | u
 }
 
 /** Customer input fields for an offer (player id, server, email...). */
+/** Letters (any script, with their marks), digits and a few separators suppliers use. */
+export const FIELD_KEY = /^[\p{L}\p{N}_][\p{L}\p{M}\p{N}_ .()/:-]{0,47}$/u;
+/** Names that would clash with JavaScript object internals. */
+const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 export function parseInputFields(value: unknown): InputField[] {
   if (!Array.isArray(value) || value.length > 6) throw new ApiError("invalid_input", "inputFields");
   const seen = new Set<string>();
   return value.map((f) => {
     if (!f || typeof f !== "object") throw new ApiError("invalid_input", "inputFields");
     const o = f as Record<string, unknown>;
-    // Supplier field names are kept exactly ("Player_ID", "رقم المشترك"): suppliers read them back.
-    const key = str(o, "key", { max: 48, pattern: /^[\p{L}\p{N}_][\p{L}\p{N}_ .-]{0,47}$/u });
+    // Supplier field names are kept exactly ("Player_ID", "معرّف اللاعب"): suppliers read them back.
+    const key = str(o, "key", { max: 48, pattern: FIELD_KEY });
+    if (RESERVED_KEYS.has(key)) throw new ApiError("invalid_input", "inputFields");
     if (seen.has(key)) throw new ApiError("invalid_input", "inputFields");
     seen.add(key);
     const field: InputField = { key, labelEn: str(o, "labelEn", { max: 60 }), required: o.required !== false };

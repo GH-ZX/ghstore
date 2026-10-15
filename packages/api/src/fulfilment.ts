@@ -119,27 +119,31 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
 }
 
 /** Check customer input against the offer's field rules before charging anything. */
-export function validateInput(fields: InputField[], input: Record<string, unknown>): Record<string, string> | { error: string } {
-  const out: Record<string, string> = {};
+export function validateInput(
+  fields: InputField[],
+  input: Record<string, unknown>,
+): { ok: true; values: Record<string, string> } | { ok: false; field: string } {
+  // A plain map: field names are the supplier's own and must never reach Object internals.
+  const values: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const f of fields) {
-    const raw = input[f.key];
+    const raw = Object.hasOwn(input, f.key) ? input[f.key] : undefined;
     const v = typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : "";
     if (!v) {
-      if (f.required) return { error: f.key };
+      if (f.required) return { ok: false, field: f.key };
       continue;
     }
-    if (v.length > 200) return { error: f.key };
-    if (f.options?.length && !f.options.some((o) => o.value === v)) return { error: f.key };
+    if (v.length > 200) return { ok: false, field: f.key };
+    if (f.options?.length && !f.options.some((o) => o.value === v)) return { ok: false, field: f.key };
     if (f.pattern) {
       let re: RegExp;
       try {
         re = new RegExp(f.pattern);
       } catch {
-        return { error: f.key };
+        return { ok: false, field: f.key };
       }
-      if (!re.test(v)) return { error: f.key };
+      if (!re.test(v)) return { ok: false, field: f.key };
     }
-    out[f.key] = v;
+    values[f.key] = v;
   }
-  return out;
+  return { ok: true, values };
 }

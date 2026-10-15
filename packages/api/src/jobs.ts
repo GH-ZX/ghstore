@@ -105,7 +105,8 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   if (minute % 15 === 7) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
   if (minute % 5 === 3) await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 60, 1));
   if (minute % 30 === 11) await heartbeat(svc, "buy_again", () => queueBuyAgain(svc));
-  if (minute === 50) await heartbeat(svc, "daily_summary", () => queueDailySummary(svc));
+  // Checked six times an hour, so one missed tick never skips a day; it is sent once.
+  if (minute % 10 === 9) await heartbeat(svc, "daily_summary", () => queueDailySummary(svc));
 }
 
 /** Queue due "buy again" reminders; the outbox sends them on the next ticks. */

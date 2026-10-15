@@ -147,7 +147,7 @@ admin (`GET /api/admin/suppliers/:id/products`, then create an offer).
 | `supplier_sync` | Hourly per supplier: costs, availability, margin guard |
 | `outbox` | Send queued Telegram notifications |
 | `buy_again` | Twice an hour: queue due "buy again" reminders |
-| `daily_summary` | Hourly at :50; at the owner's chosen local hour, queue the day's summary once |
+| `daily_summary` | Every 10 minutes; in the owner's chosen local hour (default 09:00), queue yesterday's summary once |
 
 Each job records `last_ok_at` / `last_error` in `app.job_heartbeats`, shown on the
 admin overview.
@@ -222,8 +222,9 @@ are in `store.config.ts`.
 
 - **Daily summary** (Telegram, every owner): sales, orders, profit after supplier
   cost and invite rewards, top-ups, new customers, and what needs attention
-  (failed or open orders, top-ups to review, low supplier balances). Sent once a
-  day at `reports.daily_hour` in `store.timeZone`; on/off in Admin → Settings.
+  (failed or open orders, top-ups to review, low supplier balances), for the
+  previous complete day. Sent once a day in the hour `reports.daily_hour`
+  (default 9) of `store.timeZone`; on/off in Admin → Settings.
 - **CSV exports** (Admin → Overview): orders, top-ups, wallet history for 7/30/90
   days or a year. UTF-8 with a BOM so Excel shows Arabic; cells that look like
   formulas are written as text.

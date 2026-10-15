@@ -114,13 +114,15 @@ export function renderProductPage(
     `<script type="application/ld+json">${ldJson}</script>`,
   ].join("\n");
 
+  // Replacer functions, never replacement strings: "$&" or "$'" in a product's
+  // text must stay text, not splice parts of the page back in.
   return indexHtml
     // The template's own site-wide preview tags make way for the product's.
-    .replace(/<meta (?:property="og:[^"]+"|name="twitter:[^"]+")[^>]*>\n?/g, "")
-    .replace(/<link rel="canonical"[^>]*>\n?/g, "")
-    .replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(title)}</title>`)
-    .replace(/<meta name="description"[^>]*>/, `<meta name="description" content="${escapeHtml(description)}">`)
-    .replace("</head>", `${tags}\n</head>`);
+    .replace(/<meta (?:property="og:[^"]+"|name="twitter:[^"]+")[^>]*>\n?/g, () => "")
+    .replace(/<link rel="canonical"[^>]*>\n?/g, () => "")
+    .replace(/<title>[^<]*<\/title>/, () => `<title>${escapeHtml(title)}</title>`)
+    .replace(/<meta name="description"[^>]*>/, () => `<meta name="description" content="${escapeHtml(description)}">`)
+    .replace("</head>", () => `${tags}\n</head>`);
 }
 
 /** Every product on sale, for search engines. */

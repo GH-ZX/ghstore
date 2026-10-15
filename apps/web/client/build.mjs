@@ -74,16 +74,17 @@ const meta = await build({
 const { store, themeCss, googleFontsHref } = await import(`data:text/javascript;base64,${Buffer.from(meta.outputFiles[0].contents).toString("base64")}`);
 
 const attr = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+// Replacer functions keep "$" in names or taglines literal.
 const html = (await readFile(join(here, "index.html"), "utf8"))
-  .replaceAll("%NAME%", attr(store.name))
-  .replaceAll("%URL%", attr(store.url))
-  .replaceAll("%DESC%", attr(store.defaultLocale === "en" ? store.tagline.en : store.tagline.ar))
-  .replaceAll("%LANG%", store.defaultLocale === "en" ? "en" : "ar")
-  .replaceAll("%DIR%", store.defaultLocale === "en" ? "ltr" : "rtl")
-  .replace("%THEME%", themeCss(store.theme.preset, store.theme.mode))
-  .replace("%FONTS%", googleFontsHref(store.theme.preset))
-  .replace("%CSS%", `/assets/${cssName}`)
-  .replace("%JS%", `/assets/${jsName}`);
+  .replaceAll("%NAME%", () => attr(store.name))
+  .replaceAll("%URL%", () => attr(store.url))
+  .replaceAll("%DESC%", () => attr(store.defaultLocale === "en" ? store.tagline.en : store.tagline.ar))
+  .replaceAll("%LANG%", () => (store.defaultLocale === "en" ? "en" : "ar"))
+  .replaceAll("%DIR%", () => (store.defaultLocale === "en" ? "ltr" : "rtl"))
+  .replace("%THEME%", () => themeCss(store.theme.preset, store.theme.mode))
+  .replace("%FONTS%", () => googleFontsHref(store.theme.preset))
+  .replace("%CSS%", () => `/assets/${cssName}`)
+  .replace("%JS%", () => `/assets/${jsName}`);
 await writeFile(join(out, "index.html"), html);
 
 await writeFile(

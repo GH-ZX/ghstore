@@ -1,6 +1,6 @@
 /** Owner reports: daily summary and CSV exports. */
 import { afterAll, describe, expect, it } from "vitest";
-import { handle, localNow, queueDailySummary, sendOutbox, summaryText, toCsv } from "../src/index";
+import { handle, localNow, previousDay, queueDailySummary, sendOutbox, summaryText, toCsv } from "../src/index";
 import { connectTestDb, env, Harness } from "./helpers";
 
 const conn = await connectTestDb();
@@ -37,6 +37,8 @@ describe("daily summary", () => {
     const msg = h.telegramCalls.find((c) => c.payload.chat_id === "900001" && String(c.payload.text).startsWith("Daily summary"));
     expect(msg).toBeDefined();
     expect(String(msg!.payload.text)).toMatch(/Sales: \$\d+\.\d{2} \(\d+ orders\)/);
+    // It covers yesterday, a complete day.
+    expect(String(msg!.payload.text)).toContain(`Daily summary · ${previousDay(localNow(h.svc.now()).date)}`);
     expect(JSON.stringify(msg!.payload.reply_markup)).toContain("startapp=admin");
     await h.call("PATCH", "/api/me", { token: owner, body: { notify: true } });
   });
@@ -57,6 +59,7 @@ describe("CSV exports", () => {
     expect(csv.startsWith("﻿a,b,c,d\r\n")).toBe(true);
     expect(csv).toContain('"x,y","say ""hi""",\'=HYPERLINK(1),-12.50\r\n');
     expect(csv).toContain(',"line\nbreak",\'@me,3\r\n');
+    expect(toCsv(["a"], [["x;=cmd"]])).toContain('"x;=cmd"');
   });
 
   it("lets only the owner download orders, top-ups and wallet history", async () => {
@@ -74,6 +77,7 @@ describe("CSV exports", () => {
     expect(wallet.text.split("\r\n")[0]).toBe("﻿id,created_at,customer,telegram,kind,amount_usd,balance_after_usd,ref_type,ref_id,note");
     expect((await raw("/api/admin/export/orders.csv?from=2020-01-01&to=2026-01-01", owner)).status).toBe(400);
     expect((await raw("/api/admin/export/orders.csv?from=nope", owner)).status).toBe(400);
+    expect((await raw("/api/admin/export/orders.csv?from=2026-02-31&to=2026-03-02", owner)).status).toBe(400);
     expect((await raw("/api/admin/export/secrets.csv", owner)).status).toBe(404);
   });
 });

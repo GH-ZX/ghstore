@@ -1,5 +1,6 @@
 /** Today at a glance, supplier balances, background jobs and CSV exports. */
 import { useState } from "react";
+import { store } from "@store/config";
 import { ApiFail, download } from "../lib/api";
 import { usd } from "../lib/format";
 import { errorText } from "../lib/i18n";
@@ -124,9 +125,10 @@ function Exports() {
   const [busy, setBusy] = useState<string | null>(null);
 
   async function get(kind: "orders" | "topups" | "wallet") {
+    // Days in the store's time zone, as the server counts them.
+    const day = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: store.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
     const to = new Date();
     const from = new Date(to.getTime() - (Number(range) - 1) * 86_400_000);
-    const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     setBusy(kind);
     try {
       await download(`/api/admin/export/${kind}.csv?from=${day(from)}&to=${day(to)}`);

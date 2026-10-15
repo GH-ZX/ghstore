@@ -20,14 +20,14 @@ export function Settings() {
   const [hours, setHours] = useState("24");
   const [refPct, setRefPct] = useState("2");
   const [refDays, setRefDays] = useState("90");
-  const [hour, setHour] = useState("23");
+  const [hour, setHour] = useState("9");
 
   useEffect(() => {
     if (!data) return;
     const p = data.settings["referral.percent"];
     setRefPct(typeof p === "number" ? String(p) : "0");
     const dh = data.settings["reports.daily_hour"];
-    setHour(typeof dh === "number" ? String(dh) : "23");
+    setHour(typeof dh === "number" ? String(dh) : "9");
     const d = data.settings["referral.days"];
     setRefDays(typeof d === "number" ? String(d) : "0");
     const r = data.settings["fx.syp_per_usd"];

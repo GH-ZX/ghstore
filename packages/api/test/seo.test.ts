@@ -50,6 +50,18 @@ describe("product link previews", () => {
     expect(ld.offers).toMatchObject({ "@type": "AggregateOffer", lowPrice: "1.23", highPrice: "25.00", priceCurrency: "USD", offerCount: 4 });
   });
 
+  it("keeps $ signs in product text literal", () => {
+    const html = renderProductPage(
+      INDEX,
+      { slug: "x", nameAr: "", nameEn: "Steam $& $' $` $$", descriptionAr: "", descriptionEn: 'Top up "10$" now', imageUrl: null, minCents: 100, maxCents: 100, offers: 1 },
+      { baseUrl: "https://gh-store.me", storeName: "GH Store", locale: "en" },
+    );
+    expect(html).toContain("<title>Steam $&amp; $&#39; $` $$ | GH Store</title>");
+    expect(html).toContain("Top up &quot;10$&quot; now");
+    expect(html.match(/<meta name="description"/g)).toHaveLength(1);
+    expect(html.match(/<\/head>/g)).toHaveLength(1);
+  });
+
   it("cannot be used to inject markup", () => {
     const html = renderProductPage(
       INDEX,

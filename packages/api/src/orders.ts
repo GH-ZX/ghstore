@@ -22,8 +22,9 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
   const offer = await one<{ input_fields: InputField[] }>(ctx.svc.db, `select input_fields from app.offers where id = $1`, [offerId]);
   if (!offer) throw new ApiError("offer_unavailable");
   const rawInput = body.input && typeof body.input === "object" && !Array.isArray(body.input) ? (body.input as Record<string, unknown>) : {};
-  const input = validateInput(offer.input_fields, rawInput);
-  if ("error" in input && typeof input.error === "string") throw new ApiError("invalid_input", `input.${input.error}`);
+  const checked = validateInput(offer.input_fields, rawInput);
+  if (!checked.ok) throw new ApiError("invalid_input", `input.${checked.field}`);
+  const input = checked.values;
 
   const rows = await call<{ order_id: string; order_number: string | number; status: string; total_cents: string | number; discount_cents: string | number; balance_cents: string | number; created: boolean }>(
     ctx.svc.db,

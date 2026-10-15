@@ -50,13 +50,15 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const [couponBusy, setCouponBusy] = useState(false);
   const key = useRef(idempotencyKey());
 
+  // Field names are the supplier's own; look them up without touching Object internals.
+  const valueOf = (key: string): string => (Object.hasOwn(values, key) ? values[key] ?? "" : "");
   const offer: Offer | undefined = useMemo(() => data?.offers.find((o) => o.id === offerId) ?? data?.offers[0], [data, offerId]);
   const name = data ? pick(lang, data.product.nameAr, data.product.nameEn) : "";
   const listTotal = (offer?.priceCents ?? 0) * qty;
   const total = coupon ? coupon.totalCents : listTotal;
   const balance = me?.balanceCents ?? 0;
   const enough = balance >= total;
-  const invalid = offer ? offer.fields.some((f) => fieldError(f, values[f.key] ?? "")) : true;
+  const invalid = offer ? offer.fields.some((f) => fieldError(f, valueOf(f.key))) : true;
 
   /** Share the product's page (it shows a preview with its name, picture and price). */
   async function share() {
@@ -126,7 +128,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
     setFailure(null);
     try {
       const input: Record<string, string> = {};
-      for (const f of offer.fields) if ((values[f.key] ?? "").trim()) input[f.key] = values[f.key]!.trim();
+      for (const f of offer.fields) if (valueOf(f.key).trim()) input[f.key] = valueOf(f.key).trim();
       const r = await api<Placed>("/api/orders", { body: { offerId: offer.id, quantity: qty, input, idempotencyKey: key.current, coupon: coupon?.code } });
       haptic("success");
       setPlaced(r);
@@ -282,7 +284,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
           )}
 
           {offer.fields.map((f) => {
-            const value = values[f.key] ?? "";
+            const value = valueOf(f.key);
             const bad = (touched || value !== "") && fieldError(f, value);
             const numeric = f.pattern ? /^\^?\[0-9\]|\\d/.test(f.pattern) : false;
             if (f.options?.length) {

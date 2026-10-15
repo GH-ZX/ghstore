@@ -250,10 +250,18 @@ describe("customer fields", () => {
       { key: "Player_ID", labelEn: "Player ID", required: false },
       { key: "server_id", labelEn: "Server", required: true, options: [{ value: "Asia" }, { value: "Europe", labelAr: "أوروبا" }] },
     ];
-    const bad = await h.call("POST", `/api/admin/products/${productId}/offers`, {
-      token: owner, body: { nameAr: "خيارات", nameEn: "Choices", supplierId: "promo", supplierRef: `fields-${run}`, costCents: 100, inputFields: [{ key: "x{y}", labelEn: "Bad" }] },
+    for (const key of ["x{y}", "__proto__", "constructor"]) {
+      const bad = await h.call("POST", `/api/admin/products/${productId}/offers`, {
+        token: owner, body: { nameAr: "خيارات", nameEn: "Choices", supplierId: "promo", supplierRef: `fields-${run}`, costCents: 100, inputFields: [{ key, labelEn: "Bad" }] },
+      });
+      expect(bad.status).toBe(400);
+    }
+    // Marks (shadda) and brackets are kept: MaxStore sends names like these.
+    const marks = await h.call("POST", `/api/admin/products/${productId}/offers`, {
+      token: owner, body: { nameAr: "علامات", nameEn: "Marks", supplierId: "promo", supplierRef: `marks-${run}`, costCents: 100,
+        inputFields: [{ key: "معرّف اللاعب (ID)", labelEn: "Player" }, { key: "error", labelEn: "Not an error" }] },
     });
-    expect(bad.status).toBe(400);
+    expect(marks.status).toBe(201);
     const o = await h.call("POST", `/api/admin/products/${productId}/offers`, {
       token: owner, body: { nameAr: "خيارات", nameEn: "Choices", supplierId: "promo", supplierRef: `fields-${run}`, costCents: 100, inputFields: fields },
     });
@@ -273,5 +281,9 @@ describe("customer fields", () => {
     await h.settle();
     const order = await h.call("GET", `/api/orders/${ok.data.orderId}`, { token });
     expect(order.data.order.input).toEqual({ "رقم المشترك": "0933", server_id: "Asia" });
+    // A field literally named "error" is just a field.
+    const marksOffer = (await h.call("GET", `/api/products/netflix-${run}`)).data.offers.find((x: any) => x.nameEn === "Marks");
+    const e = await h.call("POST", "/api/orders", { token, body: { offerId: marksOffer.id, idempotencyKey: `fields-${run}-3`, input: { "معرّف اللاعب (ID)": "77", error: "x" } } });
+    expect(e.status).toBe(201);
   });
 });

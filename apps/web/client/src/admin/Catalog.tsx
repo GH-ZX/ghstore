@@ -526,7 +526,7 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
             <label className="field">
               <span>{t("fieldKey")}</span>
               {/* Kept exactly as the supplier names it ("Player_ID", "رقم المشترك"): the supplier reads it back. */}
-              <input className="input num" dir="auto" value={fld.key} onChange={(e) => updateField(i, { key: e.target.value.replace(/[^\p{L}\p{N}_ .-]/gu, "").slice(0, 48) })} placeholder="player_id" />
+              <input className="input num" dir="auto" value={fld.key} onChange={(e) => updateField(i, { key: e.target.value.replace(/[^\p{L}\p{M}\p{N}_ .()/:-]/gu, "").slice(0, 48) })} placeholder="player_id" />
             </label>
             <label className="field">
               <span>{t("fieldPattern")}</span>
@@ -542,17 +542,7 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
             </label>
             <label className="field span-2">
               <span>{t("fieldChoices")}</span>
-              <input
-                className="input"
-                dir="auto"
-                value={(fld.options ?? []).map((o) => o.value).join(", ")}
-                placeholder="Asia, Europe, America"
-                onChange={(e) => {
-                  const values = [...new Set(e.target.value.split(",").map((v) => v.trim()).filter(Boolean))].slice(0, 50);
-                  const old = new Map((fld.options ?? []).map((o) => [o.value, o]));
-                  updateField(i, { options: values.length ? values.map((v) => old.get(v) ?? { value: v }) : undefined });
-                }}
-              />
+              <ChoicesInput options={fld.options} onChange={(options) => updateField(i, { options })} />
               <span className="hint">{t("fieldChoicesHint")}</span>
             </label>
             <div className="pref-row span-2">
@@ -569,6 +559,18 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
       </div>
     </Sheet>
   );
+}
+
+/** Choices typed as "Asia, Europe, South East Asia": kept as typed, read when the field loses focus. */
+function ChoicesInput({ options, onChange }: { options: InputField["options"]; onChange: (o: InputField["options"]) => void }) {
+  const [text, setText] = useState(() => (options ?? []).map((o) => o.value).join(", "));
+  function commit() {
+    const values = [...new Set(text.split(",").map((v) => v.trim()).filter(Boolean))].slice(0, 50);
+    const old = new Map((options ?? []).map((o) => [o.value, o]));
+    onChange(values.length ? values.map((v) => old.get(v) ?? { value: v }) : undefined);
+    setText(values.join(", "));
+  }
+  return <input className="input" dir="auto" value={text} placeholder="Asia, Europe, America" onChange={(e) => setText(e.target.value)} onBlur={commit} />;
 }
 
 // ───────────────────────────── stock and import

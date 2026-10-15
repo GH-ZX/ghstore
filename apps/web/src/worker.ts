@@ -19,6 +19,17 @@ const SECURITY_HEADERS: Record<string, string> = {
   "permissions-policy": "camera=(), microphone=(), geolocation=()",
 };
 
+/** The page's Content-Security-Policy. Keep in step with client/public/_headers (Cloudflare does not apply that file to Worker responses). */
+const PAGE_CSP =
+  "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+  "font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://*.supabase.co; " +
+  "frame-src https://oauth.telegram.org; frame-ancestors 'self' https://web.telegram.org https://*.telegram.org; base-uri 'self'; form-action 'self'";
+
+/** Resolve with null if the work takes longer than `ms` (a slow database must not hang a page). */
+function within<T>(ms: number, work: Promise<T>): Promise<T | null> {
+  return Promise.race([work, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+}
+
 function withSecurityHeaders(res: Response): Response {
   const out = new Response(res.body, res);
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) out.headers.set(k, v);
@@ -36,13 +47,14 @@ async function productPage(request: Request, slug: string, env: WorkerEnv, ctx: 
   if (!page.ok || !(page.headers.get("content-type") ?? "").includes("text/html")) return page;
   const { svc, finish } = createServices(env);
   try {
-    const meta = await productMeta(svc, slug);
+    const meta = await within(1500, productMeta(svc, slug));
     if (!meta) return page;
     const html = renderProductPage(await page.text(), meta, { baseUrl: env.PUBLIC_BASE_URL, storeName: store.name, locale: store.defaultLocale });
     const headers = new Headers(page.headers);
     headers.delete("content-length");
     headers.delete("etag");
     headers.set("cache-control", "no-cache");
+    headers.set("content-security-policy", PAGE_CSP);
     return withSecurityHeaders(new Response(html, { status: 200, headers }));
   } catch (err) {
     console.error("product page meta failed", err instanceof Error ? err.message : String(err));
@@ -55,9 +67,14 @@ async function productPage(request: Request, slug: string, env: WorkerEnv, ctx: 
 async function sitemap(env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
   const { svc, finish } = createServices(env);
   try {
-    return new Response(await sitemapXml(svc, env.PUBLIC_BASE_URL), {
+    const xml = await within(3000, sitemapXml(svc, env.PUBLIC_BASE_URL));
+    if (!xml) return new Response("sitemap unavailable", { status: 503, headers: { "retry-after": "300" } });
+    return new Response(xml, {
       headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" },
     });
+  } catch (err) {
+    console.error("sitemap failed", err instanceof Error ? err.message : String(err));
+    return new Response("sitemap unavailable", { status: 503, headers: { "retry-after": "300" } });
   } finally {
     ctx.waitUntil(finish());
   }

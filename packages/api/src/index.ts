@@ -26,7 +26,7 @@ export { normalizeSearch, matchesQuery } from "@store/core";
 export { renderTemplate, sendOutbox } from "./notify";
 export { handleBotWebhook, handleUpdate } from "./bot";
 export { syncSupplier, syncDueSuppliers } from "./sync";
-export { daySummary, localNow, queueDailySummary, summaryText, toCsv } from "./reports";
+export { daySummary, localNow, previousDay, queueDailySummary, summaryText, toCsv } from "./reports";
 export { PRODUCT_PATH, productMeta, renderProductPage, robotsTxt, sitemapXml, type ProductMeta } from "./seo";
 
 const router = new Router()

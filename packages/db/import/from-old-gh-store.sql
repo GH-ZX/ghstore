@@ -54,18 +54,22 @@ returns jsonb language sql immutable as $$
     'pattern', case when p_type = 'number' then '^[0-9]+$' end,
     'options', case when jsonb_typeof(p_options) = 'array' and jsonb_array_length(p_options) between 1 and 50 then (
       select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
-               'value', coalesce(o->>'value', o#>>'{}'),
+               'value', btrim(coalesce(o->>'value', o#>>'{}')),
                'labelEn', left(coalesce(o->>'label_en', o->>'label'), 60),
                'labelAr', left(coalesce(o->>'label_ar', o->>'label'), 60))))
         from jsonb_array_elements(p_options) o
-       where coalesce(o->>'value', o#>>'{}') is not null) end))
+       where nullif(btrim(coalesce(o->>'value', o#>>'{}')), '') is not null) end))
 $$;
 
--- Fields per old product (game_input_fields), canonical keys for game top-ups.
+-- Fields per old product (game_input_fields). G2Bulk gets the canonical keys
+-- (player_id, server_id); other suppliers read their own field names back, so
+-- theirs stay exactly as they are.
 create temp table _game_fields on commit drop as
 select f.game_id as product_id,
        jsonb_agg(pg_temp.field_json(f.field_key, f.field_type, f.label_en, f.label_ar, f.is_required, f.options, true)
-                 order by f.sort_order, f.field_key) as fields,
+                 order by f.sort_order, f.field_key) as fields_g2bulk,
+       jsonb_agg(pg_temp.field_json(f.field_key, f.field_type, f.label_en, f.label_ar, f.is_required, f.options, false)
+                 order by f.sort_order, f.field_key) as fields_raw,
        bool_or(lower(f.field_key) in ('userid', 'user_id', 'uid', 'playerid', 'player_id', 'serverid', 'server_id', 'zoneid', 'zone_id')) as player
   from public.game_input_fields f
  group by f.game_id;
@@ -75,8 +79,9 @@ select f.game_id as product_id,
 insert into app.products (slug, category_id, name_ar, name_en, description_ar, description_en, search_terms,
                           image_url, kind, active, featured, sort)
 select p.slug, ac.id, left(p.name_ar, 120), left(p.name_en, 120),
-       coalesce(p.description_ar, ''), coalesce(p.description_en, ''),
-       left(coalesce(array_to_string(p.search_aliases, ' '), ''), 2000),
+       -- Clamped to what the admin editor accepts, so saving a product later never fails.
+       left(coalesce(p.description_ar, ''), 4000), left(coalesce(p.description_en, ''), 4000),
+       left(coalesce(array_to_string(p.search_aliases, ' '), ''), 500),
        (select u from unnest(array[p.image_url, p.thumbnail_url, p.logo_url]) u where u ~ '^https://' limit 1),
        case
          when gf.player or exists (select 1 from public.offers o where o.product_id = p.id and jsonb_typeof(o.input_fields) = 'array' and jsonb_array_length(o.input_fields) > 0) then 'id'
@@ -107,17 +112,18 @@ select o.id as old_id, ap.id as product_id, left(o.name_ar, 120) as name_ar, lef
        ceil(m.supplier_cost_usd * 100)::bigint as cost_cents,
        round(o.price * 100)::bigint as price_cents,
        o.is_active as active,
-       coalesce(
+       case when o.delivery_kind in ('direct', 'stored') then '[]'::jsonb  -- stock goods: nothing to ask (as on the old site)
+       else coalesce(
          case when jsonb_typeof(o.input_fields) = 'array' and jsonb_array_length(o.input_fields) > 0 then (
            select jsonb_agg(pg_temp.field_json(e->>'field_key', e->>'field_type', e->>'label_en', e->>'label_ar',
                                                coalesce((e->>'is_required')::boolean, true), e->'options', false))
              from jsonb_array_elements(o.input_fields) e where e->>'field_key' is not null) end,
-         gf.fields,
+         case when m.provider_name = 'g2bulk' then gf.fields_g2bulk else gf.fields_raw end,
          -- A G2Bulk game top-up always needs the player id.
          case when m.provider_name = 'g2bulk' and m.external_product_id is null then
            '[{"key":"player_id","labelEn":"Player ID","labelAr":"معرّف اللاعب (ID)","required":true}]'::jsonb end,
          '[]'::jsonb
-       ) as input_fields
+       ) end as input_fields
   from public.offers o
   join public.provider_offer_mappings m on m.offer_id = o.id
   join public.products p on p.id = o.product_id

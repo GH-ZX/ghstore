@@ -83,10 +83,12 @@ It copies the categories, products and packages of the current site from
 `public` into `app` (nothing in `public` changes, and it is safe to run twice).
 Each package keeps its supplier and today's price; the markup is set to today's,
 so the hourly sync keeps prices in step with supplier costs. Customer fields come
-along, with game servers as choices. A rolled-back dry run on the live data
-(15 Oct 2026) brought over all 75 products and 673 packages (655 on sale), with
-nothing skipped; one package sits under the 5% margin floor, so the first sync
-will raise its price a little. Customers, balances and orders are not copied.
+along, with game servers as choices; stock goods (vouchers, codes) ask for
+nothing, as on the old site. A rolled-back dry run on the live data (15 Oct 2026)
+brought over all 75 products and 673 packages (655 on sale) with nothing skipped:
+601 packages ask for customer details (21 with a server choice), 72 ask for
+nothing. One package sits under the 5% margin floor, so the first sync will raise
+its price a little. Customers, balances and orders are not copied.
 
 ## 5. Hyperdrive
 

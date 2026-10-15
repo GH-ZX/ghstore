@@ -98,9 +98,15 @@ export function summaryText(s: DaySummary, locale: "ar" | "en"): string {
   return lines.join("\n");
 }
 
+/** The local date before `date` (YYYY-MM-DD). */
+export function previousDay(date: string): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+}
+
 /**
- * Hourly: at the chosen local hour, queue today's summary for every owner, once
- * per day (the date is claimed in app.settings so overlapping runs send one).
+ * At the chosen local hour, queue YESTERDAY's summary (a complete day) for every
+ * owner, once per day: the sending date is claimed in app.settings in the same
+ * transaction as the messages, so overlapping or repeated runs send one.
  */
 export async function queueDailySummary(svc: Services): Promise<boolean> {
   const rows = await svc.db.query<{ key: string; value: unknown }>(
@@ -108,24 +114,26 @@ export async function queueDailySummary(svc: Services): Promise<boolean> {
   );
   const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   if (s["reports.daily"] === false) return false;
-  const hour = typeof s["reports.daily_hour"] === "number" ? s["reports.daily_hour"] : 23;
+  const hour = typeof s["reports.daily_hour"] === "number" ? s["reports.daily_hour"] : 9;
   const now = localNow(svc.now());
   if (now.hour !== hour) return false;
-  const claimed = await svc.db.query(
-    `insert into app.settings (key, value) values ('reports.daily_last', to_jsonb($1::text))
-     on conflict (key) do update set value = excluded.value, updated_at = now()
-       where app.settings.value is distinct from excluded.value
-     returning key`,
-    [now.date],
-  );
-  if (!claimed.length) return false;
-  const summary = await daySummary(svc, now.date);
-  await svc.db.query(
-    `insert into app.outbox (user_id, template, data)
-     select id, 'daily_summary', $1::text::jsonb from app.users where role = 'owner' and status = 'active'`,
-    [JSON.stringify(summary)],
-  );
-  return true;
+  return svc.db.tx(async (db) => {
+    const claimed = await db.query(
+      `insert into app.settings (key, value) values ('reports.daily_last', to_jsonb($1::text))
+       on conflict (key) do update set value = excluded.value, updated_at = now()
+         where app.settings.value is distinct from excluded.value
+       returning key`,
+      [now.date],
+    );
+    if (!claimed.length) return false;
+    const summary = await daySummary({ db }, previousDay(now.date));
+    await db.query(
+      `insert into app.outbox (user_id, template, data)
+       select id, 'daily_summary', $1::text::jsonb from app.users where role = 'owner' and status = 'active'`,
+      [JSON.stringify(summary)],
+    );
+    return true;
+  });
 }
 
 // ───────────────────────────────────────────────────────────── CSV exports
@@ -137,7 +145,8 @@ function csvCell(v: unknown): string {
   let s = v instanceof Date ? v.toISOString() : String(v);
   // Spreadsheet formula injection: a cell starting with = + - @ is shown as text.
   if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  // Quoted when it holds a separator of any kind (Excel may use ";" instead of ",").
+  return /[",;\t\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export function toCsv(header: string[], rows: unknown[][]): string {
@@ -199,7 +208,9 @@ export async function exportCsv(ctx: Ctx): Promise<Response> {
   const today = localNow(ctx.svc.now()).date;
   const day = (v: string | null, fallback: string) => {
     if (v === null || v === "") return fallback;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(`${v}T00:00:00Z`))) throw new ApiError("invalid_input", "from");
+    // A real calendar day: 2026-02-31 parses in JavaScript but is not one.
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(v) ? Date.parse(`${v}T00:00:00Z`) : Number.NaN;
+    if (Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== v || v < "2000-01-01") throw new ApiError("invalid_input", "from");
     return v;
   };
   const to = day(ctx.url.searchParams.get("to"), today);
