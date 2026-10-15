@@ -147,11 +147,19 @@ Either:
   (CI runs on every push and pull request).
 - **By hand**: `pnpm ship`.
 
-Check `https://your-domain.com/api/health` → `{"ok":true}`.
+The Worker is named `ghstore`. **Do not rename it to `gh-store`**: that name
+belongs to the current live site's Worker, and deploying under it would replace
+the live site at once.
 
-Attach the domain in `wrangler.jsonc` (`routes` with `custom_domain: true`) or in
-the dashboard. Moving gh-store.me over replaces the current site, so do that last,
-after the new store is tested on a temporary hostname (`*.workers.dev`).
+Test first on the temporary address `https://ghstore.<account>.workers.dev`:
+set `PUBLIC_BASE_URL` (in `wrangler.jsonc` or the dashboard's variables) to that
+address while testing, because the API accepts website requests only from that
+origin. Check `…/api/health` → `{"ok":true}`.
+
+Switch-over, when the test passes: set `PUBLIC_BASE_URL` back to
+`https://gh-store.me`, then in Cloudflare move the custom domain gh-store.me from
+the old `gh-store` Worker to `ghstore` (or add `routes` with `custom_domain: true`
+in `wrangler.jsonc`). That is the moment customers see the new store.
 
 ## 9. Telegram
 

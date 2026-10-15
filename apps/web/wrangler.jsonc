@@ -3,7 +3,9 @@
 // scheduled jobs. Secrets are set with `wrangler secret put` — never here.
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "gh-store",
+  // Not "gh-store": that Worker is the CURRENT live site (gh-store-dev). Deploying
+  // under its name would replace it. gh-store.me moves here only at switch-over.
+  "name": "ghstore",
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -26,6 +28,8 @@
     { "binding": "HYPERDRIVE", "id": "REPLACE_WITH_HYPERDRIVE_ID" }
   ],
   "vars": {
+    // While testing on workers.dev set this to that address (https://ghstore.<account>.workers.dev):
+    // the API only accepts website requests from this origin. Switch to gh-store.me at switch-over.
     "PUBLIC_BASE_URL": "https://gh-store.me",
     "PAYMENT_METHODS": "sam,nowpayments,bep20,stars",
     // Website sign-in options: telegram (same wallet as the bot), email (code), google.
