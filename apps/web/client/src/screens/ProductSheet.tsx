@@ -21,6 +21,7 @@ interface Placed {
 function fieldError(f: InputField, value: string): boolean {
   const v = value.trim();
   if (!v) return f.required;
+  if (f.options?.length) return !f.options.some((o) => o.value === v);
   if (f.pattern) {
     try {
       return !new RegExp(f.pattern).test(v);
@@ -256,6 +257,37 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             const value = values[f.key] ?? "";
             const bad = (touched || value !== "") && fieldError(f, value);
             const numeric = f.pattern ? /^\^?\[0-9\]|\\d/.test(f.pattern) : false;
+            if (f.options?.length) {
+              const label = pick(lang, f.labelAr, f.labelEn);
+              const set = (v: string) => setValues((x) => ({ ...x, [f.key]: v }));
+              return (
+                <div key={f.key} className="field">
+                  <span>
+                    {label}
+                    {f.required && <span className="muted"> *</span>}
+                  </span>
+                  {f.options.length <= 8 ? (
+                    <div className="wrap" role="radiogroup" aria-label={label} style={{ gap: 8 }}>
+                      {f.options.map((o) => (
+                        <button key={o.value} type="button" role="radio" aria-checked={value === o.value} aria-pressed={value === o.value} className="chip chip--sm press" onClick={() => set(o.value)}>
+                          {pick(lang, o.labelAr, o.labelEn) || o.value}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <select className="select" value={value} aria-label={label} aria-invalid={bad} onChange={(e) => set(e.target.value)}>
+                      <option value="">{t("chooseOne")}</option>
+                      {f.options.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {pick(lang, o.labelAr, o.labelEn) || o.value}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {bad && <span className="error-text">{t("required")}</span>}
+                </div>
+              );
+            }
             return (
               <label key={f.key} className="field">
                 <span>

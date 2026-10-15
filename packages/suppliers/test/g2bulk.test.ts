@@ -61,10 +61,26 @@ describe("g2bulk listProducts", () => {
     const mlbb = products[2]!;
     expect(mlbb.fields?.map((f) => f.key)).toEqual(["player_id", "server_id"]);
     expect(mlbb.meta?.servers).toEqual({ "SouthEast Asia": "sea", Europe: "eu" });
+    expect(mlbb.fields?.[1]?.options).toBeUndefined(); // a zone id stays typed
     expect(mlbb.meta?.image).toBe("https://cdn.example/mlbb.png");
     // Servers are only asked for games whose fields need one; public routes carry no key.
     expect(calls.filter((c) => c.path === "/v1/games/servers").map((c) => c.body)).toEqual([{ game: "mlbb" }]);
     expect(calls.every((c) => c.headers["x-api-key"] === undefined)).toBe(true);
+  });
+
+  it("turns a server list into choices for games with a server field", async () => {
+    const { ctx } = context({
+      "GET /v1/games": json({ success: true, games: [{ id: 3, code: "genshin", name: "Genshin Impact" }] }),
+      "GET /v1/games/genshin/catalogue": json({ success: true, catalogues: [{ id: 1, name: "60 Crystals", amount: 0.9 }] }),
+      "POST /v1/games/fields": json({ code: "200", info: { fields: ["userid", "serverid"] } }),
+      "POST /v1/games/servers": json({ code: "200", servers: { America: "os_usa", Asia: "os_asia" } }),
+      "GET /v1/products": json({ success: true, products: [] }),
+    }, config);
+    const [genshin] = await createG2Bulk(ctx).listProducts();
+    expect(genshin?.fields?.[1]).toEqual({
+      key: "server_id", labelEn: "Server", labelAr: "السيرفر", required: true,
+      options: [{ value: "os_usa", labelEn: "America", labelAr: "America" }, { value: "os_asia", labelEn: "Asia", labelAr: "Asia" }],
+    });
   });
 
   it("honours G2BULK_GAME_CODES", async () => {

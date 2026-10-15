@@ -241,3 +241,37 @@ describe("buy again", () => {
     await h.call("PATCH", `/api/admin/offers/${offerId}`, { token: owner, body: { remindAfterDays: null } });
   });
 });
+
+describe("customer fields", () => {
+  it("keeps supplier field names and only accepts listed choices", async () => {
+    const owner = await h.login(900001, "Owner", "en");
+    const fields = [
+      { key: "رقم المشترك", labelEn: "Subscriber number", labelAr: "رقم المشترك", required: true },
+      { key: "Player_ID", labelEn: "Player ID", required: false },
+      { key: "server_id", labelEn: "Server", required: true, options: [{ value: "Asia" }, { value: "Europe", labelAr: "أوروبا" }] },
+    ];
+    const bad = await h.call("POST", `/api/admin/products/${productId}/offers`, {
+      token: owner, body: { nameAr: "خيارات", nameEn: "Choices", supplierId: "promo", supplierRef: `fields-${run}`, costCents: 100, inputFields: [{ key: "x{y}", labelEn: "Bad" }] },
+    });
+    expect(bad.status).toBe(400);
+    const o = await h.call("POST", `/api/admin/products/${productId}/offers`, {
+      token: owner, body: { nameAr: "خيارات", nameEn: "Choices", supplierId: "promo", supplierRef: `fields-${run}`, costCents: 100, inputFields: fields },
+    });
+    expect(o.status).toBe(201);
+    const detail = await h.call("GET", `/api/products/netflix-${run}`);
+    const offer = detail.data.offers.find((x: any) => x.id === o.data.id);
+    expect(offer.fields.map((f: any) => f.key)).toEqual(["رقم المشترك", "Player_ID", "server_id"]);
+    expect(offer.fields[2].options).toEqual([{ value: "Asia" }, { value: "Europe", labelAr: "أوروبا" }]);
+
+    const token = await h.login(tg(40), "Fields", "en");
+    await fund(token, 1000);
+    const wrong = await h.call("POST", "/api/orders", { token, body: { offerId: o.data.id, idempotencyKey: `fields-${run}-1`, input: { "رقم المشترك": "0933", server_id: "Mars" } } });
+    expect(wrong.status).toBe(400);
+    expect(wrong.data.error.field).toBe("input.server_id");
+    const ok = await h.call("POST", "/api/orders", { token, body: { offerId: o.data.id, idempotencyKey: `fields-${run}-2`, input: { "رقم المشترك": "0933", server_id: "Asia" } } });
+    expect(ok.status).toBe(201);
+    await h.settle();
+    const order = await h.call("GET", `/api/orders/${ok.data.orderId}`, { token });
+    expect(order.data.order.input).toEqual({ "رقم المشترك": "0933", server_id: "Asia" });
+  });
+});

@@ -525,7 +525,8 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
           <div key={i} className="card card--pad form-grid">
             <label className="field">
               <span>{t("fieldKey")}</span>
-              <input className="input num" dir="ltr" value={fld.key} onChange={(e) => updateField(i, { key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="player_id" />
+              {/* Kept exactly as the supplier names it ("Player_ID", "رقم المشترك"): the supplier reads it back. */}
+              <input className="input num" dir="auto" value={fld.key} onChange={(e) => updateField(i, { key: e.target.value.replace(/[^\p{L}\p{N}_ .-]/gu, "").slice(0, 48) })} placeholder="player_id" />
             </label>
             <label className="field">
               <span>{t("fieldPattern")}</span>
@@ -538,6 +539,21 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
             <label className="field">
               <span>{t("fieldLabelEn")}</span>
               <input className="input" dir="ltr" value={fld.labelEn} onChange={(e) => updateField(i, { labelEn: e.target.value })} />
+            </label>
+            <label className="field span-2">
+              <span>{t("fieldChoices")}</span>
+              <input
+                className="input"
+                dir="auto"
+                value={(fld.options ?? []).map((o) => o.value).join(", ")}
+                placeholder="Asia, Europe, America"
+                onChange={(e) => {
+                  const values = [...new Set(e.target.value.split(",").map((v) => v.trim()).filter(Boolean))].slice(0, 50);
+                  const old = new Map((fld.options ?? []).map((o) => [o.value, o]));
+                  updateField(i, { options: values.length ? values.map((v) => old.get(v) ?? { value: v }) : undefined });
+                }}
+              />
+              <span className="hint">{t("fieldChoicesHint")}</span>
             </label>
             <div className="pref-row span-2">
               <span>{t("required")}</span>

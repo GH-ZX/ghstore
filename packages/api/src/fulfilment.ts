@@ -129,6 +129,7 @@ export function validateInput(fields: InputField[], input: Record<string, unknow
       continue;
     }
     if (v.length > 200) return { error: f.key };
+    if (f.options?.length && !f.options.some((o) => o.value === v)) return { error: f.key };
     if (f.pattern) {
       let re: RegExp;
       try {

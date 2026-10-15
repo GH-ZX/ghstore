@@ -55,6 +55,8 @@ export interface InputField {
   labelAr?: string;
   required: boolean;
   pattern?: string;
+  /** A fixed list to choose from (a game server, a region). */
+  options?: { value: string; labelEn?: string; labelAr?: string }[];
 }
 
 export interface Offer {

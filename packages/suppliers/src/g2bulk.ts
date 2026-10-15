@@ -112,8 +112,18 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
     });
     const items = arr(obj(catalogue)?.catalogues).filter(isObj);
     if (items.length === 0) return [];
-    const fields = g2bulkInputFields(await gameFields(code));
-    const servers = fields.some((f) => f.key === "server_id") ? await gameServers(code) : null;
+    const rawKeys = await gameFields(code);
+    const baseFields = g2bulkInputFields(rawKeys);
+    const servers = baseFields.some((f) => f.key === "server_id") ? await gameServers(code) : null;
+    // A server list ({label: value}, as the old bot read it) becomes a choice for a real
+    // "server" field, so customers pick instead of typing. A zone id stays typed.
+    const serverChoice = rawKeys.some((k) => ["serverid", "server_id", "server"].includes(k.trim().toLowerCase()));
+    const entries = servers ? Object.entries(servers) : [];
+    const fields = serverChoice && entries.length > 0 && entries.length <= 50
+      ? baseFields.map((f) => f.key === "server_id"
+        ? { ...f, options: entries.map(([label, value]) => ({ value, labelEn: label, labelAr: label })) }
+        : f)
+      : baseFields;
     return items.flatMap((item): SupplierProduct[] => {
       const name = str(item.name);
       const cost = usdToCents(item.amount);

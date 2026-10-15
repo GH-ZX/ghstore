@@ -61,7 +61,8 @@ export function parseInputFields(value: unknown): InputField[] {
   return value.map((f) => {
     if (!f || typeof f !== "object") throw new ApiError("invalid_input", "inputFields");
     const o = f as Record<string, unknown>;
-    const key = str(o, "key", { max: 32, pattern: /^[a-z][a-z0-9_]{0,31}$/ });
+    // Supplier field names are kept exactly ("Player_ID", "رقم المشترك"): suppliers read them back.
+    const key = str(o, "key", { max: 48, pattern: /^[\p{L}\p{N}_][\p{L}\p{N}_ .-]{0,47}$/u });
     if (seen.has(key)) throw new ApiError("invalid_input", "inputFields");
     seen.add(key);
     const field: InputField = { key, labelEn: str(o, "labelEn", { max: 60 }), required: o.required !== false };
@@ -75,6 +76,24 @@ export function parseInputFields(value: unknown): InputField[] {
         throw new ApiError("invalid_input", "inputFields");
       }
       field.pattern = pattern;
+    }
+    if (o.options !== undefined && o.options !== null) {
+      if (!Array.isArray(o.options) || o.options.length > 50) throw new ApiError("invalid_input", "inputFields");
+      const values = new Set<string>();
+      const options = o.options.map((c) => {
+        if (!c || typeof c !== "object") throw new ApiError("invalid_input", "inputFields");
+        const co = c as Record<string, unknown>;
+        const value = str(co, "value", { max: 80 });
+        if (values.has(value)) throw new ApiError("invalid_input", "inputFields");
+        values.add(value);
+        const opt: { value: string; labelEn?: string; labelAr?: string } = { value };
+        const en = optStr(co, "labelEn", { max: 60 });
+        const ar = optStr(co, "labelAr", { max: 60 });
+        if (en) opt.labelEn = en;
+        if (ar) opt.labelAr = ar;
+        return opt;
+      });
+      if (options.length) field.options = options;
     }
     return field;
   });

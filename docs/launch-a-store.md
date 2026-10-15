@@ -69,6 +69,21 @@ writes, money only through the SQL functions.
 The migrations were checked against this Supabase project (Postgres 17) inside a
 transaction that was rolled back, so nothing was created yet.
 
+**gh-store only: bring the current catalogue over** (once, after the migrations):
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f packages/db/import/from-old-gh-store.sql
+```
+
+It copies the categories, products and packages of the current site from
+`public` into `app` (nothing in `public` changes, and it is safe to run twice).
+Each package keeps its supplier and today's price; the markup is set to today's,
+so the hourly sync keeps prices in step with supplier costs. Customer fields come
+along, with game servers as choices. A rolled-back dry run on the live data
+(15 Oct 2026) brought over all 75 products and 673 packages (655 on sale), with
+nothing skipped; one package sits under the 5% margin floor, so the first sync
+will raise its price a little. Customers, balances and orders are not copied.
+
 ## 5. Hyperdrive
 
 ```bash

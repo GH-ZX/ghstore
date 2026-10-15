@@ -36,7 +36,10 @@ describe("maxstore listProducts", () => {
     ]);
     expect(list[0]?.fields).toEqual([
       { key: "player_id", labelEn: "Player ID", labelAr: "معرّف اللاعب", required: true },
-      { key: "server", labelEn: "Server", labelAr: "Server", required: false },
+      {
+        key: "server", labelEn: "Server", labelAr: "Server", required: false,
+        options: [{ value: "EU", labelEn: "EU", labelAr: "EU" }, { value: "NA", labelEn: "NA", labelAr: "NA" }],
+      },
     ]);
     expect(list[0]?.meta).toMatchObject({ categoryId: "3", category: "PUBG", qtyMin: 1, qtyMax: 1, fieldOptions: { server: ["EU", "NA"] } });
     expect(list[1]?.fields).toEqual([{ key: "معرّف اللاعب", labelEn: "معرّف اللاعب", labelAr: "معرّف اللاعب", required: true }]);

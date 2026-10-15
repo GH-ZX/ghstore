@@ -18,6 +18,14 @@ export interface InputField {
   required: boolean;
   /** Optional regular expression the value must match. */
   pattern?: string;
+  /** A fixed list to choose from (a game server, a region). The value must be one of them. */
+  options?: InputOption[];
+}
+
+export interface InputOption {
+  value: string;
+  labelEn?: string;
+  labelAr?: string;
 }
 
 /** A sellable item as the supplier lists it. Prices are integer US cents. */

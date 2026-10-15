@@ -64,11 +64,20 @@ function fieldsOf(p: Obj): { fields: InputField[]; options: Record<string, unkno
     const key = str(m.key) ?? str(m.name) ?? str(m.field_key);
     if (!key) return [];
     if (Array.isArray(m.options) && m.options.length) options[key] = m.options;
+    const choices = Array.isArray(m.options)
+      ? m.options.flatMap((o) => {
+          const value = typeof o === "string" || typeof o === "number" ? String(o) : str(obj(o)?.value) ?? str(obj(o)?.key);
+          if (!value) return [];
+          const label = typeof o === "object" && o ? str(obj(o)?.label) ?? str(obj(o)?.name) : undefined;
+          return [{ value, labelEn: str(obj(o)?.label_en) ?? label ?? value, labelAr: str(obj(o)?.label_ar) ?? label ?? value }];
+        })
+      : [];
     return [{
       key,
       labelEn: str(m.label_en) ?? str(m.label) ?? str(m.name) ?? key,
       labelAr: str(m.label_ar) ?? str(m.label) ?? str(m.name) ?? key,
       required: m.required !== false,
+      ...(choices.length > 0 && choices.length <= 50 ? { options: choices } : {}),
     }];
   });
   if (fromMeta.length) return { fields: fromMeta, options };
