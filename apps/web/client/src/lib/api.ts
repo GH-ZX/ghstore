@@ -69,6 +69,29 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
   return data as T;
 }
 
+/** Download a file the API makes (a CSV export) with the current session, under the server's file name. */
+export async function download(path: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (token) headers.authorization = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(path, { headers, credentials: "same-origin" });
+  } catch {
+    throw new ApiFail("network", 0);
+  }
+  if (!res.ok) {
+    const e = ((await res.json().catch(() => null)) as { error?: { code?: string; field?: string } } | null)?.error;
+    throw new ApiFail(e?.code ?? "internal", res.status, e?.field);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "export.csv";
+  const url = URL.createObjectURL(await res.blob());
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 /** A random key so a retried request (double tap, flaky network) is applied once. */
 export function idempotencyKey(): string {
   return crypto.randomUUID();

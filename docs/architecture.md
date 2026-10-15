@@ -147,6 +147,7 @@ admin (`GET /api/admin/suppliers/:id/products`, then create an offer).
 | `supplier_sync` | Hourly per supplier: costs, availability, margin guard |
 | `outbox` | Send queued Telegram notifications |
 | `buy_again` | Twice an hour: queue due "buy again" reminders |
+| `daily_summary` | Hourly at :50; at the owner's chosen local hour, queue the day's summary once |
 
 Each job records `last_ok_at` / `last_error` in `app.job_heartbeats`, shown on the
 admin overview.
@@ -174,6 +175,8 @@ admin overview.
 | Webhooks | `POST /api/webhooks/payments/:method`, `POST /api/webhooks/suppliers/:id` |
 | Admin (staff) | overview; payments list/approve/reject/recheck; orders list/refund/retry; settings |
 | Promotions | `POST /api/coupons/quote`, `GET/POST /api/me/referral` |
+| Reports (owner) | `GET /api/admin/export/{orders,topups,wallet}.csv?from=&to=` (local days, up to 366 days, 5,000 rows) |
+| Pages (Worker) | `/p/<slug>` with link-preview tags, `/sitemap.xml`, `/robots.txt` |
 | Admin (owner) | wallet adjust, user role/ban, supplier sync, catalogue (`/api/admin/catalog`, categories, products, offers, stock, supplier settings), coupons (`GET/POST /api/admin/coupons`, `PATCH /api/admin/coupons/:id`) |
 
 Errors are `{ "error": { "code": "...", "field": "..." } }` with stable codes the
@@ -196,3 +199,31 @@ carry a bearer token.
 - **Buy again.** `offers.remind_after_days` (e.g. 28 for a 1-month plan). One
   Telegram message with a button that opens the product, unless the customer
   already bought it again or turned notifications off.
+
+## Customer fields
+
+Each package lists what the customer types before buying (`offers.input_fields`):
+a key, Arabic and English labels, required or not, an optional pattern, and
+optionally a fixed list of `options` (a game server, a region) shown as chips or
+a menu. Keys stay exactly as the supplier names them ("Player_ID", Arabic names),
+because the supplier reads them back. Orders accept only a listed option.
+
+## Link previews and search
+
+The web app is one page, so the Worker adds what scrapers need: `/p/<slug>`
+returns index.html with the product's title, description, picture and price
+range (Open Graph, Twitter card, schema.org Product JSON-LD) in the store's
+default language. A database hiccup falls back to the plain page.
+`/sitemap.xml` lists every product on sale; `/robots.txt` keeps `/admin`, `/api`,
+`/tg` and `/login` out of search. The store's URL and tagline for the home page
+are in `store.config.ts`.
+
+## Reports
+
+- **Daily summary** (Telegram, every owner): sales, orders, profit after supplier
+  cost and invite rewards, top-ups, new customers, and what needs attention
+  (failed or open orders, top-ups to review, low supplier balances). Sent once a
+  day at `reports.daily_hour` in `store.timeZone`; on/off in Admin → Settings.
+- **CSV exports** (Admin → Overview): orders, top-ups, wallet history for 7/30/90
+  days or a year. UTF-8 with a BOM so Excel shows Arabic; cells that look like
+  formulas are written as text.

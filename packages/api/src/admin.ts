@@ -4,6 +4,7 @@
  * can change settings, balances and roles.
  */
 import { requireStaff } from "./auth";
+import { TIME_ZONE } from "./reports";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder } from "./fulfilment";
@@ -23,17 +24,20 @@ export async function overview(ctx: Ctx): Promise<Response> {
   const db = ctx.svc.db;
   const today = await one<Record<string, string | number>>(
     db,
-    `select
-       (select coalesce(sum(total_cents), 0) from app.orders where status = 'delivered' and created_at >= date_trunc('day', now())) as sales_today,
+    // "Today" starts at midnight in the store's time zone.
+    `with d as (select date_trunc('day', now() at time zone $1::text) at time zone $1::text as start)
+     select
+       (select coalesce(sum(total_cents), 0) from app.orders where status = 'delivered' and created_at >= (select start from d)) as sales_today,
        -- Profit after supplier cost and the invite rewards paid today.
-       (select coalesce(sum(total_cents - coalesce(cost_cents, total_cents)), 0) from app.orders where status = 'delivered' and created_at >= date_trunc('day', now()))
-         - (select coalesce(sum(amount_cents), 0) from app.ledger where kind = 'referral' and created_at >= date_trunc('day', now())) as profit_today,
-       (select count(*) from app.orders where created_at >= date_trunc('day', now())) as orders_today,
+       (select coalesce(sum(total_cents - coalesce(cost_cents, total_cents)), 0) from app.orders where status = 'delivered' and created_at >= (select start from d))
+         - (select coalesce(sum(amount_cents), 0) from app.ledger where kind = 'referral' and created_at >= (select start from d)) as profit_today,
+       (select count(*) from app.orders where created_at >= (select start from d)) as orders_today,
        (select count(*) from app.orders where status in ('paid','processing')) as orders_open,
        (select count(*) from app.orders where status = 'failed') as orders_failed,
        (select count(*) from app.payments where status = 'review') as payments_review,
        (select coalesce(sum(balance_cents), 0) from app.wallets) as wallets_total,
-       (select count(*) from app.users where created_at >= date_trunc('day', now())) as new_users_today`,
+       (select count(*) from app.users where created_at >= (select start from d)) as new_users_today`,
+    [TIME_ZONE],
   );
   const suppliers = await db.query<{ id: string; name: string; enabled: boolean; balance_cents: string | number | null; low_balance_cents: string | number; health: string; last_error: string | null }>(
     `select id, name, enabled, balance_cents, low_balance_cents, health, last_error from app.suppliers order by id`,
@@ -143,6 +147,8 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "referral.enabled": (v) => typeof v === "boolean",
   "referral.percent": (v) => typeof v === "number" && v >= 0 && v <= 20 && Math.abs(Math.round(v * 100) - v * 100) < 1e-9,
   "referral.days": (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 3650,
+  "reports.daily": (v) => typeof v === "boolean",
+  "reports.daily_hour": (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 23,
 };
 
 export async function getSettings(ctx: Ctx): Promise<Response> {

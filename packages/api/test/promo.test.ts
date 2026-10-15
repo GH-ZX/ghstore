@@ -4,7 +4,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SupplierAdapter } from "@store/core";
-import { handleBotWebhook, runScheduled } from "../src/index";
+import { handleBotWebhook, sendOutbox } from "../src/index";
 import { queueBuyAgain } from "../src/jobs";
 import { connectTestDb, env, Harness } from "./helpers";
 
@@ -234,8 +234,8 @@ describe("buy again", () => {
     expect(await queueBuyAgain(h.svc)).toBeGreaterThanOrEqual(1);
     expect(await queueBuyAgain(h.svc)).toBe(0);
     h.telegramCalls.length = 0;
-    await runScheduled({ ...h.svc, now: () => new Date("2026-01-01T00:01:00Z") }, env);
-    const msg = h.telegramCalls.find((c) => c.method === "sendMessage" && c.payload.chat_id === String(id));
+    await sendOutbox(h.svc, env, 1000);
+    const msg = h.telegramCalls.find((c) => c.method === "sendMessage" && c.payload.chat_id === String(id) && String(c.payload.text).startsWith("Time to renew"));
     expect(String(msg?.payload.text)).toContain("Time to renew? You bought Netflix (1 month)");
     expect(JSON.stringify(msg?.payload.reply_markup)).toContain(`startapp=p_netflix-${run}`);
     await h.call("PATCH", `/api/admin/offers/${offerId}`, { token: owner, body: { remindAfterDays: null } });

@@ -21,6 +21,8 @@ export const store = {
   /** Starting theme; the owner can change it in the admin (setting theme.preset). */
   theme: { preset: "energetic" as "calm" | "energetic" | "minimal" | "warm", mode: "system" as "system" | "light" | "dark" },
   currency: "USD",
+  /** Where "today" is, for the admin's daily numbers, the owner's daily summary and exports. */
+  timeZone: "Asia/Damascus",
   /** Shown next to USD prices when the admin sets fx.syp_per_usd (new Syrian pounds). */
   showSyp: true,
   /** Telegram bot username without @, for links like t.me/<bot>. */

@@ -13,6 +13,7 @@ import { ApiError, errorResponse, json } from "./http";
 import * as orders from "./orders";
 import * as payments from "./payments";
 import * as promo from "./promo";
+import * as reports from "./reports";
 import { Router } from "./router";
 
 export type { ApiEnv, AuthedUser, Ctx, Services } from "./context";
@@ -25,6 +26,7 @@ export { normalizeSearch, matchesQuery } from "@store/core";
 export { renderTemplate, sendOutbox } from "./notify";
 export { handleBotWebhook, handleUpdate } from "./bot";
 export { syncSupplier, syncDueSuppliers } from "./sync";
+export { daySummary, localNow, queueDailySummary, summaryText, toCsv } from "./reports";
 export { PRODUCT_PATH, productMeta, renderProductPage, robotsTxt, sitemapXml, type ProductMeta } from "./seo";
 
 const router = new Router()
@@ -70,6 +72,7 @@ const router = new Router()
   .on("POST", "/api/admin/users/:id/wallet", admin.adjustWallet)
   .on("POST", "/api/admin/users/:id/role", admin.setUserRole)
   .on("POST", "/api/admin/suppliers/:id/sync", admin.runSupplierSync)
+  .on("GET", "/api/admin/export/:kind", reports.exportCsv)
   .on("GET", "/api/admin/coupons", promo.listCoupons)
   .on("POST", "/api/admin/coupons", promo.createCoupon)
   .on("PATCH", "/api/admin/coupons/:id", promo.updateCoupon)

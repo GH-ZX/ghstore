@@ -34,6 +34,7 @@ async function start() {
     else if (sp?.startsWith("r_")) stashReferral(sp.slice(2));
     else if (sp === "wallet" || sp === "orders") navigate(`/${sp}`, { replace: true });
     else if (sp === "invite") navigate("/profile", { replace: true });
+    else if (sp === "admin") navigate("/admin", { replace: true });
   } else {
     captureReferralFromUrl();
   }

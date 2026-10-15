@@ -1,6 +1,7 @@
 /** Store settings: the theme for everyone, the SYP rate, how long orders wait for a person, invite rewards. */
 import { useEffect, useState } from "react";
 import { THEMES, type ThemePreset } from "@store/ui";
+import { store } from "@store/config";
 import { applyTheme, getState, PRESETS, setState, useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
 import type { PublicConfig } from "../lib/types";
@@ -19,11 +20,14 @@ export function Settings() {
   const [hours, setHours] = useState("24");
   const [refPct, setRefPct] = useState("2");
   const [refDays, setRefDays] = useState("90");
+  const [hour, setHour] = useState("23");
 
   useEffect(() => {
     if (!data) return;
     const p = data.settings["referral.percent"];
     setRefPct(typeof p === "number" ? String(p) : "0");
+    const dh = data.settings["reports.daily_hour"];
+    setHour(typeof dh === "number" ? String(dh) : "23");
     const d = data.settings["referral.days"];
     setRefDays(typeof d === "number" ? String(d) : "0");
     const r = data.settings["fx.syp_per_usd"];
@@ -130,6 +134,27 @@ export function Settings() {
         >
           {t("save")}
         </button>
+      </section>
+
+      <section className="card card--pad stack-sm">
+        <div>
+          <h2>{t("dailySummary")}</h2>
+          <p className="hint">{t("dailySummaryHint", { tz: store.timeZone })}</p>
+        </div>
+        <div className="pref-row">
+          <span>{t("dailySummaryOn")}</span>
+          <Switch checked={data.settings["reports.daily"] !== false} onChange={(v) => put("reports.daily", v)} label={t("dailySummaryOn")} />
+        </div>
+        <label className="field">
+          <span>{t("dailySummaryHour")}</span>
+          <select className="select" value={hour} onChange={(e) => { setHour(e.target.value); void put("reports.daily_hour", Number(e.target.value)); }}>
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={String(h)}>
+                {String(h).padStart(2, "0")}:00
+              </option>
+            ))}
+          </select>
+        </label>
       </section>
 
       <section className="card card--pad stack-sm">

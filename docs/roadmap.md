@@ -51,12 +51,22 @@
   "Buy again" button on finished orders.
 - Bot commands: /balance, /orders, /invite, /help.
 
+## Done in milestone 4 (launch polish)
+
+- One-time import of the current catalogue from the old site
+  (`packages/db/import/from-old-gh-store.sql`), dry-run on the live data.
+- Choice fields (game servers, regions) end to end; supplier field names kept.
+- Product link previews, sitemap, robots; share button on products.
+- Owner daily summary on Telegram and CSV exports; admin "today" follows the
+  store's time zone.
+- The web app's types checked against a strict React 19 stand-in (the real
+  types install in CI).
+
 ## After that
 
 - Link an email/Google login to a Telegram account (Telegram login already shares the wallet).
 - Syriatel Cash through SAM.
 - Notifications beyond Telegram (email receipts).
-- Admin: daily summary to the owners, CSV export.
 
 ## Open questions
 

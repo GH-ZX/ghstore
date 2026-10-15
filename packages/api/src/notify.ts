@@ -5,6 +5,7 @@
 import { formatUsd } from "@store/core";
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
+import { summaryText, type DaySummary } from "./reports";
 
 type Data = Record<string, unknown>;
 
@@ -33,6 +34,10 @@ const TEMPLATES: Record<string, { ar: (d: Data) => string; en: (d: Data) => stri
     ar: (d) => `حان وقت التجديد؟ اشتريت ${String(d.name_ar ?? "")} (${String(d.offer_ar ?? "")}) قبل فترة.\nاطلبه مجدداً بضغطة واحدة.`,
     en: (d) => `Time to renew? You bought ${String(d.name_en ?? "")} (${String(d.offer_en ?? "")}) a while ago.\nGet it again in one tap.`,
   },
+  daily_summary: {
+    ar: (d) => summaryText(d as unknown as DaySummary, "ar"),
+    en: (d) => summaryText(d as unknown as DaySummary, "en"),
+  },
   staff_alert: {
     ar: (d) => `تنبيه: ${String(d.text ?? "")}`,
     en: (d) => `Alert: ${String(d.text ?? "")}`,
@@ -58,7 +63,7 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
   let sent = 0;
   for (const r of rows) {
     const text = renderTemplate(r.template, r.locale ?? "ar", r.data ?? {});
-    const isStaff = r.template === "staff_alert";
+    const isStaff = r.template === "staff_alert" || r.template === "daily_summary";
     if (!text || !r.chat_id || (!r.notify && !isStaff)) {
       await svc.db.query(`update app.outbox set status = 'sent', sent_at = now(), last_error = 'skipped' where id = $1`, [r.id]);
       continue;
@@ -66,8 +71,10 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
     try {
       // "Buy again" opens the product itself; everything else opens the store.
       const slug = r.template === "buy_again" && typeof r.data?.slug === "string" && /^[a-z0-9-]{1,80}$/.test(r.data.slug) ? r.data.slug : null;
-      const label = slug ? (r.locale === "en" ? "Buy again" : "اطلبه مجدداً") : r.locale === "en" ? "Open store" : "افتح المتجر";
-      const url = slug ? `${env.PUBLIC_BASE_URL}/tg?startapp=p_${slug}` : `${env.PUBLIC_BASE_URL}/tg`;
+      const label = slug ? (r.locale === "en" ? "Buy again" : "اطلبه مجدداً")
+        : isStaff ? (r.locale === "en" ? "Open admin" : "افتح الإدارة")
+        : r.locale === "en" ? "Open store" : "افتح المتجر";
+      const url = slug ? `${env.PUBLIC_BASE_URL}/tg?startapp=p_${slug}` : isStaff ? `${env.PUBLIC_BASE_URL}/tg?startapp=admin` : `${env.PUBLIC_BASE_URL}/tg`;
       await svc.telegram("sendMessage", { chat_id: r.chat_id, text, reply_markup: { inline_keyboard: [[{ text: label, web_app: { url } }]] } });
       await svc.db.query(`update app.outbox set status = 'sent', sent_at = now() where id = $1`, [r.id]);
       sent++;

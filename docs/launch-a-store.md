@@ -15,6 +15,10 @@ time. Nothing here needs the old work server.
 
 ## 1. Make it yours (template copies only)
 
+`store.config.ts` holds the name, the website address (`url`, the same as
+`PUBLIC_BASE_URL`), the one-line tagline used in search results and link
+previews, the languages, the time zone for daily numbers, and support links.
+
 1. Create a new **private** GitHub repository and upload this folder.
 2. Edit `store.config.ts`: name, mark, default language and theme, Telegram bot
    username, support links, order prefix.
@@ -175,6 +179,9 @@ curl -sS "https://api.telegram.org/bot<TOKEN>/setMyCommands" -H 'content-type: a
 
 In @BotFather:
 
+- `/mybots` → your bot → Bot Settings → Configure Mini App → Main Mini App →
+  `https://your-domain.com/tg` (this makes `t.me/<bot>?startapp=…` links open the
+  store: products, invites, the wallet)
 - `/mybots` → your bot → Bot Settings → Menu Button → `https://your-domain.com/tg`
 - Edit Bot → Edit Botpic → `brand/telegram-avatar.png`
 - Payments are not needed for Stars.
