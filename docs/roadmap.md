@@ -26,7 +26,7 @@
   working.
 - This repository: schema and money functions, the full API, five suppliers, four
   payment methods, the bot, scheduled jobs, the catalogue editor API, brand assets,
-  theme tokens, CI, docs. 220 automated tests plus the SQL tests (231 after milestone 3, 242 after milestone 4).
+  theme tokens, CI, docs. 220 automated tests plus the SQL tests (231 after milestone 3, 242 after milestone 4, 245 now).
 - Migrations verified on the gh-store project's Postgres 17 inside a transaction
   that was rolled back (nothing created yet).
 

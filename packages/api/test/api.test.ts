@@ -461,4 +461,34 @@ describe("supplier sync and margin guard", () => {
     const changes = await db.query(`select action from app.price_changes where offer_id = $1`, [manual]);
     expect(changes.length).toBe(1);
   });
+
+  it("marks unchanged packages as checked in one write, whatever their number", async () => {
+    const supplier = `b_${run}`;
+    await db.query(`insert into app.suppliers (id, name, enabled) values ($1, 'Bulk', true)`, [supplier]);
+    const ids: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const r = await db.query<{ id: string }>(
+        `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value)
+         values ($1, 'x', 'x', $2, $3, 100, 115, 'percent', 15) returning id`,
+        [productId, supplier, `bulk-${i}`],
+      );
+      ids.push(r[0]!.id);
+    }
+    // One package's cost moved: it gets its own write and a price-change row.
+    const products: SupplierProduct[] = ids.map((_, i) => ({ externalId: `bulk-${i}`, name: "b", costCents: i === 7 ? 200 : 100, available: true, kind: "code" }));
+    let queries = 0;
+    const counting = new Harness({ ...db, query: (text: string, params?: readonly unknown[]) => { queries++; return db.query(text, params as unknown[]); } } as typeof db);
+    counting.suppliers.set(supplier, { ...fakeSupplier, id: supplier, listProducts: async () => products });
+
+    const report = await syncSupplier(counting.svc, supplier);
+    expect(report).toMatchObject({ checked: 40, repriced: 1, paused: 0, missing: 0 });
+    // select packages + 1 reprice (update + history) + 1 write for the 39 unchanged + supplier row
+    expect(queries).toBe(5);
+    const rows = await db.query<{ id: string; checked: boolean; price_cents: string | number }>(
+      `select id, cost_checked_at is not null as checked, price_cents from app.offers where supplier_id = $1`, [supplier],
+    );
+    expect(rows.every((r) => r.checked)).toBe(true);
+    expect(Number(rows.find((r) => r.id === ids[7])!.price_cents)).toBe(230);
+    expect(rows.filter((r) => Number(r.price_cents) === 115)).toHaveLength(39);
+  });
 });

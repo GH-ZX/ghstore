@@ -59,6 +59,11 @@ export async function syncSupplier(svc: Services, supplierId: string): Promise<S
   );
 
   const paused: string[] = [];
+  // Packages whose cost and price did not change (nearly all of them on a normal
+  // hour). They are marked as checked together in one write after the loop, so a
+  // sync costs a few queries instead of one per package (Hyperdrive's free plan
+  // counts every query).
+  const unchanged: string[] = [];
   for (const o of offers) {
     report.checked++;
     const p = byRef.get(o.supplier_ref);
@@ -115,10 +120,16 @@ export async function syncSupplier(svc: Services, supplierId: string): Promise<S
       }
       if (resume) report.resumed++;
     } else {
-      await svc.db.query(`update app.offers set cost_checked_at = now() where id = $1`, [o.id]);
+      unchanged.push(o.id);
     }
   }
 
+  if (unchanged.length) {
+    await svc.db.query(
+      `update app.offers set cost_checked_at = now() where id = any(string_to_array($1::text, ',')::uuid[])`,
+      [unchanged.join(",")],
+    );
+  }
   await svc.db.query(`update app.suppliers set last_sync_at = now(), health = 'ok', last_error = null where id = $1`, [supplierId]);
   if (paused.length) {
     await alertOwners(svc, `${supplierId}: ${paused.length} package(s) paused (price or availability changed)`);

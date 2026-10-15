@@ -106,6 +106,9 @@ Put the printed id in `wrangler.jsonc` → `hyperdrive[0].id`.
   pools.
 - Keep **caching disabled**. Hyperdrive would otherwise serve reads up to 60 s old,
   and sessions, balances and payment states must always be fresh.
+- The Workers free plan includes 100,000 Hyperdrive queries a day. The scheduled
+  jobs use about 14,000 of them with no customers (the hourly price sync is a few
+  queries per supplier, however many packages it checks); the rest is for visitors.
 
 ## 6. Website login
 
