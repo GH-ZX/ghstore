@@ -27,5 +27,4 @@ grant select, insert, update on app.broadcasts to store_server;
 alter table app.outbox add column if not exists priority smallint not null default 0;
 alter table app.outbox add column if not exists broadcast_id uuid references app.broadcasts (id) on delete set null;
 create index if not exists outbox_broadcast_idx on app.outbox (broadcast_id) where broadcast_id is not null;
-drop index if exists app.outbox_due_idx;
-create index outbox_due_idx on app.outbox (priority, id) where status = 'pending';
+create index if not exists outbox_queue_idx on app.outbox (priority, id) where status = 'pending';
