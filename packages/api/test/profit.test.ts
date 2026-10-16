@@ -69,7 +69,8 @@ beforeAll(async () => {
   owner = await h.login(900001, "Owner");
   customer = await h.login(860_000_000 + (Date.now() % 1_000_000), "Buyer");
   await fund(customer, 10_000);
-  for (let i = 0; i < 3; i++) {
+  // 8 + 1 in person: more than any other test's product sells, so it is the best seller.
+  for (let i = 0; i < 8; i++) {
     expect((await h.call("POST", "/api/orders", { token: customer, body: { offerId: offer, idempotencyKey: `pf-${i}-${run}` } })).status).toBe(201);
   }
   expect((await h.call("POST", "/api/admin/orders/in-person", { token: owner, body: { offerId: offer, idempotencyKey: `pf-ip-${run}` } })).status).toBe(201);
@@ -85,12 +86,12 @@ describe("profit report", () => {
     const r = await h.call("GET", "/api/admin/reports/profit", { token: owner });
     expect(r.status).toBe(200);
     const mine = r.data.bySupplier.find((s: { id: string }) => s.id === sup);
-    expect(mine).toMatchObject({ name: "Profit Codes", salesCents: 4000, costCents: 3200, profitCents: 800, orders: 4 });
-    expect(r.data.byProduct.find((p: { id: string }) => p.id === product)).toMatchObject({ salesCents: 4000, profitCents: 800, orders: 4 });
+    expect(mine).toMatchObject({ name: "Profit Codes", salesCents: 9000, costCents: 7200, profitCents: 1800, orders: 9 });
+    expect(r.data.byProduct.find((p: { id: string }) => p.id === product)).toMatchObject({ salesCents: 9000, profitCents: 1800, orders: 9 });
     expect(r.data.totals.inPersonCents).toBeGreaterThanOrEqual(1000);
     expect(r.data.days).toHaveLength(30);
     const today = r.data.days.at(-1);
-    expect(today.salesCents).toBeGreaterThanOrEqual(4000);
+    expect(today.salesCents).toBeGreaterThanOrEqual(9000);
     expect((await h.call("GET", "/api/admin/reports/profit?from=2026-02-31", { token: owner })).status).toBe(400);
     expect((await h.call("GET", "/api/admin/reports/profit", { token: customer })).status).toBe(403);
   });
@@ -98,8 +99,8 @@ describe("profit report", () => {
   it("tells how long each supplier's balance lasts at last week's pace", async () => {
     const o = await h.call("GET", "/api/admin/overview", { token: owner });
     const s = o.data.suppliers.find((x: { id: string }) => x.id === sup);
-    // $32 spent this week (4 × $8) → $4.57 a day; $70 lasts 15 days.
-    expect(s).toMatchObject({ balanceCents: 7000, spent7dCents: 3200, daysLeft: 15 });
+    // $72 spent this week (9 × $8) → $10.29 a day; $70 lasts 6 days.
+    expect(s).toMatchObject({ balanceCents: 7000, spent7dCents: 7200, daysLeft: 6 });
   });
 
   it("puts the in-person sales in the daily summary", async () => {
@@ -112,7 +113,7 @@ describe("profit report", () => {
 describe("automatic badges", () => {
   it("marks the most sold as Best seller and the newest as New, unless the owner chose otherwise", async () => {
     const card = async () => (await h.call("GET", "/api/catalog")).data.products.find((p: { id: string }) => p.id === product);
-    expect((await card()).badge).toBe("best"); // 3 customer orders + 1 in person this month
+    expect((await card()).badge).toBe("best"); // 8 customer orders + 1 in person this month
     await db.query(`update app.products set badge = 'none' where id = $1`, [product]);
     expect((await card()).badge).toBeNull();
     await db.query(`update app.products set badge = 'sale' where id = $1`, [product]);
