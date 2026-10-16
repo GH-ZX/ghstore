@@ -15,6 +15,7 @@ import { ApiError, errorResponse, json } from "./http";
 import * as orders from "./orders";
 import * as adminOrders from "./admin-orders";
 import * as names from "./names";
+import * as accounts from "./accounts";
 import * as payments from "./payments";
 import * as promo from "./promo";
 import * as images from "./images";
@@ -81,6 +82,7 @@ const router = new Router()
   .on("POST", "/api/admin/payments/:id/reject", admin.rejectPayment)
   .on("POST", "/api/admin/payments/:id/recheck", admin.recheckPayment)
   .on("GET", "/api/admin/orders", admin.listOrders)
+  .on("POST", "/api/admin/orders/in-person", adminOrders.placeInPersonOrder)
   .on("GET", "/api/admin/orders/:id", adminOrders.getAdminOrder)
   .on("POST", "/api/admin/orders/:id/deliver", adminOrders.deliverOrder)
   .on("POST", "/api/admin/orders/:id/refund", admin.refundOrder)
@@ -95,6 +97,8 @@ const router = new Router()
   .on("GET", "/api/admin/telegram", telegramSetup.getBotStatus)
   .on("POST", "/api/admin/telegram/connect", telegramSetup.connectBot)
   .on("POST", "/api/admin/email/test", admin.testEmail)
+  .on("GET", "/api/admin/accounts", accounts.listAccounts)
+  .on("GET", "/api/admin/accounts/:kind/:id", accounts.getAccount)
   .on("GET", "/api/admin/names", names.getNames)
   .on("POST", "/api/admin/names/preview", names.previewNames)
   .on("PUT", "/api/admin/names", names.putNames)

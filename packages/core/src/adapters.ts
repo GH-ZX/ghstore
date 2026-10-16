@@ -54,6 +54,23 @@ export interface SupplierProduct {
   packageName?: string;
   /** The package's Arabic name, when the supplier can give one (5SIM: the country's name). */
   packageNameAr?: string;
+  /**
+   * How often this item delivers, 0-100, when the supplier publishes it (5SIM:
+   * the share of numbers that received their SMS lately). Null: not known.
+   */
+  successPct?: number | null;
+}
+
+/**
+ * What an account with a supplier or a payment provider looks like right now,
+ * for Admin → Settings → APIs: who it is, its balances and its latest movements.
+ * Never secrets.
+ */
+export interface AccountInfo {
+  fields: { label: string; value: string }[];
+  balances: { currency: string; amount: number }[];
+  /** Newest first. */
+  history: { at: string | null; amount: number; currency: string; text: string; direction: "in" | "out" | null }[];
 }
 
 export interface PurchaseRequest {
@@ -137,6 +154,8 @@ export interface SupplierAdapter {
   ban?(supplierOrderId: string): Promise<boolean>;
   /** Parse and authenticate a supplier callback. Returns null when it is not ours or not valid. */
   parseWebhook?(req: Request): Promise<{ supplierOrderId: string; result: PurchaseResult } | null>;
+  /** The account as the supplier describes it (Admin → Settings → APIs). */
+  accountInfo?(): Promise<AccountInfo>;
 }
 
 export type SupplierFactory = (ctx: AdapterContext) => SupplierAdapter;
@@ -194,6 +213,8 @@ export interface PaymentAdapter {
    * amount and age themselves (on-chain transfers, invoices in another currency).
    */
   checkPayment?(providerRef: string, expected?: { amountCents: number; createdAt?: string }): Promise<PaymentEvent>;
+  /** The receiving account as the provider describes it (Admin → Settings → APIs). */
+  accountInfo?(): Promise<AccountInfo>;
 }
 
 export type PaymentFactory = (ctx: AdapterContext) => PaymentAdapter;

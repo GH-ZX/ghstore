@@ -57,6 +57,9 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   // Many packages (a virtual number's countries): a search box over them.
   const [pq, setPq] = useState("");
   const [ready, setReady] = useState(false);
+  // The owner selling face to face: no wallet, the order is theirs to hand over.
+  const [inPerson, setInPerson] = useState(false);
+  const owner = me?.user.role === "owner";
   const key = useRef(idempotencyKey());
 
   // Field names are the supplier's own; look them up without touching Object internals.
@@ -66,7 +69,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const listTotal = (offer?.priceCents ?? 0) * qty;
   const total = coupon ? coupon.totalCents : listTotal;
   const balance = me?.balanceCents ?? 0;
-  const enough = balance >= total;
+  const enough = balance >= total || (owner && inPerson);
   const after = data?.product.afterFields ?? [];
   const invalid = offer ? offer.fields.some((f) => fieldError(f, valueOf(f.key))) || (after.length > 0 && !ready) : true;
 
@@ -139,7 +142,9 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
     try {
       const input: Record<string, string> = {};
       for (const f of offer.fields) if (valueOf(f.key).trim()) input[f.key] = valueOf(f.key).trim();
-      const r = await api<Placed>("/api/orders", { body: { offerId: offer.id, quantity: qty, input, idempotencyKey: key.current, coupon: coupon?.code } });
+      const r = owner && inPerson
+        ? await api<Placed>("/api/admin/orders/in-person", { body: { offerId: offer.id, quantity: qty, input, idempotencyKey: key.current } })
+        : await api<Placed>("/api/orders", { body: { offerId: offer.id, quantity: qty, input, idempotencyKey: key.current, coupon: coupon?.code } });
       haptic("success");
       setPlaced(r);
       key.current = idempotencyKey();
@@ -208,7 +213,13 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                 <span className="num good">−{usd(coupon.discountCents)}</span>
               </div>
             )}
-            {me && (
+            {owner && (
+              <label className="check small">
+                <input type="checkbox" checked={inPerson} onChange={(e) => setInPerson(e.target.checked)} />
+                <span>{t("inPerson")}</span>
+              </label>
+            )}
+            {me && !(owner && inPerson) && (
               <div className="row-between small muted">
                 <span>{t("balanceAfter")}</span>
                 <span className="num">{usd(balance - total)}</span>
@@ -224,7 +235,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                 t("addFunds")
               ) : (
                 <>
-                  {t("buy")} · <span className="num">{usd(total)}</span>
+                  {owner && inPerson ? t("inPersonBuy") : t("buy")} · <span className="num">{usd(total)}</span>
                 </>
               )}
             </button>
@@ -264,9 +275,9 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
               )}
               {data.product.byHand ? (
                 <span className="badge">✋ {t("byHand")}</span>
-              ) : (
-                <span className="badge badge--good">● {t("instant")}</span>
-              )}
+              ) : data.product.badge ? (
+                <span className={`badge badge--${data.product.badge}`}>{t(`badge_${data.product.badge}`)}</span>
+              ) : null}
             </span>
           </div>
 
@@ -288,7 +299,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                   style={{ minHeight: 42 }}
                 />
               )}
-              <div className="options" role="radiogroup" aria-label={t("package")}>
+              <div className={data.offers.length > 6 ? "options options--many" : "options"} role="radiogroup" aria-label={t("package")}>
                 {data.offers.filter((o) => o.id === offer.id || !pq || matchesQuery(`${o.nameAr} ${o.nameEn}`, pq)).map((o) => (
                   <button key={o.id} type="button" role="radio" aria-checked={o.id === offer.id} className="option press" onClick={() => choose(o)}>
                     <span className="option__name">
@@ -296,6 +307,11 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                       {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "") && (
                         <span className="option__note">
                           <ShieldIcon size={11} /> {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "")}
+                        </span>
+                      )}
+                      {typeof o.successPct === "number" && (
+                        <span className={`option__rate option__rate--${o.successPct >= 60 ? "good" : o.successPct >= 30 ? "mid" : "low"}`}>
+                          {t("successRate", { n: Math.round(o.successPct) })}
                         </span>
                       )}
                     </span>

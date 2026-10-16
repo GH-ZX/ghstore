@@ -298,3 +298,22 @@ describe("sam: verifyReference", () => {
     expect(result).toEqual({ verified: false, message: "not found", event: { providerRef: "inv_1", status: "pending" } });
   });
 });
+
+describe("SAM account (Admin → Settings → APIs)", () => {
+  it("shows the linked wallets, the receiving wallet's balances and its latest movements", async () => {
+    const { adapter, calls } = samWith({ SAM_WALLET: SHAMCASH_ADDRESS }, [
+      ["/v1/wallets/shamcash/" + SHAMCASH_ADDRESS + "/balance", { json: [{ currency: "USD", amount: 4.1, label: null }, { currency: "SYP", amount: 1606.5, label: null }] }],
+      ["/v1/wallets/shamcash/" + SHAMCASH_ADDRESS + "/transactions", {
+        json: [{ id: "1", type: "credit", amount: 1600, currency: "SYP", counterparty: "Hussein", description: null, status: null, occurredAt: "2026-04-30T20:17:29" }],
+      }],
+      ["/v1/wallets", { json: WALLETS }],
+    ]);
+    const info = await adapter.accountInfo!();
+    expect(info.fields.map((f) => f.label)).toEqual(["syriatel", "shamcash"]);
+    expect(info.fields[1]!.value).toContain("Store");
+    expect(info.balances).toEqual([{ currency: "USD", amount: 4.1 }, { currency: "SYP", amount: 1606.5 }]);
+    expect(info.history).toEqual([{ at: "2026-04-30T20:17:29", amount: 1600, currency: "SYP", text: "Hussein", direction: "in" }]);
+    // Read only: nothing but GETs.
+    expect(calls.every((c) => c.method === "GET")).toBe(true);
+  });
+});

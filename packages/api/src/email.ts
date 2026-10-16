@@ -145,13 +145,14 @@ export async function sendEmail(
 }
 
 /** Admin → Settings → Email receipts → "Send me a test": a sample receipt to the owner's own linked email. */
-export async function sendTestEmail(svc: Services, env: ApiEnv, userId: string, locale: "ar" | "en"): Promise<string> {
+export async function sendTestEmail(svc: Services, env: ApiEnv, userId: string, locale: "ar" | "en", typed?: string): Promise<string> {
   const cfg = await emailSettings(env, svc.db);
   if (!cfg.apiKey) throw new ApiError("bad_state", "RESEND_API_KEY");
   if (!cfg.from) throw new ApiError("bad_state", "email.from");
-  const to = await one<{ email: string }>(svc.db, `select email from app.identities where user_id = $1 and provider = 'supabase' and email is not null limit 1`, [userId]);
-  if (!to) throw new ApiError("bad_state", "email");
+  // A typed address, or the owner's own linked email (an owner who signs in with Telegram has none).
+  const to = typed ?? (await one<{ email: string }>(svc.db, `select email from app.identities where user_id = $1 and provider = 'supabase' and email is not null limit 1`, [userId]))?.email;
+  if (!to) throw new ApiError("bad_state", "email.to");
   const msg = await renderReceipt(svc.db, env.PUBLIC_BASE_URL, userId, "payment_credited", locale, { amount_cents: 500 });
-  await sendEmail(svc, { apiKey: cfg.apiKey, from: cfg.from }, to.email, msg!, `test-${userId}-${Date.now()}`);
-  return to.email;
+  await sendEmail(svc, { apiKey: cfg.apiKey, from: cfg.from }, to, msg!, `test-${userId}-${Date.now()}`);
+  return to;
 }

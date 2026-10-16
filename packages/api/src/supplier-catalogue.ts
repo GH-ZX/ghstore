@@ -88,6 +88,7 @@ function itemRow(p: SupplierProduct, namer: ((name: string) => CleanName) | null
           warranty_ar: null,
         }),
     cost_cents: p.costCents,
+    success_pct: typeof p.successPct === "number" && p.successPct >= 0 && p.successPct <= 100 ? p.successPct : null,
     available: p.available,
     kind: KINDS.has(p.kind) ? p.kind : "code",
     fields: Array.isArray(p.fields) ? p.fields.slice(0, 6) : [],
@@ -134,16 +135,16 @@ export async function refreshItems(svc: Services, supplierId: string, groupId: s
   if (rows.length) {
     await svc.db.query(
       `insert into app.supplier_items (supplier_id, external_id, group_id, name, product_key, product_name, product_name_ar, package_name, package_name_ar,
-                                       warranty_en, warranty_ar, cost_cents, available, kind, fields)
+                                       warranty_en, warranty_ar, cost_cents, success_pct, available, kind, fields)
        select $1, x.external_id, $2, x.name, x.product_key, x.product_name, x.product_name_ar, x.package_name, x.package_name_ar,
-              x.warranty_en, x.warranty_ar, x.cost_cents, x.available, x.kind, coalesce(x.fields, '[]'::jsonb)
+              x.warranty_en, x.warranty_ar, x.cost_cents, x.success_pct, x.available, x.kind, coalesce(x.fields, '[]'::jsonb)
          from jsonb_to_recordset($3::text::jsonb)
            as x(external_id text, name text, product_key text, product_name text, product_name_ar text, package_name text, package_name_ar text,
-                warranty_en text, warranty_ar text, cost_cents bigint, available boolean, kind text, fields jsonb)
+                warranty_en text, warranty_ar text, cost_cents bigint, success_pct numeric, available boolean, kind text, fields jsonb)
        on conflict (supplier_id, external_id) do update
          set group_id = excluded.group_id, name = excluded.name, product_key = excluded.product_key, product_name = excluded.product_name,
              product_name_ar = excluded.product_name_ar, package_name = excluded.package_name, package_name_ar = excluded.package_name_ar,
-             warranty_en = excluded.warranty_en, warranty_ar = excluded.warranty_ar, cost_cents = excluded.cost_cents, available = excluded.available, kind = excluded.kind,
+             warranty_en = excluded.warranty_en, warranty_ar = excluded.warranty_ar, cost_cents = excluded.cost_cents, success_pct = excluded.success_pct, available = excluded.available, kind = excluded.kind,
              fields = excluded.fields, last_seen_at = now(), missing_since = null`,
       [supplierId, groupId, JSON.stringify(rows)],
     );
@@ -166,12 +167,14 @@ export async function refreshItems(svc: Services, supplierId: string, groupId: s
 export async function noteSupplierPrices(svc: Services, supplierId: string, products: SupplierProduct[]): Promise<void> {
   if (!products.length) return;
   const rows = products.slice(0, MAX_ITEMS).filter((p) => Number.isSafeInteger(p.costCents) && p.costCents >= 0)
-    .map((p) => ({ external_id: p.externalId, cost_cents: p.costCents, available: p.available }));
+    .map((p) => ({ external_id: p.externalId, cost_cents: p.costCents, available: p.available, success_pct: p.successPct ?? null }));
   await svc.db.query(
-    `update app.supplier_items i set cost_cents = x.cost_cents, available = x.available, last_seen_at = now(), missing_since = null
-       from jsonb_to_recordset($2::text::jsonb) as x(external_id text, cost_cents bigint, available boolean)
+    `update app.supplier_items i set cost_cents = x.cost_cents, available = x.available, success_pct = coalesce(x.success_pct, i.success_pct),
+            last_seen_at = now(), missing_since = null
+       from jsonb_to_recordset($2::text::jsonb) as x(external_id text, cost_cents bigint, available boolean, success_pct numeric)
       where i.supplier_id = $1 and i.external_id = x.external_id
-        and (i.cost_cents <> x.cost_cents or i.available <> x.available or i.missing_since is not null)`,
+        and (i.cost_cents <> x.cost_cents or i.available <> x.available or i.missing_since is not null
+             or i.success_pct is distinct from coalesce(x.success_pct, i.success_pct))`,
     [supplierId, JSON.stringify(rows)],
   );
 }
@@ -405,7 +408,7 @@ export async function getCatalogueItems(ctx: Ctx): Promise<Response> {
   const where = grouped ? "i.group_id = $2" : "i.group_id = '' and coalesce(i.product_key, '') = $2";
   const rows = await svc.db.query<Record<string, unknown>>(
     `select i.external_id, i.name, i.product_key, i.product_name, i.package_name, i.package_name_ar, i.warranty_en, i.warranty_ar,
-            i.cost_cents, i.available, i.kind,
+            i.cost_cents, i.success_pct, i.available, i.kind,
             i.missing_since is not null as missing,
             (i.first_seen_at > g.first_items_at + interval '1 minute' and i.first_seen_at > now() - make_interval(days => $3)) as fresh,
             o.id as offer_id, o.active, o.price_cents, o.cost_cents as offer_cost_cents, o.paused_reason, o.product_id,
@@ -459,6 +462,7 @@ export async function getCatalogueItems(ctx: Ctx): Promise<Response> {
         packageNameAr: r.package_name_ar,
         warrantyEn: r.warranty_en ?? null,
         warrantyAr: r.warranty_ar ?? null,
+        successPct: r.success_pct === null || r.success_pct === undefined ? null : Number(r.success_pct),
         productKey: r.product_key,
         productName: r.product_name,
         costCents: n(r.cost_cents),

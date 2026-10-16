@@ -35,6 +35,7 @@
  */
 import {
   AdapterError,
+  type AccountInfo,
   type AdapterContext,
   type CreatePaymentInput,
   type CreatedPayment,
@@ -424,5 +425,56 @@ export function createSam(ctx: AdapterContext): SamAdapter {
     return { verified, message, event };
   }
 
-  return { id: ID, createPayment, verifyWebhook, checkPayment, verifyReference };
+  /**
+   * Admin → Settings → APIs: the wallets linked to the key (name, phone, address,
+   * region, status), each wallet's balances, and the latest movements of the
+   * receiving wallet. Read only; SAM's transfer endpoints are never called.
+   */
+  async function accountInfo(): Promise<AccountInfo> {
+    const method = readMethod(ctx);
+    const wallets = await get("/v1/wallets", "GET /v1/wallets");
+    const raw = Array.isArray(wallets.json)
+      ? wallets.json
+      : isRecord(wallets.json) && Array.isArray(wallets.json.wallets)
+        ? wallets.json.wallets
+        : isRecord(wallets.json) && Array.isArray(wallets.json.data)
+          ? wallets.json.data
+          : [];
+    const list = raw.filter(isRecord);
+    const fields: AccountInfo["fields"] = [];
+    for (const w of list.slice(0, 4)) {
+      const name = text(w.providerDisplayName) ?? text(w.provider) ?? "Wallet";
+      const parts = [text(w.label), text(w.phone), text(w.walletAddress) ?? text(w.cashCode), text(w.accountNumber), text(w.region), text(w.status)]
+        .filter((v): v is string => v !== null);
+      fields.push({ label: name, value: parts.join(" · ").slice(0, 200) });
+    }
+    const receiving = resolveSamWallet(wallets.json, method, readConfig(ctx, "SAM_WALLET"));
+    const balances: AccountInfo["balances"] = [];
+    const history: AccountInfo["history"] = [];
+    if (receiving) {
+      const path = `/v1/wallets/${method}/${encodeURIComponent(receiving)}`;
+      const bal = await get(`${path}/balance`, "GET balance");
+      for (const b of (Array.isArray(bal.json) ? bal.json : []).filter(isRecord)) {
+        const amount = Number(b.amount);
+        const currency = text(b.currency);
+        if (currency && Number.isFinite(amount)) balances.push({ currency: currency.toUpperCase(), amount });
+      }
+      const tx = await get(`${path}/transactions?direction=all`, "GET transactions");
+      for (const t of (Array.isArray(tx.json) ? tx.json : []).filter(isRecord).slice(0, 20)) {
+        const amount = Number(t.amount);
+        if (!Number.isFinite(amount)) continue;
+        const type = text(t.type)?.toLowerCase() ?? "";
+        history.push({
+          at: text(t.occurredAt),
+          amount,
+          currency: text(t.currency)?.toUpperCase() ?? "",
+          text: (text(t.counterparty) ?? text(t.description) ?? type).slice(0, 120),
+          direction: type === "credit" ? "in" : type === "debit" ? "out" : null,
+        });
+      }
+    }
+    return { fields, balances, history };
+  }
+
+  return { id: ID, createPayment, verifyWebhook, checkPayment, verifyReference, accountInfo };
 }

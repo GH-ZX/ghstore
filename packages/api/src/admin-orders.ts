@@ -10,14 +10,19 @@
  *                                     one the supplier delivered (items optional:
  *                                     added to what the supplier sent)
  *
+ * POST /api/admin/orders/in-person { offerId, quantity?, input?, idempotencyKey }
+ *                                     the owner sells a package face to face: placed
+ *                                     like a customer's order, no wallet charged
+ *
  * Owners and support staff only (monitors see the list, never the details).
  * Refunds stay on POST /api/admin/orders/:id/refund.
  */
 import { AFTER_SECRET, decryptText, encryptText, type AfterField, type InputField } from "@store/core";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
-import { n, one } from "./db";
-import { ApiError, json, readJson, uuid } from "./http";
+import { call, n, one } from "./db";
+import { fulfilOrder, validateInput } from "./fulfilment";
+import { ApiError, int, json, readJson, str, uuid } from "./http";
 
 const KINDS = new Set(["account", "code", "link", "id"]);
 const MAX_ITEMS = 20;
@@ -127,4 +132,34 @@ export async function deliverOrder(ctx: Ctx): Promise<Response> {
   });
   await audit(ctx, staff.id, "order.deliver", id, { items: items.length });
   return json({ ok: true, number });
+}
+
+/**
+ * The owner sells a package face to face and takes the money themselves: the
+ * order is placed like a customer's (the supplier delivers, or it waits for
+ * the owner), shows in the owner's own Orders, and charges no wallet.
+ */
+export async function placeInPersonOrder(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const body = await readJson(ctx.req);
+  const offerId = uuid(str(body, "offerId", { max: 36 }), "offerId");
+  const quantity = body.quantity === undefined ? 1 : int(body, "quantity", 1, 100);
+  const idem = str(body, "idempotencyKey", { min: 8, max: 100, pattern: /^[A-Za-z0-9_-]+$/ });
+  const offer = await one<{ input_fields: InputField[] }>(ctx.svc.db, `select input_fields from app.offers where id = $1`, [offerId]);
+  if (!offer) throw new ApiError("offer_unavailable");
+  const raw = body.input && typeof body.input === "object" && !Array.isArray(body.input) ? (body.input as Record<string, unknown>) : {};
+  const checked = validateInput(offer.input_fields, raw);
+  if (!checked.ok) throw new ApiError("invalid_input", `input.${checked.field}`);
+  const rows = await call<{ order_id: string; order_number: string | number; status: string; total_cents: string | number; created: boolean }>(
+    ctx.svc.db,
+    `select * from app.place_in_person_order($1, $2, $3, $4::text::jsonb, $5)`,
+    [staff.id, offerId, quantity, JSON.stringify(checked.values), idem],
+  );
+  const r = rows[0];
+  if (!r) throw new ApiError("internal");
+  if (r.created) {
+    await audit(ctx, staff.id, "order.in_person", r.order_id, { offerId, quantity, totalCents: n(r.total_cents) });
+    if (r.status === "paid") ctx.svc.waitUntil(fulfilOrder(ctx.svc, ctx.env, r.order_id).catch((e) => console.error("fulfil failed", r.order_id, String(e))));
+  }
+  return json({ orderId: r.order_id, number: n(r.order_number), status: r.status, totalCents: n(r.total_cents), created: r.created }, { status: r.created ? 201 : 200 });
 }

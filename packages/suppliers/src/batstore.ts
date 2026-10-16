@@ -38,9 +38,7 @@
 import { AdapterError } from "../../core/src/adapters";
 import type { AdapterContext, DeliveredItem, InputField, PurchaseResult, SupplierAdapter, SupplierProduct } from "../../core/src/adapters";
 import {
-  arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpError, isObj, itemsFrom, num, numericOr, obj,
-  pick, refusal, str, supplierMessage, usdToCents, wakeUpWebhook, webhookSecret,
-  type HttpOptions, type HttpResult, type Obj,
+  accountFacts, arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpError, isObj, itemsFrom, num, numericOr, obj, pick, refusal, str, supplierMessage, usdToCents, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult, type Obj,
 } from "./shared";
 
 const ID = "batstore";
@@ -153,6 +151,17 @@ export function createBatStore(ctx: AdapterContext): SupplierAdapter {
           },
         }];
       });
+    },
+
+    async accountInfo() {
+      const body = obj(await read("/api/reseller/me"));
+      const me = obj(body?.reseller) ?? obj(body?.user) ?? body;
+      const balance = num(me?.wallet_balance ?? obj(me?.wallet)?.balance ?? body?.wallet_balance);
+      return {
+        fields: accountFacts(me, ["wallet_balance", "success"]),
+        balances: balance === null ? [] : [{ currency: "USD", amount: balance }],
+        history: [],
+      };
     },
 
     async getBalance() {

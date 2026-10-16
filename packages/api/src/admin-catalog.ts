@@ -16,6 +16,8 @@ const SLUG = /^[a-z0-9-]{1,80}$/;
 const SUPPLIER_ID = /^[a-z0-9_]{2,32}$/;
 const KINDS = ["id", "code", "account", "link", "sms"] as const;
 const MODES: MarkupMode[] = ["percent", "fixed", "manual"];
+/** The badges a product's card can carry (none by default). */
+const BADGES = ["instant", "new", "hot", "best", "sale"] as const;
 /** auto: the supplier or the stock delivers; manual: a person does; review: the supplier does, a person releases it. */
 const DELIVERY = ["auto", "manual", "review"] as const;
 
@@ -153,6 +155,10 @@ function productChanges(body: Record<string, unknown>): Record<string, unknown> 
   }
   const sort = optInt(body, "sort", -10_000, 10_000);
   if (sort !== undefined) out.sort = sort;
+  if (body.badge !== undefined) {
+    if (body.badge !== null && !(BADGES as readonly unknown[]).includes(body.badge)) throw new ApiError("invalid_input", "badge");
+    out.badge = body.badge;
+  }
   if (body.delivery !== undefined) {
     const d = str(body, "delivery", { max: 10 });
     if (!(DELIVERY as readonly string[]).includes(d)) throw new ApiError("invalid_input", "delivery");
@@ -199,13 +205,13 @@ export async function getCatalog(ctx: Ctx): Promise<Response> {
   const products = await db.query(
     `select id, slug, category_id, name_ar, name_en, description_ar, description_en, instructions_ar, instructions_en,
             warranty_ar, warranty_en, search_terms, image_url, cover_url, unit_ar, unit_en, kind, active, featured, sort,
-            delivery, after_fields
+            delivery, after_fields, badge
        from app.products order by sort, name_en`,
   );
   const offers = await db.query<Record<string, unknown> & { cost_cents: unknown; price_cents: unknown }>(
     `select o.id, o.product_id, o.name_ar, o.name_en, o.sort, o.supplier_id, o.supplier_ref, o.cost_cents, o.price_cents,
             o.markup_mode, o.markup_value, o.round_to_cents, o.min_margin_pct, o.input_fields, o.max_quantity, o.active,
-            o.paused_reason, o.cost_checked_at, o.remind_after_days, o.warranty_ar, o.warranty_en,
+            o.paused_reason, o.cost_checked_at, o.remind_after_days, o.warranty_ar, o.warranty_en, o.success_pct,
             (select count(*) from app.stock_items s where s.offer_id = o.id and s.status = 'available') as stock_available
        from app.offers o order by o.sort, o.price_cents`,
   );

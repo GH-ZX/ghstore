@@ -56,6 +56,7 @@ interface Item {
   packageNameAr?: string | null;
   warrantyEn?: string | null;
   warrantyAr?: string | null;
+  successPct?: number | null;
   productKey: string | null;
   productName: string | null;
   costCents: number;
@@ -505,6 +506,11 @@ function ItemRow({ item: i, on, change, price, changed, gone, replacements, onTo
         </span>
         <span className="list-row__meta wrap" style={{ gap: 6 }}>
           {badge}
+          {typeof i.successPct === "number" && (
+            <span className={`option__rate option__rate--${i.successPct >= 60 ? "good" : i.successPct >= 30 ? "mid" : "low"}`}>
+              {t("successRate", { n: Math.round(i.successPct) })}
+            </span>
+          )}
           {i.warrantyEn && (
             <span className="option__note">
               <ShieldIcon size={11} /> {(lang === "ar" && i.warrantyAr) || i.warrantyEn}

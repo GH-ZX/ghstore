@@ -31,8 +31,7 @@ import type {
   AdapterContext, DeliveredItem, InputField, PurchaseResult, SupplierAdapter, SupplierProduct,
 } from "../../core/src/adapters";
 import {
-  arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpFailure, isObj, itemsFrom, num, numericOr, obj,
-  str, supplierMessage, usdToCents, uuid4From, type HttpOptions, type HttpResult, type Obj,
+  accountFacts, arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpFailure, isObj, itemsFrom, num, numericOr, obj, str, supplierMessage, usdToCents, uuid4From, type HttpOptions, type HttpResult, type Obj,
 } from "./shared";
 
 const ID = "maxstore";
@@ -193,6 +192,12 @@ export function createMaxStore(ctx: AdapterContext): SupplierAdapter {
           },
         }];
       });
+    },
+
+    async accountInfo() {
+      const me = obj(await read("/profile"));
+      const balance = num(me?.balance);
+      return { fields: accountFacts(me, ["balance"]), balances: balance === null ? [] : [{ currency: "USD", amount: balance }], history: [] };
     },
 
     async getBalance() {

@@ -27,6 +27,8 @@ export interface Me {
     telegramUsername: string | null;
     hasTelegram: boolean;
     email: string | null;
+    /** The Telegram profile picture, when Telegram shares one. */
+    photoUrl?: string | null;
   };
   balanceCents: number;
   stats: { orders: number; spentCents: number };
@@ -75,7 +77,11 @@ export interface ProductCard {
   searchTerms: string;
   /** Delivered by the store's team (not instantly). */
   byHand?: boolean;
+  /** The badge the owner chose for the card. */
+  badge?: ProductBadge | null;
 }
+
+export type ProductBadge = "instant" | "new" | "hot" | "best" | "sale";
 
 export interface InputField {
   key: string;
@@ -97,6 +103,8 @@ export interface Offer {
   /** "Full warranty", "5-hour warranty" (null: none said). */
   warrantyAr?: string | null;
   warrantyEn?: string | null;
+  /** How often it delivers, 0-100 (virtual numbers: the share of numbers that got their SMS). */
+  successPct?: number | null;
 }
 
 /** What a customer gives after paying for a product delivered by hand. */
@@ -133,6 +141,7 @@ export interface ProductDetail {
     byHand?: boolean;
     /** Asked after paying. */
     afterFields?: { key: string; type: AfterType; labelEn: string; labelAr: string; required: boolean }[];
+    badge?: ProductBadge | null;
   };
   offers: Offer[];
 }

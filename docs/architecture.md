@@ -110,6 +110,14 @@ from 1001, shown as `GH-1001`.
    to "now". Orders still open after `orders.max_pending_hours` go to a person;
    they are never refunded automatically, because the supplier may still deliver.
 
+### Sales made in person (`orders.paid_with`, migration 0022)
+
+The owner can sell a package face to face (the product sheet's "Sell in
+person", `POST /api/admin/orders/in-person`, `app.place_in_person_order`): the
+order is placed like a customer's, in the owner's own Orders, the supplier
+delivers as usual, and no wallet is charged (`paid_with = 'in_person'`). Its
+refund marks it refunded and credits no wallet: the owner gives the money back.
+
 ### Orders that wait for someone (`orders.hold`, migration 0021)
 
 How a product is delivered is `products.delivery`: `auto` (the supplier, or
@@ -214,13 +222,21 @@ New supplier items are never added automatically: the owner chooses them in
 ## Virtual numbers (5SIM)
 
 One product per service (Telegram, WhatsApp…), a package per country with its
-flag and Arabic name. Buying passes the package's cost as 5SIM's `maxPrice`, so
-a number never costs more than it was priced from. The order page shows the
+flag and Arabic name. 5SIM prices and balances are in US dollars
+(`FIVESIM_RUB_USD_RATE` converts an old ruble account). Each operator of a
+country publishes how many of its numbers got their SMS lately; a package is
+priced from the operator with the best success rate (cheaper between close
+rates), shows that rate (`offers.success_pct`, best countries first), and the
+purchase asks for the best operator that still fits the package's cost
+(operator "any" with `maxPrice` when none publishes a rate), so a number never
+costs more than it was priced from. The order page shows the
 number with a countdown (`orders.supplier_expires_at`) and asks 5SIM for the
 code every few seconds while the customer watches; the scheduled check does
 it every 15 s otherwise. Before a code arrives the customer can cancel or
 report the number as already used (`POST /api/orders/:id/number`): 5SIM
-releases it and the order is refunded. A number that expires without a code is
+releases it and the order is refunded. "Try another number" does that and buys
+the next number of the same package at once (`again: true`), as 5SIM users do
+until a code arrives. A number that expires without a code is
 refunded too. The catalogue is read a service at a time (the full price list is
 several MB).
 

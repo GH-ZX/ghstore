@@ -120,6 +120,7 @@ interface OrderView {
   offer_ar: string; offer_en: string; input_fields: InputField[]; kind: string; supplier_id: string | null; supplier_order_id: string | null;
   supplier_expires_at: string | Date | null; stale: boolean;
   hold: string | null; answers_enc: string | null; answered_at: string | null; after_fields: AfterField[];
+  offer_id: string; quantity: number;
 }
 
 /** Ownership is part of the query: another user's order is simply "not found". */
@@ -131,7 +132,7 @@ async function ownOrder(ctx: Ctx, id: string, userId: string): Promise<OrderView
             f.name_ar as offer_ar, f.name_en as offer_en, f.input_fields,
             o.supplier_id, o.supplier_order_id, o.supplier_expires_at,
             o.updated_at < now() - interval '4 seconds' as stale,
-            o.hold, o.answers_enc, o.answered_at, p.after_fields
+            o.hold, o.answers_enc, o.answered_at, p.after_fields, o.offer_id, o.quantity
        from app.orders o join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
       where o.id = $1 and o.user_id = $2`,
     [id, userId],
@@ -196,11 +197,14 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
 }
 
 /**
- * POST /api/orders/:id/number { action: "cancel" | "used" } — a virtual number
- * that has not received its code yet: cancel it, or report it as already used
- * by the service. The supplier releases it (and charges nothing), and the
- * order is refunded to the wallet. If the code arrived meanwhile, it is fetched
- * instead and nothing is refunded.
+ * POST /api/orders/:id/number { action: "cancel" | "used", again?: true } — a
+ * virtual number that has not received its code yet: cancel it, or report it
+ * as already used by the service. The supplier releases it (and charges
+ * nothing), and the order is refunded to the wallet. If the code arrived
+ * meanwhile, it is fetched instead and nothing is refunded.
+ *
+ * `again`: then buy another number of the same package right away (what 5sim
+ * users do: ban, buy again, until a code comes). Answers the new order's id.
  */
 export async function closeNumber(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
@@ -235,7 +239,25 @@ export async function closeNumber(ctx: Ctx): Promise<Response> {
     await db.query(`insert into app.order_events (order_id, type, data) values ($1, 'number_closed', $2::text::jsonb)`, [id, JSON.stringify({ action })]);
     await call(db, `select * from app.refund_order($1, $2)`, [id, reason]);
   });
-  return json({ closed: true });
+  if (body.again !== true) return json({ closed: true });
+  // Another number of the same package, paid from the refund just made.
+  try {
+    const channel = user.channel === "miniapp" ? "miniapp" : "web";
+    const rows = await call<{ order_id: string; status: string; created: boolean }>(
+      ctx.svc.db,
+      `select * from app.place_order($1, $2, 1, $3::text::jsonb, $4, $5, null)`,
+      [user.id, o.offer_id, JSON.stringify(o.input ?? {}), `again-${id}`.slice(0, 100), channel],
+    );
+    const next = rows[0];
+    if (!next) throw new ApiError("internal");
+    if (next.created && next.status === "paid") {
+      ctx.svc.waitUntil(fulfilOrder(ctx.svc, ctx.env, next.order_id).catch((e) => console.error("fulfil failed", next.order_id, String(e))));
+    }
+    return json({ closed: true, orderId: next.order_id });
+  } catch (err) {
+    // Refunded either way; the new number could not be bought (sold out, wallet...).
+    return json({ closed: true, againError: err instanceof ApiError ? err.code : "internal" });
+  }
 }
 
 /**

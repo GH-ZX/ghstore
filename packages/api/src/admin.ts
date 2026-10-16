@@ -303,8 +303,11 @@ export async function listUsers(ctx: Ctx): Promise<Response> {
 /** Admin → Settings → Email receipts → "Send me a test": a sample receipt to the owner's linked email. */
 export async function testEmail(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx, "owner");
+  const body = await readJson(ctx.req);
+  const typed = typeof body.to === "string" && body.to.trim() ? body.to.trim() : undefined;
+  if (typed !== undefined && (typed.length > 254 || !EMAIL.test(typed))) throw new ApiError("invalid_input", "to");
   try {
-    const to = await sendTestEmail(ctx.svc, ctx.env, staff.id, staff.locale);
+    const to = await sendTestEmail(ctx.svc, ctx.env, staff.id, staff.locale, typed);
     return json({ ok: true, to });
   } catch (err) {
     if (err instanceof ApiError) throw err;

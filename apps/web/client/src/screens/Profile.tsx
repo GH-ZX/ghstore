@@ -53,7 +53,7 @@ function ProfileView() {
       <div className="card card--pad stack">
         <div className="wrap" style={{ gap: 14 }}>
           <span className="avatar" aria-hidden="true">
-            {initial}
+            {u.photoUrl ? <img src={u.photoUrl} alt="" referrerPolicy="no-referrer" onError={(e) => (e.currentTarget.style.display = "none")} /> : initial}
           </span>
           <span className="stack-sm" style={{ gap: 4, minWidth: 0 }}>
             <span style={{ fontSize: 19, fontWeight: 700 }}>{u.name || handle}</span>

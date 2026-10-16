@@ -233,12 +233,38 @@ function useCountdown(iso: string | null | undefined): string | null {
  */
 function NumberPanel({ data, onChanged, onCopy }: { data: OrderDetail; onChanged: () => void; onCopy: (v: string) => void }) {
   const { t, lang } = useT();
-  const [busy, setBusy] = useState<"cancel" | "used" | null>(null);
+  const [busy, setBusy] = useState<"cancel" | "used" | "again" | null>(null);
   const o = data.order;
   const phone = data.deliveries.find((d) => d.kind === "phone");
   const codes = data.deliveries.filter((d) => d.kind === "sms");
   const waiting = (o.status === "paid" || o.status === "processing") && codes.length === 0;
   const left = useCountdown(waiting ? o.expiresAt : null);
+
+  /**
+   * No code? Report this number (refunded) and buy the next one in one go, as
+   * 5sim users do until a code arrives.
+   */
+  async function another() {
+    setBusy("again");
+    try {
+      const r = await api<{ closed: boolean; orderId?: string; againError?: string }>(`/api/orders/${o.id}/number`, { method: "POST", body: { action: "used", again: true } });
+      if (!r.closed) {
+        toast(t("numCodeArrived"));
+        onChanged();
+      } else if (r.orderId) {
+        haptic("tap");
+        toast(t("numAnother"));
+        navigate(`/orders/${r.orderId}`, { replace: true });
+      } else {
+        toast(`${t("numClosed")} · ${errorText(lang, r.againError ?? "internal")}`, true);
+        onChanged();
+      }
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function close(action: "cancel" | "used") {
     if (!window.confirm(t(action === "cancel" ? "numConfirmCancel" : "numConfirmUsed"))) return;
@@ -297,6 +323,9 @@ function NumberPanel({ data, onChanged, onCopy }: { data: OrderDetail; onChanged
           <span className="small muted">{t("numHint")}</span>
           {o.numberActions && (
             <div className="wrap">
+              <button type="button" className="btn btn--sm press" disabled={busy !== null} onClick={another}>
+                {busy === "again" ? <Spinner small /> : t("numTryAnother")}
+              </button>
               <button type="button" className="btn btn--xs btn--ghost press" disabled={busy !== null} onClick={() => close("cancel")}>
                 {busy === "cancel" ? <Spinner small /> : t("numCancel")}
               </button>

@@ -56,6 +56,9 @@ async function telegramUser(ctx: Ctx, u: TelegramUser): Promise<UserRow> {
   ]);
   const userId = rows[0]?.id;
   if (!userId) throw new ApiError("internal");
+  // The Telegram profile picture, for the profile page (Telegram's own https address only).
+  const photo = u.photoUrl && /^https:\/\/[a-z0-9.-]*(telegram\.org|t\.me|telesco\.pe)\/[^\s"<>]{1,400}$/i.test(u.photoUrl) ? u.photoUrl : null;
+  if (photo) await ctx.svc.db.query(`update app.users set photo_url = $2 where id = $1 and photo_url is distinct from $2`, [userId, photo]);
   await promoteOwner(ctx.svc.db, userId, String(u.id), ctx.env.OWNER_TELEGRAM_IDS);
   const user = await loadUser(ctx.svc.db, userId);
   if (user.status !== "active") throw new ApiError("user_blocked");
@@ -321,18 +324,22 @@ export async function requireStaff(ctx: Ctx, level: StaffLevel = "support"): Pro
 export async function me(ctx: Ctx): Promise<Response> {
   const auth = await requireUser(ctx);
   const user = await loadUser(ctx.svc.db, auth.id);
-  const extra = await one<{ balance_cents: string | number | null; orders: string | number; spent: string | number; telegram: string | null; tg_id: string | null; email: string | null }>(
+  const extra = await one<{ balance_cents: string | number | null; orders: string | number; spent: string | number; telegram: string | null; tg_id: string | null; email: string | null; photo_url: string | null }>(
     ctx.svc.db,
     `select (select balance_cents from app.wallets where user_id = $1) as balance_cents,
             (select count(*) from app.orders where user_id = $1 and status = 'delivered') as orders,
             (select coalesce(sum(total_cents), 0) from app.orders where user_id = $1 and status = 'delivered') as spent,
             (select username from app.identities where user_id = $1 and provider = 'telegram' limit 1) as telegram,
             (select subject from app.identities where user_id = $1 and provider = 'telegram' limit 1) as tg_id,
+            (select photo_url from app.users where id = $1) as photo_url,
             (select email from app.identities where user_id = $1 and provider = 'supabase' limit 1) as email`,
     [auth.id],
   );
   return json({
-    user: { ...publicUser(user), telegramUsername: extra?.telegram ?? null, hasTelegram: Boolean(extra?.tg_id), email: extra?.email ?? null },
+    user: {
+      ...publicUser(user), telegramUsername: extra?.telegram ?? null, hasTelegram: Boolean(extra?.tg_id), email: extra?.email ?? null,
+      photoUrl: extra?.photo_url ?? null,
+    },
     balanceCents: n(extra?.balance_cents),
     stats: { orders: n(extra?.orders), spentCents: n(extra?.spent) },
     channel: auth.channel,

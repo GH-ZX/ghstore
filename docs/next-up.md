@@ -17,10 +17,16 @@ fixed: confirm the plan with the owner before building, and show screenshots
   package warranties (Admin → Suppliers → Names).
 - BatStore renumbered its catalogue in October 2026: the store's old BatStore
   products were removed and its in-stock items put on sale again with clean names.
+- **5SIM in dollars with success rates** and "Try another number"; **APIs** in
+  Admin → Settings (each supplier's and SAM's account: balances, details,
+  latest movements); **sales made in person** by the owner; **product badges**
+  chosen per product; Telegram full-screen safe areas; admin section icons.
 
 ## Live checks after the next deploy
 
-- Migrations up to `0021_hand_delivery_names.sql` are on the live database first.
+- Migrations up to `0022_rates_badges_in_person.sql` are on the live database first.
+- Admin → Settings → APIs: each account opens and shows its balance (5SIM in dollars).
+- In Telegram full screen, the header and the admin menu sit below Telegram's buttons.
 - Admin → Suppliers → Names: BatStore and ProdSeller items show clean names;
   Choose packages groups them (Zoom 3 / 6 / 12 months under one product).
 - A product set to "By hand" with after-payment details: buy it, give the

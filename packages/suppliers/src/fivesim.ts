@@ -12,18 +12,25 @@
  * for a number that never received an SMS).
  *
  * Quirks worth knowing:
- * - Prices and the balance are in RUBLES. They are converted with a configured
- *   rate (default 1 RUB = 0.011 USD). Costs round UP and the balance rounds
- *   DOWN so the estimate never flatters the margin.
+ * - Prices and the balance are in the account's currency: US dollars today
+ *   (5sim moved from rubles). FIVESIM_RUB_USD_RATE converts an old ruble
+ *   account (0.011). Costs round UP and the balance rounds DOWN so the estimate
+ *   never flatters the margin.
+ * - Each operator of a country publishes how many of its numbers received
+ *   their SMS lately (`rate`, `rate24`, `rate72`, `rate168`, `rate720`: the
+ *   last hours, day, 3 days, week, month; left out below ~20% or with too few
+ *   orders). A package is priced from the operator with the best success rate
+ *   (cheaper wins between close rates), shows that rate to the customer, and
+ *   the purchase asks for the best operator that still fits the package's cost.
  * - The full price list (/guest/prices) is several megabytes: far too much for
  *   one Worker run. So the catalogue is listed a service at a time
  *   (listGroups from /guest/products/any/any, then /guest/prices?product=X),
  *   and the sync reads only the services the store sells, a few per run.
  * - /guest/prices nests `{ country: { product: { operator: { cost, count } } } }`,
  *   or `{ product: { country: { operator: ... } } }` when asked per product.
- *   A package is a (country, service) pair bought with operator "any", priced
- *   at the cheapest operator that has numbers; the buy passes that price as
- *   `maxPrice`, so 5sim never charges more than the store priced.
+ *   A package is a (country, service) pair; when no operator publishes a rate
+ *   it is bought with operator "any" and the package's cost as `maxPrice`, so
+ *   5sim never charges more than the store priced.
  * - /guest/countries gives each country's ISO code (for flags and the Arabic name).
  * - Buying answers `{ id, phone, price, status: "PENDING", expires }` (about 15
  *   minutes later); refusals are plain text: "no free phones", "not enough user
@@ -40,19 +47,21 @@
  * purchase → pending + { kind: "phone" }; checkOrder → delivered + { kind: "sms" }.
  *
  * Config: FIVESIM_API_KEY, FIVESIM_BASE_URL (default https://5sim.net/v1),
- * FIVESIM_RUB_USD_RATE (default 0.011; set 1 for a USD-priced account),
+ * FIVESIM_RUB_USD_RATE (default 1: a US-dollar account; 0.011 for a ruble one),
  * FIVESIM_COUNTRIES / FIVESIM_SERVICES (optional comma lists limiting the
  * catalogue), FIVESIM_OPERATOR (default "any").
  */
 import { AdapterError } from "../../core/src/adapters";
 import type { AdapterContext, DeliveredItem, PurchaseResult, SupplierAdapter, SupplierGroup, SupplierProduct } from "../../core/src/adapters";
 import {
-  arr, baseUrl, caught, cfg, csv, failed, http, httpError, isObj, mapLimit, num, obj, refusal, str, supplierMessage,
-  type HttpResult,
+  accountFacts, arr, baseUrl, caught, cfg, csv, failed, http, httpError, isObj, mapLimit, num, obj, refusal, str, supplierMessage,
+  type HttpResult, type Obj,
 } from "./shared";
 
 const ID = "fivesim";
-const DEFAULT_RATE = 0.011;
+const DEFAULT_RATE = 1;
+/** Rates closer than this (percentage points) count as equal: the cheaper operator wins. */
+const RATE_BAND = 5;
 const SERVICE = "service:";
 const DEAD: Record<string, string> = {
   CANCELED: "the number was cancelled before an SMS arrived",
@@ -96,6 +105,42 @@ export type FiveSimAdapter = SupplierAdapter & {
 interface Country {
   iso: string | null;
   en: string;
+}
+
+interface Operator {
+  name: string;
+  cost: number;
+  count: number;
+  /** 0-100; 0 when 5sim does not publish one. */
+  success: number;
+}
+
+/** How many of an operator's numbers got their SMS lately: the week first, then longer and shorter windows. */
+function successOf(info: Obj): number {
+  for (const k of ["rate168", "rate720", "rate72", "rate24", "rate"]) {
+    const v = num(info[k]);
+    if (v !== null && v > 0) return Math.min(100, v);
+  }
+  return 0;
+}
+
+function operatorsOf(byOperator: unknown, only: string): Operator[] {
+  if (!isObj(byOperator)) return [];
+  return Object.entries(byOperator)
+    .filter(([name, info]) => isObj(info) && (only === "any" || name === only))
+    .map(([name, info]) => {
+      const o = info as Obj;
+      return { name, cost: num(o.cost) ?? -1, count: num(o.count) ?? 0, success: successOf(o) };
+    })
+    .filter((o) => o.cost >= 0);
+}
+
+/** The operator to buy from: in stock, within `maxCost`, the best success rate (cheaper between close rates). */
+export function bestOperator(ops: Operator[], maxCost?: number): Operator | null {
+  const pool = ops.filter((o) => o.count > 0 && (maxCost === undefined || o.cost <= maxCost + 1e-9));
+  if (pool.length === 0) return null;
+  const band = (o: Operator) => Math.floor(o.success / RATE_BAND);
+  return [...pool].sort((a, b) => band(b) - band(a) || a.cost - b.cost || b.success - a.success)[0]!;
 }
 
 export function createFiveSim(ctx: AdapterContext): FiveSimAdapter {
@@ -149,17 +194,24 @@ export function createFiveSim(ctx: AdapterContext): FiveSimAdapter {
     return countryCache;
   }
 
-  /** The cheapest operator that has numbers (or the cheapest at all, unavailable). */
-  function price(byOperator: unknown): { cost: number; max: number; stock: number; available: boolean } | null {
-    if (!isObj(byOperator)) return null;
-    const offers = Object.entries(byOperator)
-      .filter(([name, info]) => isObj(info) && (operator === "any" || name === operator))
-      .map(([, info]) => ({ cost: num(obj(info)?.cost), count: num(obj(info)?.count) ?? 0 }))
-      .filter((o): o is { cost: number; count: number } => o.cost !== null && o.cost >= 0);
-    if (offers.length === 0) return null;
-    const inStock = offers.filter((o) => o.count > 0);
-    const priced = (inStock.length > 0 ? inStock : offers).map((o) => o.cost);
-    return { cost: Math.min(...priced), max: Math.max(...priced), stock: inStock.reduce((s, o) => s + o.count, 0), available: inStock.length > 0 };
+  /**
+   * A country's package: priced from the best operator in stock (see bestOperator),
+   * or the cheapest at all when none has numbers (then unavailable).
+   */
+  function price(byOperator: unknown): { cost: number; max: number; stock: number; available: boolean; success: number | null; operator: string } | null {
+    const ops = operatorsOf(byOperator, operator);
+    if (ops.length === 0) return null;
+    const inStock = ops.filter((o) => o.count > 0);
+    const pick = bestOperator(ops) ?? [...ops].sort((a, b) => a.cost - b.cost)[0]!;
+    const priced = (inStock.length > 0 ? inStock : ops).map((o) => o.cost);
+    return {
+      cost: pick.cost,
+      max: Math.max(...priced),
+      stock: inStock.reduce((s, o) => s + o.count, 0),
+      available: inStock.length > 0,
+      success: pick.success > 0 ? Math.round(pick.success * 10) / 10 : null,
+      operator: pick.name,
+    };
   }
 
   function item(country: string, service: string, p: NonNullable<ReturnType<typeof price>>, names?: Map<string, Country>): SupplierProduct {
@@ -179,7 +231,8 @@ export function createFiveSim(ctx: AdapterContext): FiveSimAdapter {
       productNameAr: `رقم ${brand}`,
       packageName: f ? `${f} ${en}` : en,
       packageNameAr: f ? `${f} ${ar}` : ar,
-      meta: { country, service, operator, iso: c?.iso ?? null, stock: p.stock, maxCostCents: costCents(p.max), rubUsdRate: rate },
+      successPct: p.success,
+      meta: { country, service, operator: p.operator, iso: c?.iso ?? null, stock: p.stock, maxCostCents: costCents(p.max), rubUsdRate: rate },
     };
   }
 
@@ -251,6 +304,32 @@ export function createFiveSim(ctx: AdapterContext): FiveSimAdapter {
       return `${SERVICE}${externalId.split("/")[1] ?? ""}`;
     },
 
+    /** The account, its balance and its latest numbers (Admin → Settings → APIs). */
+    async accountInfo() {
+      const r = await user("/profile");
+      if (!r.ok) throw httpError(ID, r, secrets);
+      const profile = obj(r.json);
+      const balance = num(profile?.balance);
+      const currency = rate === 1 ? "USD" : "RUB";
+      const history: { at: string | null; amount: number; currency: string; text: string; direction: "in" | "out" | null }[] = [];
+      try {
+        const o = await user("/orders?category=activation&limit=15&offset=0&order=id&reverse=true");
+        for (const row of arr(obj(o.json)?.Data).filter(isObj).slice(0, 15)) {
+          const p = num(row.price) ?? 0;
+          history.push({
+            at: str(row.created_at) ?? null,
+            amount: -p,
+            currency,
+            text: `${serviceName(str(row.product) ?? "")} · ${str(row.country) ?? ""} · ${(str(row.status) ?? "").toLowerCase()}`.slice(0, 120),
+            direction: "out",
+          });
+        }
+      } catch {
+        // The orders list is a nice-to-have.
+      }
+      return { fields: accountFacts(profile, ["balance"]), balances: balance === null ? [] : [{ currency, amount: balance }], history };
+    },
+
     async getBalance() {
       const r = await user("/profile");
       if (!r.ok) throw httpError(ID, r, secrets);
@@ -265,9 +344,26 @@ export function createFiveSim(ctx: AdapterContext): FiveSimAdapter {
         if (!match?.[1] || !match[2]) return failed(`unknown 5sim product id "${req.externalId}"`, false);
         if (req.quantity !== 1) return failed("5sim numbers are bought one at a time (quantity must be 1)", false);
         if (!key) return failed("FIVESIM_API_KEY is not configured", false);
-        // Never pay more than the package was priced from (only possible with operator "any").
-        const cap = operator === "any" && req.maxCostCents && req.maxCostCents > 0 ? `?maxPrice=${(req.maxCostCents / 100 / rate).toFixed(4)}` : "";
-        const r = await user(`/buy/activation/${enc(match[1])}/${enc(operator)}/${enc(match[2])}${cap}`);
+        const [country, service] = [match[1], match[2]];
+        // The best operator right now that fits the package's cost (one request); 5sim's
+        // own maxPrice only works with operator "any", the fallback.
+        const maxCost = req.maxCostCents && req.maxCostCents > 0 ? req.maxCostCents / 100 / rate : undefined;
+        let op = operator;
+        if (operator === "any") {
+          try {
+            const raw = obj(await guest(`/prices?country=${enc(country)}&product=${enc(service)}`));
+            const byOperator = obj(obj(raw?.[country])?.[service]) ?? obj(obj(raw?.[service])?.[country]);
+            const choice = bestOperator(operatorsOf(byOperator, "any").filter((o) => o.success > 0), maxCost);
+            if (choice) op = choice.name;
+          } catch {
+            // Prices unavailable: buy from any operator within the cap.
+          }
+        }
+        const buy = (o: string) =>
+          user(`/buy/activation/${enc(country)}/${enc(o)}/${enc(service)}${o === "any" && maxCost !== undefined ? `?maxPrice=${maxCost.toFixed(4)}` : ""}`);
+        let r = await buy(op);
+        // That operator just ran out: any operator within the cap.
+        if (op !== "any" && operator === "any" && !r.ok && /no free phones/i.test(supplierMessage(r, secrets))) r = await buy("any");
         const order = obj(r.json);
         const id = str(order?.id);
         const phone = str(order?.phone);

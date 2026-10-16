@@ -262,6 +262,16 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
       [unchanged.join(",")],
     );
   }
+  // Success rates follow the supplier (5SIM publishes one per country); one write, only for suppliers that publish them.
+  const rates = products.filter((p) => p.successPct !== undefined).map((p) => ({ ref: p.externalId, pct: p.successPct ?? null }));
+  if (rates.length) {
+    await svc.db.query(
+      `update app.offers o set success_pct = x.pct
+         from jsonb_to_recordset($2::text::jsonb) as x(ref text, pct numeric)
+        where o.supplier_id = $1 and o.supplier_ref = x.ref and o.success_pct is distinct from x.pct`,
+      [supplierId, JSON.stringify(rates)],
+    );
+  }
   // A partial pass keeps the supplier due, so the next run checks the next groups.
   await svc.db.query(
     `update app.suppliers set last_sync_at = case when $2 then now() else last_sync_at end, health = 'ok', last_error = null where id = $1`,

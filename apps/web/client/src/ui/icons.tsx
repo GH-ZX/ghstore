@@ -265,3 +265,85 @@ export const ArrowIcon = ({ size = 18 }: P) => (
     <path {...line} d="M5 12h14M13 6l6 6-6 6" />
   </Svg>
 );
+
+/* ───────────── admin sections (stroke icons, 20px by default) */
+
+const stroke = { fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round" } as const;
+
+export const OverviewIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <rect x="3.5" y="3.5" width="7" height="7" rx="2" {...stroke} />
+    <rect x="13.5" y="3.5" width="7" height="4.5" rx="2" {...stroke} />
+    <rect x="13.5" y="11" width="7" height="9.5" rx="2" {...stroke} />
+    <rect x="3.5" y="13.5" width="7" height="7" rx="2" {...stroke} />
+  </Svg>
+);
+
+export const TopupIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <rect x="3" y="6" width="18" height="13" rx="3" {...stroke} />
+    <path d="M12 9.5v6M9 12.5h6M7 3.5h10" {...stroke} />
+  </Svg>
+);
+
+export const ReceiptIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M6 3.5h12v17l-3-2-3 2-3-2-3 2z" {...stroke} />
+    <path d="M9 8.5h6M9 12h6" {...stroke} />
+  </Svg>
+);
+
+export const BoxIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z" {...stroke} />
+    <path d="m4 7.5 8 4.5 8-4.5M12 12v9" {...stroke} />
+  </Svg>
+);
+
+export const HomeIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15V15h-6v5.5H5.5A1.5 1.5 0 0 1 4 19z" {...stroke} />
+  </Svg>
+);
+
+export const TicketIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h14a1.5 1.5 0 0 1 1.5 1.5V10a2 2 0 0 0 0 4v2.5A1.5 1.5 0 0 1 19 18H5a1.5 1.5 0 0 1-1.5-1.5V14a2 2 0 0 0 0-4z" {...stroke} />
+    <path d="M14 6v12" {...stroke} strokeDasharray="2 2.5" />
+  </Svg>
+);
+
+export const MegaphoneIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M4 10v4a1 1 0 0 0 1 1h2l8 4.5V4.5L7 9H5a1 1 0 0 0-1 1z" {...stroke} />
+    <path d="M18.5 9a4 4 0 0 1 0 6M7.5 15l1 4.5" {...stroke} />
+  </Svg>
+);
+
+export const TruckIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M3 6.5h11v9.5H3zM14 9.5h3.5L21 13v3h-7z" {...stroke} />
+    <circle cx="7" cy="17.5" r="1.8" {...stroke} />
+    <circle cx="17" cy="17.5" r="1.8" {...stroke} />
+  </Svg>
+);
+
+export const UsersIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <circle cx="9" cy="8.5" r="3.2" {...stroke} />
+    <path d="M3.5 19a5.5 5.5 0 0 1 11 0M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17.5 14.2A5.5 5.5 0 0 1 20.5 19" {...stroke} />
+  </Svg>
+);
+
+export const GearIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <circle cx="12" cy="12" r="3" {...stroke} />
+    <path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M18 6l-1.6 1.6M7.6 16.4 6 18M18 18l-1.6-1.6M7.6 7.6 6 6" {...stroke} />
+  </Svg>
+);
+
+export const ExitIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M14 4.5H6.5A1.5 1.5 0 0 0 5 6v12a1.5 1.5 0 0 0 1.5 1.5H14M10 12h10M16.5 8.5 20 12l-3.5 3.5" {...stroke} />
+  </Svg>
+);

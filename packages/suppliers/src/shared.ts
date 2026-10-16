@@ -374,3 +374,27 @@ export async function wakeUpWebhook(
   if (!supplierOrderId) return null;
   return { supplierOrderId, result: await opts.check(supplierOrderId) };
 }
+
+/** Field names that may carry a credential: never shown, whatever the supplier sends. */
+const SECRETISH = /key|token|secret|pass|hash|sign|auth|session|cookie|otp|pin/i;
+
+/**
+ * Plain facts from a supplier's account answer (name, email, status, rating...)
+ * for Admin → Settings → APIs: strings, numbers and booleans, one level deep,
+ * never a field whose name looks like a credential.
+ */
+export function accountFacts(raw: unknown, skip: string[] = []): { label: string; value: string }[] {
+  const out: { label: string; value: string }[] = [];
+  const walk = (o: Obj, prefix: string, depth: number) => {
+    for (const [k, v] of Object.entries(o)) {
+      if (out.length >= 24) return;
+      if (SECRETISH.test(k) || skip.includes(k) || v === null || v === undefined || v === "") continue;
+      const words = `${prefix} ${k}`.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
+      const label = words.charAt(0).toUpperCase() + words.slice(1);
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") out.push({ label, value: String(v).slice(0, 160) });
+      else if (isObj(v) && depth < 1) walk(v, `${prefix} ${k}`.trim(), depth + 1);
+    }
+  };
+  if (isObj(raw)) walk(raw, "", 0);
+  return out;
+}

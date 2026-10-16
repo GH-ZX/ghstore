@@ -34,7 +34,9 @@ someone else's store.
 | Choose packages: tick what to sell from each supplier, review, apply | Done, tested |
 | Home showcase: Cinematic and Deal looks, per slide, with settings | Done |
 | Units on packages, wide covers, pictures in Supabase Storage | Done, tested |
-| 5SIM virtual numbers: countdown, code, cancel / already used with refund | Done, tested |
+| 5SIM virtual numbers: success rates, best operator, countdown, code, cancel / try another number with refund | Done, tested |
+| Admin → Settings → APIs: supplier and SAM account balances, details, latest movements | Done, tested |
+| Sales made in person by the owner (no wallet), product badges chosen per product | Done, tested |
 | Per-supplier check schedules (5 min to 24 h), out-of-stock hiding | Done, tested |
 | Products delivered by hand, details asked after paying, supplier deliveries checked before release | Done, tested |
 | Clean names for BatStore / ProdSeller shorthand, package warranties | Done, tested |

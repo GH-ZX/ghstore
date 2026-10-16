@@ -3,7 +3,10 @@ import { createFiveSim } from "../src/fivesim";
 import { context, json, networkError, text } from "./fake-fetch";
 
 const KEY = "test-key";
+/** 5sim answers in US dollars today. */
 const config = { FIVESIM_API_KEY: KEY };
+/** An old ruble account. */
+const rub = { ...config, FIVESIM_RUB_USD_RATE: "0.011" };
 
 // Shapes follow the old bot's services/fivesim.py and tests/test_fivesim_service.py.
 const usaPrices = {
@@ -20,7 +23,7 @@ describe("fivesim listProducts", () => {
         "GET /v1/guest/prices?country=usa": json(usaPrices),
         "GET /v1/guest/prices?country=england": json({ england: { telegram: { virtual4: { cost: 20.5, count: 3 } } } }),
       },
-      { ...config, FIVESIM_COUNTRIES: "usa, England" },
+      { ...rub, FIVESIM_COUNTRIES: "usa, England" },
     );
     const list = await createFiveSim(ctx).listProducts();
     // 40 RUB * 0.011 = 0.44 USD; 20.5 * 0.011 = 0.2255 → 23 (rounded up).
@@ -66,7 +69,7 @@ describe("fivesim catalogue by service", () => {
   };
 
   it("lists services (activation only, most numbers first), then a service's countries with flags and Arabic names", async () => {
-    const { ctx, calls } = context(routes, config);
+    const { ctx, calls } = context(routes, rub);
     const g = createFiveSim(ctx);
     expect(await g.listGroups!()).toEqual([
       { id: "service:telegram", name: "Telegram" },
@@ -82,7 +85,7 @@ describe("fivesim catalogue by service", () => {
   });
 
   it("prices only the services the store sells, one request each, for the sync", async () => {
-    const { ctx, calls } = context(routes, config);
+    const { ctx, calls } = context(routes, rub);
     const g = createFiveSim(ctx);
     const list = await g.listProductsFor!(["usa/telegram", "england/telegram"]);
     expect(list.map((p) => [p.externalId, p.costCents])).toEqual([["usa/telegram", 44], ["england/telegram", 23]]);
@@ -110,17 +113,54 @@ describe("fivesim purchase", () => {
       items: [{ kind: "phone", value: "+1234567890" }],
       expiresAt: "2026-09-13T12:00:00.000Z",
     });
-    expect(calls[0]?.headers.authorization).toBe(`Bearer ${KEY}`);
+    expect(calls.at(-1)?.headers.authorization).toBe(`Bearer ${KEY}`);
   });
 
   it("caps the price at the package's cost, in rubles", async () => {
     const { ctx, calls } = context(
       { "GET /v1/user/buy/activation/usa/any/telegram": json({ id: 5, phone: "+1555", status: "PENDING" }) },
-      config,
+      rub,
     );
     await createFiveSim(ctx).purchase({ ...req, maxCostCents: 44 });
     // 44 cents / 0.011 = 40 RUB.
-    expect(calls[0]?.path).toBe("/v1/user/buy/activation/usa/any/telegram?maxPrice=40.0000");
+    expect(calls.at(-1)?.path).toBe("/v1/user/buy/activation/usa/any/telegram?maxPrice=40.0000");
+  });
+
+  const ratedPrices = {
+    usa: {
+      telegram: {
+        cheap: { cost: 0.1, count: 500, rate: 0, rate168: 12.5 },
+        good: { cost: 0.18, count: 40, rate168: 73.4 },
+        better: { cost: 0.6, count: 3, rate168: 75 },
+        empty: { cost: 0.12, count: 0, rate168: 99 },
+      },
+    },
+  };
+
+  it("buys from the operator with the best success rate that fits the package's cost", async () => {
+    const { ctx, calls } = context(
+      {
+        "GET /v1/guest/prices?country=usa&product=telegram": json(ratedPrices),
+        "GET /v1/user/buy/activation/usa/good/telegram": json({ id: 6, phone: "+1666", status: "PENDING" }),
+      },
+      config,
+    );
+    // 73.4% and 75% are close: the cheaper wins; "better" would not fit 20 cents anyway; "empty" has no numbers.
+    expect(await createFiveSim(ctx).purchase({ ...req, maxCostCents: 20 })).toMatchObject({ status: "pending", supplierOrderId: "6" });
+    expect(calls.map((c) => c.path)).toEqual(["/v1/guest/prices?country=usa&product=telegram", "/v1/user/buy/activation/usa/good/telegram"]);
+  });
+
+  it("falls back to any operator within the cap when the chosen one just ran out", async () => {
+    const { ctx, calls } = context(
+      {
+        "GET /v1/guest/prices?country=usa&product=telegram": json(ratedPrices),
+        "GET /v1/user/buy/activation/usa/good/telegram": text("no free phones", 400),
+        "GET /v1/user/buy/activation/usa/any/telegram": json({ id: 7, phone: "+1777", status: "PENDING" }),
+      },
+      config,
+    );
+    expect(await createFiveSim(ctx).purchase({ ...req, maxCostCents: 20 })).toMatchObject({ status: "pending", supplierOrderId: "7" });
+    expect(calls.at(-1)?.path).toBe("/v1/user/buy/activation/usa/any/telegram?maxPrice=0.2000");
   });
 
   it.each([
@@ -207,9 +247,54 @@ describe("fivesim cancel and ban", () => {
   });
 });
 
+describe("fivesim success rates", () => {
+  it("prices a country from its best operator and shows that operator's success rate", async () => {
+    const { ctx } = context(
+      {
+        "GET /v1/guest/countries": json({ usa: { iso: { us: 1 }, text_en: "USA" } }),
+        "GET /v1/guest/prices?product=telegram": json({
+          telegram: {
+            usa: {
+              cheap: { cost: 0.1, count: 500, rate168: 12.5 },
+              good: { cost: 0.18, count: 40, rate168: 73.4, rate720: 60 },
+            },
+          },
+        }),
+      },
+      config,
+    );
+    const [usa] = await createFiveSim(ctx).listProducts("service:telegram");
+    expect(usa).toMatchObject({ externalId: "usa/telegram", costCents: 18, successPct: 73.4, available: true });
+    expect(usa!.meta).toMatchObject({ operator: "good" });
+  });
+});
+
+describe("fivesim account", () => {
+  it("shows the profile, the dollar balance and the latest numbers, never the key", async () => {
+    const { ctx } = context(
+      {
+        "GET /v1/user/profile": json({ id: 1234, email: "me@example.com", balance: 0.3, rating: 96, default_country: { name: "any" }, api_key: "x" }),
+        "GET /v1/user/orders?category=activation&limit=15&offset=0&order=id&reverse=true": json({
+          Data: [{ id: 9, phone: "+31600", operator: "virtual58", product: "telegram", price: 0.1, status: "BANNED", created_at: "2026-10-16T10:00:00Z", country: "netherlands" }],
+        }),
+      },
+      config,
+    );
+    const info = await createFiveSim(ctx).accountInfo!();
+    expect(info.balances).toEqual([{ currency: "USD", amount: 0.3 }]);
+    expect(info.fields.map((f) => f.label)).toEqual(["Id", "Email", "Rating", "Default country name"]);
+    expect(info.history[0]).toMatchObject({ amount: -0.1, currency: "USD", text: "Telegram · netherlands · banned" });
+  });
+});
+
 describe("fivesim getBalance", () => {
-  it("converts the ruble balance down to whole cents", async () => {
-    const { ctx } = context({ "GET /v1/user/profile": json({ id: 1234, email: "test@example.com", balance: 150.5, rating: 98 }) }, config);
+  it("reads a dollar balance as it is", async () => {
+    const { ctx } = context({ "GET /v1/user/profile": json({ id: 1, balance: 0.3 }) }, config);
+    expect(await createFiveSim(ctx).getBalance()).toEqual({ amountCents: 30, currency: "USD" });
+  });
+
+  it("converts a ruble balance down to whole cents", async () => {
+    const { ctx } = context({ "GET /v1/user/profile": json({ id: 1234, email: "test@example.com", balance: 150.5, rating: 98 }) }, rub);
     // 150.5 RUB * 0.011 = 1.6555 USD → 165 cents (rounded down).
     expect(await createFiveSim(ctx).getBalance()).toEqual({ amountCents: 165, currency: "USD" });
   });

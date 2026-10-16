@@ -1,10 +1,13 @@
 /** Admin: layout, navigation and access. Monitors look, support staff also act on orders and top-ups, owners see everything. */
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { store } from "@store/config";
 import { linkHandler, navigate, usePath } from "../lib/router";
 import { setLang, useApp, useT } from "../lib/state";
 import type { MsgKey } from "../lib/i18n";
 import { Logo, Seg, Toast } from "../ui/kit";
+import {
+  BoxIcon, ExitIcon, GearIcon, HomeIcon, MegaphoneIcon, OverviewIcon, ReceiptIcon, TicketIcon, TopupIcon, TruckIcon, UsersIcon,
+} from "../ui/icons";
 import { AdminOrders } from "./Orders";
 import { Broadcast } from "./Broadcast";
 import { Catalog } from "./Catalog";
@@ -16,17 +19,17 @@ import { Suppliers } from "./Suppliers";
 import { Topups } from "./Topups";
 import { Users } from "./Users";
 
-const SECTIONS: { path: string; key: MsgKey; owner?: boolean }[] = [
-  { path: "/admin", key: "overview" },
-  { path: "/admin/topups", key: "topups" },
-  { path: "/admin/orders", key: "orders" },
-  { path: "/admin/catalog", key: "catalog", owner: true },
-  { path: "/admin/home", key: "homePage", owner: true },
-  { path: "/admin/coupons", key: "coupons", owner: true },
-  { path: "/admin/broadcast", key: "broadcast", owner: true },
-  { path: "/admin/suppliers", key: "suppliers", owner: true },
-  { path: "/admin/users", key: "users" },
-  { path: "/admin/settings", key: "settings", owner: true },
+const SECTIONS: { path: string; key: MsgKey; icon: ReactNode; owner?: boolean }[] = [
+  { path: "/admin", key: "overview", icon: <OverviewIcon /> },
+  { path: "/admin/topups", key: "topups", icon: <TopupIcon /> },
+  { path: "/admin/orders", key: "orders", icon: <ReceiptIcon /> },
+  { path: "/admin/catalog", key: "catalog", icon: <BoxIcon />, owner: true },
+  { path: "/admin/home", key: "homePage", icon: <HomeIcon />, owner: true },
+  { path: "/admin/coupons", key: "coupons", icon: <TicketIcon />, owner: true },
+  { path: "/admin/broadcast", key: "broadcast", icon: <MegaphoneIcon />, owner: true },
+  { path: "/admin/suppliers", key: "suppliers", icon: <TruckIcon />, owner: true },
+  { path: "/admin/users", key: "users", icon: <UsersIcon /> },
+  { path: "/admin/settings", key: "settings", icon: <GearIcon />, owner: true },
 ];
 
 export function Admin() {
@@ -61,10 +64,14 @@ export function Admin() {
         </a>
         {visible.map((s) => (
           <a key={s.path} href={s.path} onClick={linkHandler(s.path)} aria-current={s === section ? "page" : undefined}>
+            <span className="admin__icon">{s.icon}</span>
             {t(s.key)}
           </a>
         ))}
         <a href="/" onClick={linkHandler("/")}>
+          <span className="admin__icon">
+            <ExitIcon />
+          </span>
           {t("backToStore")}
         </a>
       </nav>

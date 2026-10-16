@@ -10,7 +10,7 @@ import { dollarsToCents, usd } from "../lib/format";
 import { pick } from "../lib/i18n";
 import { toast, useT } from "../lib/state";
 import { invalidate, useApi } from "../lib/useApi";
-import type { AfterFieldDef, AfterType, InputField, Kind } from "../lib/types";
+import type { AfterFieldDef, AfterType, InputField, Kind, ProductBadge } from "../lib/types";
 import { PlusIcon } from "../ui/icons";
 import { Empty, ErrorBox, Sheet, Spinner, Switch } from "../ui/kit";
 import { useAction } from "./common";
@@ -46,6 +46,7 @@ interface Prod {
   /** auto: the supplier or stock delivers; manual: the team does; review: the supplier does, the team releases it. */
   delivery?: Delivery;
   after_fields?: AfterFieldDef[];
+  badge?: ProductBadge | null;
 }
 type Delivery = "auto" | "manual" | "review";
 interface Off {
@@ -157,6 +158,7 @@ function ProductBlock({ p, offers, onEdit }: { p: Prod; offers: Off[]; onEdit: (
           <span className="small muted num">/{p.slug}</span>
           <span className={p.active ? "badge badge--good" : "badge"}>{p.active ? t("active") : "—"}</span>
           {p.featured && <span className="badge">{t("featuredFlag")}</span>}
+          {p.badge && <span className={`badge badge--${p.badge}`}>{t(`badge_${p.badge}`)}</span>}
           {p.delivery && p.delivery !== "auto" && <span className="badge badge--warn">✋ {t(`delivery_${p.delivery}`)}</span>}
           {(p.after_fields?.length ?? 0) > 0 && <span className="badge">{t("afterCount", { n: p.after_fields!.length })}</span>}
         </div>
@@ -255,12 +257,16 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
     warrantyEn: product?.warranty_en ?? "",
     searchTerms: product?.search_terms ?? "",
     delivery: product?.delivery ?? ("auto" as Delivery),
+    badge: (product?.badge ?? "") as ProductBadge | "",
     afterFields: product?.after_fields ?? ([] as AfterFieldDef[]),
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
 
   async function save() {
-    const body = { ...f, imageUrl: f.imageUrl.trim() || null, coverUrl: f.coverUrl.trim() || null, unitAr: f.unitAr.trim(), unitEn: f.unitEn.trim(), slug: f.slug.trim().toLowerCase() };
+    const body = {
+      ...f, imageUrl: f.imageUrl.trim() || null, coverUrl: f.coverUrl.trim() || null, unitAr: f.unitAr.trim(), unitEn: f.unitEn.trim(),
+      slug: f.slug.trim().toLowerCase(), badge: f.badge || null,
+    };
     const ok = product
       ? await action.run<{ renamed?: number }>(`/api/admin/products/${product.id}`, { method: "PATCH", body })
       : await action.run<{ id: string }>(`/api/admin/products`, { body });
@@ -332,6 +338,18 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
           <span>{t("unitEn")}</span>
           <input className="input" dir="ltr" maxLength={24} value={f.unitEn} onChange={(e) => set("unitEn", e.target.value)} placeholder="UC" />
           <span className="hint">{t("unitHint", { example: f.unitEn.trim() ? `60 ${f.unitEn.trim()}` : "60 UC" })}</span>
+        </label>
+        <label className="field">
+          <span>{t("badge")}</span>
+          <select className="select" value={f.badge} onChange={(e) => set("badge", e.target.value as ProductBadge | "")}>
+            <option value="">{t("badgeNone")}</option>
+            {(["instant", "new", "hot", "best", "sale"] as const).map((b) => (
+              <option key={b} value={b}>
+                {t(`badge_${b}`)}
+              </option>
+            ))}
+          </select>
+          <span className="hint">{t("badgeHint")}</span>
         </label>
         <label className="field span-2">
           <span>{t("delivery")}</span>

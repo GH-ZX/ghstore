@@ -50,6 +50,7 @@ interface Item {
   package_name_ar: string | null;
   warranty_en: string | null;
   warranty_ar: string | null;
+  success_pct: string | number | null;
   cost_cents: string | number;
   available: boolean;
   missing: boolean;
@@ -82,7 +83,7 @@ interface Destination {
   isNew: boolean;
   items: {
     ref: string; name: string; nameAr: string; costCents: number; priceCents: number; fields: InputField[];
-    warrantyEn: string | null; warrantyAr: string | null; reactivate?: string;
+    warrantyEn: string | null; warrantyAr: string | null; successPct: number | null; reactivate?: string;
   }[];
 }
 
@@ -167,7 +168,7 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
       (
         await db.query<Item>(
           `select external_id, name, product_key, product_name, product_name_ar, package_name, package_name_ar, warranty_en, warranty_ar,
-                  cost_cents, available,
+                  success_pct, cost_cents, available,
                   missing_since is not null as missing, kind, fields
              from app.supplier_items where supplier_id = $1 and external_id in (select jsonb_array_elements_text($2::text::jsonb))`,
           [supplierId, JSON.stringify(add)],
@@ -224,6 +225,7 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
         fields,
         warrantyEn: item.warranty_en,
         warrantyAr: item.warranty_ar,
+        successPct: item.success_pct === null ? null : Number(item.success_pct),
       };
       if (offer) {
         // Archived earlier: the same package comes back, in its own product.
@@ -364,11 +366,12 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
         } else {
           await db.query(
             `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value,
-                                     round_to_cents, min_margin_pct, input_fields, cost_checked_at, warranty_en, warranty_ar)
-             values ($1, $11, $2, $3, $4, $5, $6, 'percent', $7, $8, $9, $10::text::jsonb, now(), $12, $13)`,
+                                     round_to_cents, min_margin_pct, input_fields, cost_checked_at, warranty_en, warranty_ar, success_pct)
+             values ($1, $11, $2, $3, $4, $5, $6, 'percent', $7, $8, $9, $10::text::jsonb, now(), $12, $13, $14)`,
             [
               productId, i.name.slice(0, 120), supplierId, i.ref, i.costCents, i.priceCents, rule.value, rule.roundToCents, rule.minMarginPct,
               JSON.stringify(i.fields), i.nameAr.slice(0, 120), i.warrantyEn?.slice(0, 40) ?? null, i.warrantyAr?.slice(0, 40) ?? null,
+              i.successPct,
             ],
           );
         }

@@ -2,10 +2,13 @@
 import { useEffect, useState } from "react";
 import { THEMES, type ThemePreset } from "@store/ui";
 import { store } from "@store/config";
-import { applyTheme, getState, PRESETS, setState, useT } from "../lib/state";
+import { api, ApiFail } from "../lib/api";
+import { errorText } from "../lib/i18n";
+import { applyTheme, getState, PRESETS, setState, toast, useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
 import type { PublicConfig } from "../lib/types";
 import { ErrorBox, Seg, Spinner, Switch } from "../ui/kit";
+import { AccountsCard } from "./Accounts";
 import { ago, useAction } from "./common";
 
 interface SettingsData {
@@ -188,6 +191,29 @@ export function Settings() {
   const [channel, setChannel] = useState("");
   const [stars, setStars] = useState("");
   const [mailFrom, setMailFrom] = useState("");
+  const [testTo, setTestTo] = useState("");
+  const [testing, setTesting] = useState(false);
+
+  /** "Send me a test", to a typed address or the owner's linked email, with a clear reason when it cannot. */
+  async function testEmail() {
+    setTesting(true);
+    try {
+      const r = await api<{ ok?: boolean; to?: string }>("/api/admin/email/test", { body: testTo.trim() ? { to: testTo.trim() } : {} });
+      toast(t("testEmailSentTo", { to: r.to ?? "" }));
+    } catch (e) {
+      const f = e instanceof ApiFail ? e : new ApiFail("internal", 0);
+      const why =
+        f.field === "email.to" ? t("testEmailNoTo")
+          : f.field === "RESEND_API_KEY" ? t("testEmailNoKey")
+            : f.field === "email.from" ? t("testEmailNoFrom")
+              : f.field === "to" ? t("invalidValue")
+                : f.field ? `${t("testEmailFailed")}: ${f.field}`
+                  : errorText(lang, f.code);
+      toast(why, true);
+    } finally {
+      setTesting(false);
+    }
+  }
 
   useEffect(() => {
     if (!data) return;
@@ -236,6 +262,7 @@ export function Settings() {
     <div className="stack">
       <BotCard />
       <KeysCard />
+      <AccountsCard />
 
       <section className="card card--pad stack">
         <div>
@@ -403,14 +430,19 @@ export function Settings() {
           <span>{t("emailFrom")}</span>
           <input className="input" dir="ltr" value={mailFrom} placeholder="GH Store <orders@gh-store.me>" autoComplete="off" onChange={(e) => setMailFrom(e.target.value)} />
         </label>
-        <div className="wrap">
-          <button type="button" className="btn btn--sm press" disabled={action.busy} onClick={() => put("email.from", mailFrom.trim() || null)}>
-            {t("save")}
-          </button>
-          <button type="button" className="btn btn--sm btn--ghost press" disabled={action.busy} onClick={() => void action.run("/api/admin/email/test", {}, t("testEmailSent"))}>
-            {t("sendTestEmail")}
-          </button>
-        </div>
+        <button type="button" className="btn btn--sm press" style={{ alignSelf: "flex-start" }} disabled={action.busy} onClick={() => put("email.from", mailFrom.trim() || null)}>
+          {t("save")}
+        </button>
+        <label className="field">
+          <span>{t("testEmailTo")}</span>
+          <span className="input-wrap">
+            <input className="input" dir="ltr" type="email" value={testTo} placeholder="you@example.com" autoComplete="email" onChange={(e) => setTestTo(e.target.value)} />
+            <button type="button" className="btn btn--sm btn--ghost press" disabled={testing} onClick={() => void testEmail()}>
+              {testing ? <Spinner small /> : t("sendTestEmail")}
+            </button>
+          </span>
+          <span className="hint">{t("testEmailHint")}</span>
+        </label>
       </section>
 
       <section className="card card--pad stack-sm">

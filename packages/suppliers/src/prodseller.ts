@@ -26,8 +26,7 @@
 import { AdapterError } from "../../core/src/adapters";
 import type { AdapterContext, PurchaseResult, SupplierAdapter, SupplierProduct } from "../../core/src/adapters";
 import {
-  arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpError, isObj, itemsFrom, obj, refusal, str,
-  supplierMessage, usdToCents, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult, type Obj,
+  num, accountFacts, arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpError, isObj, itemsFrom, obj, refusal, str, supplierMessage, usdToCents, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult, type Obj,
 } from "./shared";
 
 const ID = "prodseller";
@@ -92,6 +91,12 @@ export function createProdSeller(ctx: AdapterContext): SupplierAdapter {
           },
         }];
       });
+    },
+
+    async accountInfo() {
+      const body = await read("/balance");
+      const balance = num(body?.balance);
+      return { fields: accountFacts(body, ["balance"]), balances: balance === null ? [] : [{ currency: "USDT", amount: balance }], history: [] };
     },
 
     async getBalance() {

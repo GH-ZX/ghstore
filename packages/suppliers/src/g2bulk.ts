@@ -43,9 +43,7 @@ import type {
 } from "../../core/src/adapters";
 import { CHARNAME_KEYS, g2bulkInputFields, PLAYER_KEYS, SERVER_KEYS } from "./g2bulk-fields";
 import {
-  arr, baseUrl, caught, cfg, csv, deliveryValues, failed, http, httpError, isObj, isTransient,
-  itemsFrom, mapLimit, num, obj, pick, refusal, str, supplierMessage, usdToCents, uuid5,
-  wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult,
+  accountFacts, arr, baseUrl, caught, cfg, csv, deliveryValues, failed, http, httpError, isObj, isTransient, itemsFrom, mapLimit, num, obj, pick, refusal, str, supplierMessage, usdToCents, uuid5, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult,
 } from "./shared";
 
 const ID = "g2bulk";
@@ -325,6 +323,12 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
     syncGroup(externalId) {
       const ref = parseExternalId(externalId);
       return ref?.type === "game" ? `game:${ref.code}` : VOUCHERS;
+    },
+
+    async accountInfo() {
+      const me = obj(await read("/getMe", true));
+      const balance = num(me?.balance);
+      return { fields: accountFacts(me, ["balance"]), balances: balance === null ? [] : [{ currency: "USD", amount: balance }], history: [] };
     },
 
     async getBalance() {

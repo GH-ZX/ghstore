@@ -144,6 +144,37 @@ describe("virtual numbers", () => {
     expect(banned).toContain(`N-${placed.data.orderId}`);
   });
 
+  it("tries another number: reports the first (refunded) and buys the next one at once", async () => {
+    const before = await balance(customer);
+    const placed = await order(numberOffer, "n4");
+    await h.settle();
+    const r = await h.call("POST", `/api/orders/${placed.data.orderId}/number`, { token: customer, body: { action: "used", again: true } });
+    expect(r.data.closed).toBe(true);
+    expect(r.data.orderId).toBeTruthy();
+    expect(r.data.orderId).not.toBe(placed.data.orderId);
+    await h.settle();
+    expect(banned).toContain(`N-${placed.data.orderId}`);
+    const next = await h.call("GET", `/api/orders/${r.data.orderId}`, { token: customer });
+    expect(next.data.order).toMatchObject({ status: "processing", numberActions: true });
+    // One number paid for: the first was refunded.
+    expect(await balance(customer)).toBe(before - 60);
+    // Asking twice does not buy a third number.
+    const again = await h.call("POST", `/api/orders/${placed.data.orderId}/number`, { token: customer, body: { action: "used", again: true } });
+    expect(again.status).toBe(409);
+  });
+
+  it("shows each country's success rate and lists the best first", async () => {
+    const product = (await db.query<{ product_id: string }>(`select product_id from app.offers where id = $1`, [numberOffer]))[0]!.product_id;
+    const slug = (await db.query<{ slug: string }>(`select slug from app.products where id = $1`, [product]))[0]!.slug;
+    await db.query(`update app.offers set success_pct = 41.5 where id = $1`, [numberOffer]);
+    await db.query(
+      `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, success_pct) values ($1, 'هولندا', 'Netherlands', $2, 'netherlands/telegram', 10, 20, 73)`,
+      [product, sms],
+    );
+    const p = await h.call("GET", `/api/products/${slug}`);
+    expect(p.data.offers.map((o: { nameEn: string; successPct: number | null }) => [o.nameEn, o.successPct])).toEqual([["Netherlands", 73], ["USA", 41.5]]);
+  });
+
   it("fetches the code instead when the supplier refuses to cancel because it just arrived", async () => {
     const placed = await order(numberOffer, "n3");
     await h.settle();

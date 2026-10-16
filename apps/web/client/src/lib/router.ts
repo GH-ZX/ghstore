@@ -44,7 +44,8 @@ export function navigate(to: string, opts: { replace?: boolean } = {}): void {
   path = next;
   search = url.search;
   emit();
-  if (!opts.replace) window.scrollTo({ top: 0 });
+  // A product opens as a sheet over the page: the page stays where it was.
+  if (!opts.replace && !next.startsWith("/p/")) window.scrollTo({ top: 0 });
 }
 
 export function back(fallback = "/"): void {

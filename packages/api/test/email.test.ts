@@ -156,7 +156,7 @@ describe("email receipts", () => {
     await db.query(`delete from app.identities where user_id = $1 and provider = 'supabase'`, [ownerId]);
     const none = await h.call("POST", "/api/admin/email/test", { token: owner, body: {} });
     expect(none.status).toBe(409);
-    expect(none.data.error.field).toBe("email");
+    expect(none.data.error.field).toBe("email.to");
     await withEmail(ownerId, `owner-${run}@example.com`);
     sentMail = [];
     const ok = await h.call("POST", "/api/admin/email/test", { token: owner, body: {} });
