@@ -172,7 +172,11 @@ export async function getCatalog(ctx: Ctx): Promise<Response> {
             (select count(*) from app.stock_items s where s.offer_id = o.id and s.status = 'available') as stock_available
        from app.offers o order by o.sort, o.price_cents`,
   );
-  const suppliers = await db.query(`select id, name, enabled, low_balance_cents, balance_cents, health, last_sync_at, last_error from app.suppliers order by id`);
+  const suppliers = await db.query(
+    `select id, name, enabled, low_balance_cents, balance_cents, health, last_sync_at, last_error,
+            import_markup_pct, import_min_margin_pct, import_round_to_cents
+       from app.suppliers order by id`,
+  );
   return json({
     categories,
     products,
@@ -395,6 +399,18 @@ export async function updateSupplier(ctx: Ctx): Promise<Response> {
   const low = optInt(body, "lowBalanceCents", 0, 100_000_000);
   if (low !== undefined) changes.low_balance_cents = low;
   if (body.name !== undefined) changes.name = str(body, "name", { max: 60 });
+  // How the price check behaves (see app.suppliers in migration 0016).
+  const every = optInt(body, "syncMinutes", 15, 1440);
+  if (every !== undefined) changes.sync_minutes = every;
+  const auto = bool(body, "autoReprice");
+  if (auto !== undefined) changes.auto_reprice = auto;
+  if (body.maxJumpPct !== undefined) changes.max_jump_pct = body.maxJumpPct === null ? null : int(body, "maxJumpPct", 5, 1000);
+  const markup = optNum(body, "importMarkupPct", 0, 1000);
+  if (markup !== undefined) changes.import_markup_pct = markup;
+  const margin = optNum(body, "importMinMarginPct", 0, 500);
+  if (margin !== undefined) changes.import_min_margin_pct = margin;
+  const round = optInt(body, "importRoundToCents", 1, 10_000);
+  if (round !== undefined) changes.import_round_to_cents = round;
   await updateRow(ctx, "suppliers", id, changes);
   await audit(ctx, staff.id, "supplier.update", "supplier", id, changes);
   return json({ ok: true });
@@ -437,4 +453,127 @@ export async function relinkOffer(ctx: Ctx): Promise<Response> {
   }
   await audit(ctx, staff.id, "offer.relink", "offer", id, { supplierId: cur.supplier_id, from: cur.supplier_ref, to: supplierRef, cost, price });
   return json({ ok: true, priceCents: price });
+}
+
+// ─────────────────────────────────────────────────────────────── suppliers page
+
+/**
+ * Admin → Suppliers: each supplier with its settings, balance, what it sells,
+ * what is paused and why, and what the last price check did.
+ */
+export async function listSuppliers(ctx: Ctx): Promise<Response> {
+  await requireStaff(ctx, "owner");
+  const rows = await ctx.svc.db.query<Record<string, unknown>>(
+    `select s.id, s.name, s.enabled, s.health, s.last_error, s.balance_cents, s.balance_checked_at, s.low_balance_cents,
+            s.last_sync_at, s.sync_minutes, s.auto_reprice, s.max_jump_pct, s.import_markup_pct, s.import_min_margin_pct,
+            s.import_round_to_cents, s.last_sync_report,
+            count(o.id) filter (where o.active) as packages,
+            count(o.id) filter (where o.active and o.paused_reason is null) as selling,
+            count(o.id) filter (where o.active and o.paused_reason = 'supplier_unavailable') as unavailable,
+            count(o.id) filter (where o.active and o.paused_reason = 'cost_above_margin') as below_margin,
+            count(o.id) filter (where o.active and o.paused_reason = 'cost_jump') as cost_jump,
+            count(o.id) filter (where o.active and o.paused_reason is not null
+                                  and o.paused_reason not in ('supplier_unavailable', 'cost_above_margin', 'cost_jump')) as paused_by_staff,
+            count(o.id) filter (where o.active and (o.cost_checked_at is null or o.cost_checked_at <= coalesce(s.last_sync_at, now() - interval '1 hour'))) as not_checked
+       from app.suppliers s left join app.offers o on o.supplier_id = s.id
+      group by s.id order by s.name`,
+  );
+  const num = (v: unknown) => (v === null || v === undefined ? null : n(v));
+  return json({
+    suppliers: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      enabled: r.enabled,
+      health: r.health,
+      lastError: r.last_error,
+      balanceCents: num(r.balance_cents),
+      balanceCheckedAt: r.balance_checked_at,
+      lowBalanceCents: num(r.low_balance_cents),
+      lastSyncAt: r.last_sync_at,
+      syncMinutes: r.sync_minutes,
+      autoReprice: r.auto_reprice,
+      maxJumpPct: r.max_jump_pct === null ? null : Number(r.max_jump_pct),
+      importMarkupPct: Number(r.import_markup_pct),
+      importMinMarginPct: Number(r.import_min_margin_pct),
+      importRoundToCents: Number(r.import_round_to_cents),
+      lastReport: r.last_sync_report ?? null,
+      counts: {
+        packages: n(r.packages),
+        selling: n(r.selling),
+        unavailable: n(r.unavailable),
+        belowMargin: n(r.below_margin),
+        costJump: n(r.cost_jump),
+        pausedByStaff: n(r.paused_by_staff),
+        notChecked: n(r.not_checked),
+      },
+    })),
+  });
+}
+
+/** The paused packages of one supplier, for Admin → Suppliers → Review. */
+export async function supplierReview(ctx: Ctx): Promise<Response> {
+  await requireStaff(ctx, "owner");
+  const id = ctx.params.id ?? "";
+  if (!SUPPLIER_ID.test(id)) throw new ApiError("not_found");
+  const rows = await ctx.svc.db.query<Record<string, unknown>>(
+    `select o.id, o.supplier_ref, o.name_ar, o.name_en, o.paused_reason, o.cost_cents, o.pending_cost_cents, o.price_cents,
+            o.markup_mode, o.min_margin_pct, o.cost_checked_at, p.id as product_id, p.slug, p.name_ar as product_ar, p.name_en as product_en
+       from app.offers o join app.products p on p.id = o.product_id
+      where o.supplier_id = $1 and o.active and o.paused_reason is not null
+      order by case o.paused_reason when 'cost_jump' then 0 when 'cost_above_margin' then 1 when 'supplier_unavailable' then 2 else 3 end,
+               p.name_en, o.sort`,
+    [id],
+  );
+  const num = (v: unknown) => (v === null || v === undefined ? null : n(v));
+  return json({
+    packages: rows.map((r) => ({
+      id: r.id,
+      supplierRef: r.supplier_ref,
+      nameAr: r.name_ar,
+      nameEn: r.name_en,
+      productId: r.product_id,
+      productAr: r.product_ar,
+      productEn: r.product_en,
+      reason: r.paused_reason,
+      costCents: num(r.cost_cents),
+      pendingCostCents: num(r.pending_cost_cents),
+      priceCents: num(r.price_cents),
+      markupMode: r.markup_mode,
+      minMarginPct: Number(r.min_margin_pct),
+      checkedAt: r.cost_checked_at,
+    })),
+  });
+}
+
+/**
+ * Review → "Accept new cost" on a package paused because its cost jumped: the
+ * cost becomes the supplier's new one and the price follows the package's rule.
+ * A manual price that no longer clears the margin stays paused for a new price.
+ */
+export async function acceptCost(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const id = uuid(ctx.params.id);
+  const cur = await must<{ paused_reason: string | null; cost_cents: string | number | null; pending_cost_cents: string | number | null; price_cents: string | number; markup_mode: MarkupMode; markup_value: string | number; round_to_cents: number; min_margin_pct: string | number }>(
+    ctx.svc.db,
+    `select paused_reason, cost_cents, pending_cost_cents, price_cents, markup_mode, markup_value, round_to_cents, min_margin_pct from app.offers where id = $1`,
+    [id],
+  );
+  if (cur.paused_reason !== "cost_jump" || cur.pending_cost_cents === null) throw new ApiError("bad_state", "cost_jump");
+  const cost = n(cur.pending_cost_cents);
+  const old = n(cur.price_cents);
+  const rule: OfferPricing = { mode: cur.markup_mode, value: Number(cur.markup_value), roundToCents: cur.round_to_cents, minMarginPct: Number(cur.min_margin_pct) };
+  const marginOk = rule.mode !== "manual" || old >= minimumPrice(cost, rule.minMarginPct);
+  const price = rule.mode === "manual" ? old : resolvePrice(cost, rule, undefined);
+  await ctx.svc.db.query(
+    `update app.offers set cost_cents = $2, price_cents = $3, pending_cost_cents = null, cost_checked_at = now(),
+            paused_reason = case when $4 then null else 'cost_above_margin' end
+      where id = $1`,
+    [id, cost, price, marginOk],
+  );
+  await ctx.svc.db.query(
+    `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $5, 'manual')`,
+    [id, cur.cost_cents === null ? null : n(cur.cost_cents), cost, old, price],
+  );
+  await audit(ctx, staff.id, "offer.accept_cost", "offer", id, { cost, price, selling: marginOk });
+  return json({ ok: true, priceCents: price, selling: marginOk });
 }

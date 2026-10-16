@@ -142,7 +142,7 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   if (minute % 10 === 5) await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
   if (minute % 15 === 7 && room(svc, 2) > 0) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
   const groups = room(svc, 2);
-  if (minute % 5 === 3 && groups >= 3) await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 60, 1, { maxGroups: groups }));
+  if (minute % 5 === 3 && groups >= 3) await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 1, { maxGroups: groups }));
   if (minute % 30 === 11) await heartbeat(svc, "buy_again", () => queueBuyAgain(svc));
   // Checked six times an hour, so one missed tick never skips a day; it is sent once.
   if (minute % 10 === 9) await heartbeat(svc, "daily_summary", () => queueDailySummary(svc));

@@ -463,6 +463,8 @@ describe("bot", () => {
 
 describe("supplier sync and margin guard", () => {
   it("reprices, pauses on lost margin or availability, resumes, and ignores failed syncs", async () => {
+    // These costs double on purpose: the cost-jump guard is tested on its own below.
+    await db.query(`update app.suppliers set max_jump_pct = null where id = 'fake'`);
     const mk = async (ref: string, mode: string, price: number) =>
       (await db.query<{ id: string }>(
         `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value, min_margin_pct)
@@ -500,13 +502,14 @@ describe("supplier sync and margin guard", () => {
     await syncSupplier(h.svc, "fake");
     expect((await state(manual)).paused_reason).toBeNull();
     expect((await state(gone)).paused_reason).toBeNull();
-    const changes = await db.query(`select action from app.price_changes where offer_id = $1`, [manual]);
-    expect(changes.length).toBe(1);
+    const changes = await db.query<{ action: string }>(`select action from app.price_changes where offer_id = $1 order by at`, [manual]);
+    // Paused at 120, then the cost moved to 110 and the manual price stayed.
+    expect(changes.map((c) => c.action)).toEqual(["paused", "kept"]);
   });
 
   it("marks unchanged packages as checked in one write, whatever their number", async () => {
     const supplier = `b_${run}`;
-    await db.query(`insert into app.suppliers (id, name, enabled) values ($1, 'Bulk', true)`, [supplier]);
+    await db.query(`insert into app.suppliers (id, name, enabled, max_jump_pct) values ($1, 'Bulk', true, null)`, [supplier]);
     const ids: string[] = [];
     for (let i = 0; i < 40; i++) {
       const r = await db.query<{ id: string }>(
@@ -524,8 +527,9 @@ describe("supplier sync and margin guard", () => {
 
     const report = await syncSupplier(counting.svc, supplier);
     expect(report).toMatchObject({ checked: 40, repriced: 1, paused: 0, missing: 0 });
-    // select packages + 1 reprice (update + history) + 1 write for the 39 unchanged + supplier row
-    expect(queries).toBe(5);
+    // settings + select packages + 1 reprice (update + history) + 1 write for the 39 unchanged
+    // + supplier row + its report
+    expect(queries).toBe(7);
     const rows = await db.query<{ id: string; checked: boolean; price_cents: string | number }>(
       `select id, cost_checked_at is not null as checked, price_cents from app.offers where supplier_id = $1`, [supplier],
     );
@@ -603,6 +607,79 @@ describe("supplier sync and margin guard", () => {
     const r = await syncSupplier(h.svc, supplier, { maxGroups: 5 });
     expect(r).toMatchObject({ checked: 1, repriced: 1, complete: true });
     expect(asked).toBe(1);
+  });
+
+  it("pauses a package whose cost jumps, for the owner to accept, and follows the supplier's settings", async () => {
+    const owner = await h.login(900001, "Owner");
+    const supplier = `j_${run}`;
+    await db.query(`insert into app.suppliers (id, name, enabled) values ($1, 'Jumpy', true)`, [supplier]);
+    const mk = async (ref: string, mode = "percent", price = 115) =>
+      (await db.query<{ id: string }>(
+        `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value)
+         values ($1, 'x', 'x', $2, $3, 100, $4, $5, 15) returning id`,
+        [productId, supplier, ref, price, mode],
+      ))[0]!.id;
+    const small = await mk("small");
+    const jump = await mk("jump");
+    const manual = await mk("manual", "manual", 150);
+    let costs: Record<string, number> = { small: 110, jump: 1299, manual: 120 };
+    h.suppliers.set(supplier, {
+      ...fakeSupplier,
+      id: supplier,
+      listProducts: async () => Object.entries(costs).map(([id, c]) => ({ externalId: id, name: id, costCents: c, available: true, kind: "code" as const })),
+    });
+    const offer = async (id: string) =>
+      (await db.query<{ cost_cents: string; price_cents: string; paused_reason: string | null; pending_cost_cents: string | null }>(
+        `select cost_cents, price_cents, paused_reason, pending_cost_cents from app.offers where id = $1`, [id],
+      ))[0]!;
+
+    // Default guard (50%): a 10% move reprices, a 13x jump waits for review.
+    const r1 = await syncSupplier(h.svc, supplier);
+    expect(r1).toMatchObject({ checked: 3, repriced: 1, review: 1, paused: 1 });
+    expect(Number((await offer(small)).price_cents)).toBe(127);
+    expect(await offer(jump)).toMatchObject({ paused_reason: "cost_jump" });
+    expect(Number((await offer(jump)).cost_cents)).toBe(100); // the old cost stays until accepted
+    expect(Number((await offer(jump)).pending_cost_cents)).toBe(1299);
+    const report = (await db.query<{ r: Record<string, unknown> }>(`select last_sync_report as r from app.suppliers where id = $1`, [supplier]))[0]!.r;
+    expect(report).toMatchObject({ checked: 3, repriced: 1, review: 1, complete: true });
+
+    // The suppliers page and its review list show it.
+    const list = await h.call("GET", "/api/admin/suppliers", { token: owner });
+    const row = list.data.suppliers.find((x: { id: string }) => x.id === supplier);
+    expect(row.counts).toMatchObject({ packages: 3, selling: 2, costJump: 1 });
+    expect(row).toMatchObject({ syncMinutes: 60, autoReprice: true, maxJumpPct: 50 });
+    const review = await h.call("GET", `/api/admin/suppliers/${supplier}/review`, { token: owner });
+    expect(review.data.packages).toEqual([expect.objectContaining({ id: jump, reason: "cost_jump", costCents: 100, pendingCostCents: 1299 })]);
+
+    // Accepting takes the new cost and reprices by the package's rule.
+    const accepted = await h.call("POST", `/api/admin/offers/${jump}/accept-cost`, { token: owner, body: {} });
+    expect(accepted.status).toBe(200);
+    expect(accepted.data).toMatchObject({ priceCents: 1494, selling: true });
+    expect(await offer(jump)).toMatchObject({ paused_reason: null, pending_cost_cents: null });
+    expect((await h.call("POST", `/api/admin/offers/${jump}/accept-cost`, { token: owner, body: {} })).status).toBe(409);
+
+    // Settings: repricing off keeps prices (pausing only below the margin); no jump guard.
+    const bad = await h.call("PATCH", `/api/admin/suppliers/${supplier}`, { token: owner, body: { syncMinutes: 5 } });
+    expect(bad.status).toBe(400);
+    const set = await h.call("PATCH", `/api/admin/suppliers/${supplier}`, {
+      token: owner,
+      body: { autoReprice: false, maxJumpPct: null, syncMinutes: 180, importMarkupPct: 20, importMinMarginPct: 8, importRoundToCents: 5 },
+    });
+    expect(set.status).toBe(200);
+    costs = { small: 115, jump: 5000, manual: 120 };
+    const r2 = await syncSupplier(h.svc, supplier);
+    expect(r2).toMatchObject({ repriced: 0, review: 0 });
+    expect(Number((await offer(small)).price_cents)).toBe(127); // kept
+    expect(await offer(jump)).toMatchObject({ paused_reason: "cost_above_margin" }); // $14.94 no longer clears a $50 cost
+    const after = (await h.call("GET", "/api/admin/suppliers", { token: owner })).data.suppliers.find((x: { id: string }) => x.id === supplier);
+    expect(after).toMatchObject({ syncMinutes: 180, autoReprice: false, maxJumpPct: null, importMarkupPct: 20, importMinMarginPct: 8, importRoundToCents: 5 });
+
+    // A supplier is due again only after its own interval.
+    await db.query(`update app.suppliers set last_sync_at = now() - interval '2 hours' where id = $1`, [supplier]);
+    const { syncDueSuppliers } = await import("../src/sync");
+    const due = await syncDueSuppliers(h.svc, 50);
+    expect(due.some((x) => x.supplier === supplier)).toBe(false); // 180 minutes not over yet
+    await db.query(`update app.suppliers set enabled = false where id = $1`, [supplier]);
   });
 
   it("re-points a package at a renumbered supplier item, keeping its product and history", async () => {
