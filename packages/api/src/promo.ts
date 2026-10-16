@@ -143,7 +143,7 @@ const COUPON_SELECT = `
     from app.coupons c left join app.products p on p.id = c.product_id`;
 
 export async function listCoupons(ctx: Ctx): Promise<Response> {
-  await requireStaff(ctx);
+  await requireStaff(ctx, "monitor");
   const rows = await ctx.svc.db.query<CouponRow>(`${COUPON_SELECT} order by c.active desc, c.created_at desc limit 200`);
   return json({ coupons: rows.map(publicCoupon) });
 }

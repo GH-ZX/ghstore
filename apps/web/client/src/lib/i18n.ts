@@ -88,7 +88,7 @@ const en = {
   sypRate: "SYP per USD (new pounds)", sypHint: "Leave empty to hide Syrian pound prices.",
   maxPending: "Hours before an open order needs a person", role: "Role", adjustWallet: "Adjust wallet",
   adjustHint: "Positive adds, negative removes. Written to the ledger with your note.", ban: "Block", unban: "Unblock",
-  r_customer: "Customer", r_support: "Support", r_owner: "Owner", searchUsers: "Name, @username, Telegram id or email",
+  r_customer: "Customer", r_monitor: "Monitor", r_support: "Support", r_owner: "Owner", searchUsers: "Name, @username, Telegram id or email",
   ok: "OK", yes: "Yes", no: "No", apply: "Apply", confirmRefund: "Refund this order to the customer's wallet?",
   // coupons and invites
   haveCode: "Have a promo code?", couponPh: "Promo code", couponApplied: "{code} applied", discount: "Discount",
@@ -222,7 +222,7 @@ const ar: Record<MsgKey, string> = {
   sypRate: "الليرة السورية مقابل الدولار (الجديدة)", sypHint: "اتركه فارغاً لإخفاء الأسعار بالليرة.",
   maxPending: "عدد الساعات قبل تحويل الطلب المفتوح لشخص", role: "الدور", adjustWallet: "تعديل الرصيد",
   adjustHint: "الموجب يضيف والسالب يخصم، ويُسجّل في السجل مع ملاحظتك.", ban: "حظر", unban: "إلغاء الحظر",
-  r_customer: "عميل", r_support: "دعم", r_owner: "مالك", searchUsers: "الاسم أو @المعرّف أو رقم تيليجرام أو البريد",
+  r_customer: "عميل", r_monitor: "مراقب", r_support: "دعم", r_owner: "مالك", searchUsers: "الاسم أو @المعرّف أو رقم تيليجرام أو البريد",
   ok: "حسناً", yes: "نعم", no: "لا", apply: "تطبيق", confirmRefund: "استرجاع مبلغ هذا الطلب إلى محفظة العميل؟",
   haveCode: "لديك كود خصم؟", couponPh: "كود الخصم", couponApplied: "تم تطبيق {code}", discount: "الخصم",
   removeCoupon: "إزالة", subtotal: "المجموع",

@@ -28,7 +28,7 @@ interface AdminOrder {
 
 const FILTERS = ["", "processing", "paid", "failed", "delivered", "refunded"] as const;
 
-export function AdminOrders() {
+export function AdminOrders({ canAct = true }: { canAct?: boolean }) {
   const { t, lang } = useT();
   const [status, setStatus] = useState<(typeof FILTERS)[number]>("");
   const { data, error, reload } = useApi<{ orders: AdminOrder[] }>(`/api/admin/orders${status ? `?status=${status}` : ""}`);
@@ -88,12 +88,12 @@ export function AdminOrders() {
                   <td className="wrap-cell small bad">{o.last_error ?? ""}</td>
                   <td>
                     <div className="wrap">
-                      {(o.status === "paid" || o.status === "processing") && (
+                      {canAct && (o.status === "paid" || o.status === "processing") && (
                         <button type="button" className="btn btn--xs btn--ghost press" disabled={action.busy} onClick={() => retry(o)}>
                           {t("retryOrder")}
                         </button>
                       )}
-                      {(o.status === "failed" || o.status === "paid" || o.status === "processing") && (
+                      {canAct && (o.status === "failed" || o.status === "paid" || o.status === "processing") && (
                         <button type="button" className="btn btn--xs btn--danger press" onClick={() => setRefunding(o)}>
                           {t("refund")}
                         </button>

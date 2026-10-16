@@ -115,7 +115,7 @@ interface UserRow {
   id: string;
   display_name: string;
   locale: "ar" | "en";
-  role: "customer" | "support" | "owner";
+  role: "customer" | "monitor" | "support" | "owner";
   status: "active" | "banned";
   notify: boolean;
   sessions_revoked_at: string | null;
@@ -154,11 +154,18 @@ export async function requireUser(ctx: Ctx): Promise<AuthedUser> {
   return u;
 }
 
-/** Staff only. `owner` can do everything; `support` handles orders and top-ups. */
-export async function requireStaff(ctx: Ctx, level: "support" | "owner" = "support"): Promise<AuthedUser> {
+/** Staff ranks, lowest first. Each rank can do everything the ones below it can. */
+const STAFF_RANK = { monitor: 1, support: 2, owner: 3 } as const;
+export type StaffLevel = keyof typeof STAFF_RANK;
+
+/**
+ * Staff only. `owner` can do everything; `support` handles orders and top-ups;
+ * `monitor` only looks (reads with level "monitor"). Actions default to "support".
+ */
+export async function requireStaff(ctx: Ctx, level: StaffLevel = "support"): Promise<AuthedUser> {
   const u = await requireUser(ctx);
-  if (u.role === "owner") return u;
-  if (level === "support" && u.role === "support") return u;
+  const rank = u.role === "customer" ? 0 : STAFF_RANK[u.role];
+  if (rank >= STAFF_RANK[level]) return u;
   throw new ApiError("forbidden");
 }
 

@@ -109,8 +109,8 @@ export async function alertOwners(svc: Services, text: string): Promise<void> {
   await alertStaff(svc, text, ["owner"]);
 }
 
-/** Queue an alert for the given staff roles (orders also go to support staff). */
-export async function alertStaff(svc: Services, text: string, roles: ("owner" | "support")[] = ["owner", "support"]): Promise<void> {
+/** Queue an alert for the given staff roles (order alerts go to every staff role). */
+export async function alertStaff(svc: Services, text: string, roles: ("owner" | "support" | "monitor")[] = ["owner", "support", "monitor"]): Promise<void> {
   await svc.db.query(
     `insert into app.outbox (user_id, template, data)
      select id, 'staff_alert', jsonb_build_object('text', $1::text) from app.users
@@ -119,7 +119,7 @@ export async function alertStaff(svc: Services, text: string, roles: ("owner" | 
   );
 }
 
-/** Tell owners and support staff about a new order (Admin → Settings: notify.new_orders). */
+/** Tell all staff (owners, support, monitors) about a new order (Admin → Settings: notify.new_orders). */
 export async function alertNewOrder(svc: Pick<Services, "db">, orderId: string, orderPrefix: string): Promise<void> {
   await svc.db.query(
     `insert into app.outbox (user_id, template, data)
@@ -129,7 +129,7 @@ export async function alertNewOrder(svc: Pick<Services, "db">, orderId: string, 
        from app.orders o
        join app.products p on p.id = o.product_id
        join app.offers f on f.id = o.offer_id
-       join app.users u on u.role in ('owner', 'support') and u.status = 'active'
+       join app.users u on u.role in ('owner', 'support', 'monitor') and u.status = 'active'
       where o.id = $1
         and (select value from app.settings where key = 'notify.new_orders') is distinct from 'false'::jsonb`,
     [orderId, orderPrefix],

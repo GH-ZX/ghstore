@@ -1,4 +1,4 @@
-/** Admin: layout, navigation and access. Support staff see orders and top-ups; owners see everything. */
+/** Admin: layout, navigation and access. Monitors look, support staff also act on orders and top-ups, owners see everything. */
 import { useEffect } from "react";
 import { store } from "@store/config";
 import { linkHandler, navigate, usePath } from "../lib/router";
@@ -44,6 +44,7 @@ export function Admin() {
     );
   }
   const owner = me.user.role === "owner";
+  const canAct = me.user.role !== "monitor";
   const visible = SECTIONS.filter((s) => owner || !s.owner);
   const section = [...visible].reverse().find((s) => path === s.path || path.startsWith(`${s.path}/`)) ?? visible[0]!;
 
@@ -77,8 +78,8 @@ export function Admin() {
           />
         </div>
         {section.key === "overview" && <Overview />}
-        {section.key === "topups" && <Topups />}
-        {section.key === "orders" && <AdminOrders />}
+        {section.key === "topups" && <Topups canAct={canAct} />}
+        {section.key === "orders" && <AdminOrders canAct={canAct} />}
         {section.key === "catalog" && <Catalog />}
         {section.key === "coupons" && <Coupons />}
         {section.key === "suppliers" && <Suppliers />}

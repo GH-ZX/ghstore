@@ -1,7 +1,7 @@
 /** Shapes of the API responses the web app uses (see packages/api). */
 
 export type Lang = "ar" | "en";
-export type Role = "customer" | "support" | "owner";
+export type Role = "customer" | "monitor" | "support" | "owner";
 export type PaymentMethod = "sam" | "nowpayments" | "bep20" | "stars";
 export type Kind = "id" | "code" | "account" | "link" | "sms";
 

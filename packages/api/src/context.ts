@@ -50,7 +50,7 @@ export interface Services {
 
 export interface AuthedUser {
   id: string;
-  role: "customer" | "support" | "owner";
+  role: "customer" | "monitor" | "support" | "owner";
   locale: "ar" | "en";
   sessionId: string;
   channel: "web" | "miniapp" | "admin";

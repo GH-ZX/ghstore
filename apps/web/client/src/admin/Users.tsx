@@ -10,7 +10,7 @@ import { ago, useAction } from "./common";
 interface U {
   id: string;
   name: string;
-  role: "customer" | "support" | "owner";
+  role: "customer" | "monitor" | "support" | "owner";
   status: "active" | "banned";
   createdAt: string;
   lastSeenAt: string | null;
@@ -126,7 +126,7 @@ function UserSheet({ user, onClose }: { user: U; onClose: () => void }) {
         <>
           <h3>{t("role")}</h3>
           <div className="wrap">
-            {(["customer", "support", "owner"] as const).map((r) => (
+            {(["customer", "monitor", "support", "owner"] as const).map((r) => (
               <button key={r} type="button" className="chip chip--sm press" aria-pressed={user.role === r} disabled={action.busy} onClick={() => role(r)}>
                 {t(`r_${r}`)}
               </button>

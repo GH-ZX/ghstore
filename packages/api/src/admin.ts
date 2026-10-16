@@ -21,7 +21,7 @@ async function audit(ctx: Ctx, actor: string, action: string, targetType: string
 }
 
 export async function overview(ctx: Ctx): Promise<Response> {
-  await requireStaff(ctx);
+  await requireStaff(ctx, "monitor");
   const db = ctx.svc.db;
   const today = await one<Record<string, string | number>>(
     db,
@@ -58,7 +58,7 @@ export async function overview(ctx: Ctx): Promise<Response> {
 }
 
 export async function listPayments(ctx: Ctx): Promise<Response> {
-  await requireStaff(ctx);
+  await requireStaff(ctx, "monitor");
   const status = ctx.url.searchParams.get("status") ?? "review";
   if (!["created", "pending", "review", "paid", "partial", "failed", "expired", "rejected"].includes(status)) throw new ApiError("invalid_input", "status");
   const rows = await ctx.svc.db.query<{ id: string; user_id: string; display_name: string; method: string; amount_cents: string | number; status: string; tx_hash: string | null; provider_ref: string | null; note: string | null; created_at: string }>(
@@ -104,7 +104,7 @@ export async function recheckPayment(ctx: Ctx): Promise<Response> {
 }
 
 export async function listOrders(ctx: Ctx): Promise<Response> {
-  await requireStaff(ctx);
+  await requireStaff(ctx, "monitor");
   const status = ctx.url.searchParams.get("status");
   const rows = await ctx.svc.db.query(
     `select o.id, o.number, o.status, o.total_cents, o.discount_cents, o.cost_cents, o.channel, o.supplier_id, o.supplier_order_id, o.attempts,
@@ -164,7 +164,7 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
 };
 
 export async function getSettings(ctx: Ctx): Promise<Response> {
-  await requireStaff(ctx);
+  await requireStaff(ctx, "monitor");
   const rows = await ctx.svc.db.query<{ key: string; value: unknown }>(`select key, value from app.settings where key = any(string_to_array($1::text, ','))`, [Object.keys(SETTINGS).join(",")]);
   return json({ settings: Object.fromEntries(rows.map((r) => [r.key, r.value])) });
 }
@@ -206,7 +206,7 @@ export async function setUserRole(ctx: Ctx): Promise<Response> {
   const body = await readJson(ctx.req);
   const role = str(body, "role", { max: 10 });
   const status = body.status === undefined ? undefined : str(body, "status", { max: 10 });
-  if (!["customer", "support", "owner"].includes(role)) throw new ApiError("invalid_input", "role");
+  if (!["customer", "monitor", "support", "owner"].includes(role)) throw new ApiError("invalid_input", "role");
   if (status !== undefined && !["active", "banned"].includes(status)) throw new ApiError("invalid_input", "status");
   await ctx.svc.db.query(
     `update app.users set role = $2, status = coalesce($3, status),
@@ -229,7 +229,7 @@ export async function runSupplierSync(ctx: Ctx): Promise<Response> {
 
 /** Find customers by name, Telegram username or id, email, or user id. */
 export async function listUsers(ctx: Ctx): Promise<Response> {
-  await requireStaff(ctx);
+  await requireStaff(ctx, "monitor");
   const q = (ctx.url.searchParams.get("q") ?? "").trim().replace(/^@/, "").slice(0, 80);
   const like = `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
   const rows = await ctx.svc.db.query<{

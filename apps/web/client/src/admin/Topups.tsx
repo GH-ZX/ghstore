@@ -21,7 +21,7 @@ interface Payment {
 
 const STATUSES = ["review", "pending", "paid", "failed", "expired", "rejected"] as const;
 
-export function Topups() {
+export function Topups({ canAct = true }: { canAct?: boolean }) {
   const { t, lang } = useT();
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("review");
   const { data, error, reload } = useApi<{ payments: Payment[] }>(`/api/admin/payments?status=${status}`);
@@ -78,12 +78,12 @@ export function Topups() {
                   <td className="wrap-cell small muted">{p.note ?? ""}</td>
                   <td>
                     <div className="wrap">
-                      {["review", "pending", "created", "partial", "expired"].includes(p.status) && (
+                      {canAct && ["review", "pending", "created", "partial", "expired"].includes(p.status) && (
                         <button type="button" className="btn btn--xs press" onClick={() => setOpen(p)}>
                           {t("approve")}
                         </button>
                       )}
-                      {["review", "pending"].includes(p.status) && (
+                      {canAct && ["review", "pending"].includes(p.status) && (
                         <button type="button" className="btn btn--xs btn--ghost press" onClick={() => recheck(p)} disabled={action.busy}>
                           {t("recheck")}
                         </button>

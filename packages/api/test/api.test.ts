@@ -288,6 +288,48 @@ describe("admin", () => {
     expect(audits.length).toBeGreaterThan(0);
   });
 
+  it("lets a monitor look at orders, top-ups and customers but change nothing", async () => {
+    const owner = await h.login(900001, "Owner");
+    const monitorTg = tg(21);
+    const monitor = await h.login(monitorTg, "Monitor");
+    const monitorId = (await db.query<{ user_id: string }>(`select user_id from app.identities where provider = 'telegram' and subject = $1`, [String(monitorTg)]))[0]!.user_id;
+    const customer = await h.login(tg(22));
+
+    expect((await h.call("POST", `/api/admin/users/${monitorId}/role`, { token: owner, body: { role: "boss" } })).status).toBe(400);
+    expect((await h.call("POST", `/api/admin/users/${monitorId}/role`, { token: owner, body: { role: "monitor" } })).status).toBe(200);
+    // Changing a role signs the person out everywhere, so the monitor signs in again.
+    expect((await h.call("GET", "/api/admin/overview", { token: monitor })).status).toBe(401);
+    const m = await h.login(monitorTg, "Monitor");
+    expect((await h.call("GET", "/api/me", { token: m })).data.user.role).toBe("monitor");
+
+    for (const path of ["/api/admin/overview", "/api/admin/orders", "/api/admin/payments?status=review", "/api/admin/users", "/api/admin/coupons", "/api/admin/settings"]) {
+      expect((await h.call("GET", path, { token: m })).status, path).toBe(200);
+      expect((await h.call("GET", path, { token: customer })).status, path).toBe(403);
+    }
+    const anyId = "00000000-0000-4000-8000-000000000000";
+    for (const [method, path, body] of [
+      ["POST", `/api/admin/orders/${anyId}/retry`, {}],
+      ["POST", `/api/admin/orders/${anyId}/refund`, { note: "test refund" }],
+      ["POST", `/api/admin/payments/${anyId}/approve`, { amountCents: 100, note: "test" }],
+      ["POST", `/api/admin/payments/${anyId}/reject`, { note: "test" }],
+      ["POST", `/api/admin/payments/${anyId}/recheck`, {}],
+      ["PUT", "/api/admin/settings/theme.preset", { value: "warm" }],
+      ["POST", `/api/admin/users/${monitorId}/wallet`, { amountCents: 100, note: "test" }],
+      ["GET", "/api/admin/catalog", undefined],
+      ["GET", "/api/admin/keys", undefined],
+      ["GET", "/api/admin/export/orders", undefined],
+    ] as const) {
+      expect((await h.call(method, path, { token: m, body }).then((r) => r.status)), `${method} ${path}`).toBe(403);
+    }
+
+    // Order alerts reach monitors too.
+    const { alertStaff } = await import("../src/notify");
+    await alertStaff({ db } as never, `monitor check ${run}`);
+    const queued = await db.query(`select 1 from app.outbox where user_id = $1 and template = 'staff_alert' and data->>'text' = $2`, [monitorId, `monitor check ${run}`]);
+    expect(queued.length).toBe(1);
+    await db.query(`update app.users set role = 'customer' where id = $1`, [monitorId]);
+  });
+
   it("builds the catalogue: product, imported offer, margin floor, manual stock", async () => {
     const owner = await h.login(900001, "Owner");
     const support = await h.login(tg(20));
