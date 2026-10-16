@@ -171,6 +171,13 @@ describe("products delivered by hand", () => {
     expect(detail.data.order.details.map((d: { value: string }) => d.value)).toEqual(["fixed@mail.test", "secret-1", "eyJ.session\nline2"]);
     expect((await db.query(`select 1 from app.audit_log where action = 'order.details_view' and target_id = $1`, [orderId])).length).toBeGreaterThan(0);
     expect((await h.call("GET", `/api/admin/orders/${orderId}`, { token: customer })).status).toBe(403);
+    // Monitors watch the list but never see the details or deliver.
+    const monitor = await h.login(842_000_000 + (Date.now() % 1_000_000), "Monitor");
+    const me = await h.call("GET", "/api/me", { token: monitor });
+    await db.query(`update app.users set role = 'monitor' where id = $1`, [me.data.user.id]);
+    expect((await h.call("GET", "/api/admin/orders?status=waiting", { token: monitor })).status).toBe(200);
+    expect((await h.call("GET", `/api/admin/orders/${orderId}`, { token: monitor })).status).toBe(403);
+    expect((await h.call("POST", `/api/admin/orders/${orderId}/deliver`, { token: monitor, body: { items: [{ value: "x" }] } })).status).toBe(403);
 
     expect((await h.call("POST", `/api/admin/orders/${orderId}/deliver`, { token: owner, body: { items: [] } })).status).toBe(400);
     const d = await h.call("POST", `/api/admin/orders/${orderId}/deliver`, {

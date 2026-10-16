@@ -31,7 +31,7 @@ async function audit(ctx: Ctx, actor: string, action: string, id: string, data: 
 }
 
 export async function getAdminOrder(ctx: Ctx): Promise<Response> {
-  const staff = await requireStaff(ctx);
+  const staff = await requireStaff(ctx, "support");
   const id = uuid(ctx.params.id);
   const o = await one<{
     id: string; number: string | number; status: string; hold: string | null; total_cents: string | number; cost_cents: string | number | null;
@@ -84,7 +84,7 @@ export async function getAdminOrder(ctx: Ctx): Promise<Response> {
 }
 
 export async function deliverOrder(ctx: Ctx): Promise<Response> {
-  const staff = await requireStaff(ctx);
+  const staff = await requireStaff(ctx, "support");
   const id = uuid(ctx.params.id);
   const body = await readJson(ctx.req, 131_072);
   const raw = Array.isArray(body.items) ? body.items : [];
