@@ -199,7 +199,7 @@ export function Broadcast() {
           }
         >
           <p>{t("confirmBroadcast", { n: recipients })}</p>
-          <div className="card" style={{ whiteSpace: "pre-wrap" }} dir={lang === "ar" ? "rtl" : "ltr"}>
+          <div className="card card--pad" style={{ whiteSpace: "pre-wrap" }} dir={lang === "ar" ? "rtl" : "ltr"}>
             {lang === "ar" ? textAr || textEn : textEn || textAr}
           </div>
         </Sheet>
