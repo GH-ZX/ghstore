@@ -37,8 +37,6 @@ export const STORE_KEYS: KeySpec[] = [
   { name: "MAXSTORE_API_KEY", group: "suppliers", label: "MaxStore", pattern: API_KEY },
   { name: "PRODSELLER_API_KEY", group: "suppliers", label: "ProdSeller", pattern: API_KEY },
   { name: "FIVESIM_API_KEY", group: "suppliers", label: "5SIM", pattern: API_KEY },
-  // Not secret, but BatStore moves hosts: the owner can follow it without a deploy.
-  { name: "BATSTORE_BASE_URL", group: "suppliers", label: "BatStore API address (optional)", pattern: /^https:\/\/[A-Za-z0-9.-]{3,200}(:\d{2,5})?$/ },
   // Optional second bot that sends staff alerts (new orders, stuck orders, daily summary).
   // A wrong value only affects those alerts, so unlike the store bot it can live here.
   { name: "NOTIFY_BOT_TOKEN", group: "telegram", label: "Staff alerts bot token (optional)", pattern: /^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$/ },

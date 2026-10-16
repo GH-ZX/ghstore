@@ -27,8 +27,10 @@
  * externalId: BatStore product id. supplierOrderId: BatStore order id.
  *
  * Config: BATSTORE_API_KEY, BATSTORE_BASE_URL (default
- * https://web-production-1c7b1.up.railway.app since BatStore moved in October
- * 2026; also settable in Admin → Settings → Keys when it moves again),
+ * https://web-production-1c7b1.up.railway.app, the host of BatStore's own
+ * published API docs since it moved in October 2026). The address is a deploy
+ * setting on purpose: a value editable in the admin could send the API key to
+ * any host if an owner session were ever taken over.
  * BATSTORE_BASE_URL_SECONDARY (optional mirror), BATSTORE_WEBHOOK_SECRET
  * (falls back to SUPPLIER_WEBHOOK_SECRET).
  */
