@@ -13,7 +13,9 @@ afterAll(async () => {
 
 async function raw(path: string, token?: string) {
   const res = await handle(new Request(`${env.PUBLIC_BASE_URL}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} }), env, h.svc);
-  return { status: res.status, type: res.headers.get("content-type") ?? "", disposition: res.headers.get("content-disposition") ?? "", text: await res.text() };
+  // Decode the bytes ourselves: Node's res.text() drops a leading BOM (Bun keeps it), and the BOM is what we check.
+  const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(await res.arrayBuffer());
+  return { status: res.status, type: res.headers.get("content-type") ?? "", disposition: res.headers.get("content-disposition") ?? "", text };
 }
 
 describe("daily summary", () => {
