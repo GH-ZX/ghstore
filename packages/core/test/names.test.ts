@@ -53,6 +53,10 @@ describe("cleanSupplierName", () => {
     }
   });
 
+  it("ignores control characters a supplier sends", () => {
+    expect(clean("Zoom\u00019\u0001 Pro 1M\u0000")).toEqual(["Zoom 9 Pro", "1 month", null]);
+  });
+
   it("uses the owner's words", () => {
     const words = [...DEFAULT_NAME_WORDS, { from: "k12 edu", en: "Education (K12)", ar: "تعليمي (K12)", part: "package" as const }];
     const c = cleanSupplierName("ChatGPT - GPT K12 Edu  (W5H)", words);

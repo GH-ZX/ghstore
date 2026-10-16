@@ -136,7 +136,8 @@ interface Detail {
 }
 
 export function cleanSupplierName(raw: string, words: NameWord[] = DEFAULT_NAME_WORDS): CleanName {
-  let s = ` ${raw.normalize("NFKC").replace(/[–—]/g, " - ").replace(/\s+/g, " ").trim()} `;
+  // Control characters never come from a real name (and \u0001 marks the owner's phrases below).
+  let s = ` ${raw.normalize("NFKC").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[–—]/g, " - ").replace(/\s+/g, " ").trim()} `;
   let warranty: Detail | null = null;
   let duration: Detail | null = null;
   const details: Detail[] = [];
@@ -256,7 +257,8 @@ export function cleanSupplierName(raw: string, words: NameWord[] = DEFAULT_NAME_
     }).join(" ");
   const back = (text: string, lang: "en" | "ar") =>
     text.replace(/\u0001(\d+)\u0001/g, (_, i: string) => {
-      const w = kept[Number(i)]!;
+      const w = kept[Number(i)];
+      if (!w) return "";
       return lang === "ar" ? w.ar || w.en : w.en;
     });
   let en = back(cased(s, "en"), "en").trim();
