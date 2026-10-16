@@ -266,9 +266,14 @@ Menu button: @BotFather → `/mybots` → your bot → Bot Settings → Menu But
 
 1. Sign in with the Telegram account in `OWNER_TELEGRAM_IDS` (done in § 9): it
    becomes the owner.
-2. In **Admin → Suppliers**, switch on the suppliers you set keys for and set a
-   low-balance alert. Packages of a supplier that is off are hidden from the store,
-   and a payment method appears only once its keys are set.
+2. In **Admin → Suppliers**, switch on the suppliers you set keys for. Each
+   supplier's **Settings** sets how often prices are checked (every 15 minutes to
+   once a day), whether prices follow the supplier's cost automatically, the
+   "cost jump" guard (a package whose cost rises more than, say, 50% at once is
+   paused until you accept it under **Review**), the low-balance alert, and the
+   markup new imports start from. "Check prices now" runs a check straight away.
+   Packages of a supplier that is off are hidden from the store, and a payment
+   method appears only once its keys are set.
 3. Add products in **Admin → Catalogue**: create a product, then "Import from
    supplier" to pick the supplier's items and set the markup (the price preview
    uses the same margin rule the server enforces). Codes and accounts you sell
@@ -288,14 +293,18 @@ Menu button: @BotFather → `/mybots` → your bot → Bot Settings → Menu But
      here, then "Send me a test" (it goes to your linked email). Customers with a
      linked email then get delivered, refunded and top-up receipts; codes stay in
      the store.
-5. **Admin → Users**: give staff a role. **Monitor** sees orders, top-ups and
+5. **Admin → Home**: the slides of the carousel at the top of the store (title,
+   text, button, optional picture, colour style, what it opens, and optional
+   start/end dates), and the order, icon and visibility of each category's row.
+   With no slides, the carousel shows the products marked "featured".
+6. **Admin → Users**: give staff a role. **Monitor** sees orders, top-ups and
    customers and gets order alerts, but changes nothing; **Support** also
    approves top-ups, retries and refunds; **Owner** can do everything.
-6. Optional: **Admin → Coupons** for launch codes, **Admin → Broadcast** for a
+7. Optional: **Admin → Coupons** for launch codes, **Admin → Broadcast** for a
    Telegram message to every customer or a product's buyers (sent about 25 a
    minute, after receipts), and "Buy-again reminder after (days)" on subscription
    packages in the catalogue (28 for a 1-month plan).
-7. Make a $1 test top-up with each method and a test order.
+8. Make a $1 test top-up with each method and a test order.
 
 The owner hears on Telegram when a background job fails three times in a row,
 and again when it works.

@@ -6,6 +6,7 @@
 import * as admin from "./admin";
 import * as adminCatalog from "./admin-catalog";
 import * as broadcast from "./broadcast";
+import * as home from "./home";
 import * as auth from "./auth";
 import * as catalog from "./catalog";
 import { publicConfig } from "./config";
@@ -97,6 +98,11 @@ const router = new Router()
   // admin catalogue
   .on("GET", "/api/admin/catalog", adminCatalog.getCatalog)
   .on("POST", "/api/admin/categories", adminCatalog.createCategory)
+  .on("PATCH", "/api/admin/categories/:id", home.updateCategory)
+  .on("GET", "/api/admin/home", home.listBanners)
+  .on("POST", "/api/admin/banners", home.createBanner)
+  .on("PATCH", "/api/admin/banners/:id", home.updateBanner)
+  .on("DELETE", "/api/admin/banners/:id", home.deleteBanner)
   .on("POST", "/api/admin/products", adminCatalog.createProduct)
   .on("PATCH", "/api/admin/products/:id", adminCatalog.updateProduct)
   .on("POST", "/api/admin/products/:id/offers", adminCatalog.createOffer)

@@ -5,6 +5,7 @@
 import { matchesQuery, type InputField } from "@store/core";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
+import { liveBanners } from "./home";
 import { ApiError, json } from "./http";
 
 interface ProductRow {
@@ -23,8 +24,8 @@ interface ProductRow {
 
 export async function listCatalog(ctx: Ctx): Promise<Response> {
   const db = ctx.svc.db;
-  const categories = await db.query<{ slug: string; name_ar: string; name_en: string }>(
-    `select slug, name_ar, name_en from app.categories where active order by sort, slug`,
+  const categories = await db.query<{ slug: string; name_ar: string; name_en: string; icon: string | null }>(
+    `select slug, name_ar, name_en, icon from app.categories where active order by sort, slug`,
   );
   const rows = await db.query<ProductRow>(
     `select p.id, p.slug, c.slug as category_slug, p.name_ar, p.name_en, p.kind, p.image_url, p.featured, p.search_terms,
@@ -57,7 +58,12 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
       searchTerms: r.search_terms,
     }));
   return json(
-    { categories: categories.map((c) => ({ slug: c.slug, nameAr: c.name_ar, nameEn: c.name_en })), products },
+    {
+      categories: categories.map((c) => ({ slug: c.slug, nameAr: c.name_ar, nameEn: c.name_en, icon: c.icon })),
+      products,
+      // The home page carousel (Admin → Home); empty when searching or filtering.
+      banners: q || cat ? [] : await liveBanners(db),
+    },
     { headers: { "cache-control": q ? "no-store" : "public, max-age=30" } },
   );
 }

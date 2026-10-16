@@ -16,7 +16,7 @@ const TABS: { to: string; key: MsgKey; Icon: typeof StoreIcon }[] = [
 ];
 
 function isActive(tab: string, path: string): boolean {
-  if (tab === "/") return path === "/" || path.startsWith("/p/");
+  if (tab === "/") return path === "/" || path.startsWith("/p/") || path.startsWith("/c/");
   return path === tab || path.startsWith(`${tab}/`);
 }
 

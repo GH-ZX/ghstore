@@ -37,6 +37,22 @@ export interface Category {
   slug: string;
   nameAr: string;
   nameEn: string;
+  /** A name from the category icon set (Admin → Home). */
+  icon?: string | null;
+}
+
+/** A slide of the home page carousel (Admin → Home). */
+export interface Banner {
+  id: string;
+  titleAr: string;
+  titleEn: string;
+  subtitleAr: string;
+  subtitleEn: string;
+  ctaAr: string;
+  ctaEn: string;
+  imageUrl: string | null;
+  link: { type: "product" | "category" | "url"; value: string } | null;
+  style: "accent" | "dark" | "light";
 }
 
 export interface ProductCard {

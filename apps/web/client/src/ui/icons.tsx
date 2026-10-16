@@ -151,3 +151,109 @@ export function MethodMark({ method }: { method: string }) {
     </svg>
   );
 }
+
+// ───────────────────────────── category icons (Admin → Home picks one per category)
+
+const line = { fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+const CATEGORY_PATHS: Record<string, ReactNode> = {
+  game: (
+    <>
+      <path {...line} d="M7.5 8h9a4.5 4.5 0 0 1 4.3 5.8l-1 3.3a2.2 2.2 0 0 1-3.7.9L14.5 16h-5l-1.6 2a2.2 2.2 0 0 1-3.7-.9l-1-3.3A4.5 4.5 0 0 1 7.5 8z" />
+      <path {...line} d="M8 11v3M6.5 12.5h3" />
+      <circle cx="15.5" cy="11.5" r="1" fill="currentColor" />
+      <circle cx="17.5" cy="13.5" r="1" fill="currentColor" />
+    </>
+  ),
+  gift: (
+    <>
+      <path {...line} d="M4 10h16v3H4zM5.5 13h13v7h-13zM12 10v10" />
+      <path {...line} d="M12 10c-1.5-3-5-3.5-5-1.2C7 10 9 10 12 10zm0 0c1.5-3 5-3.5 5-1.2 0 1.2-2 1.2-5 1.2z" />
+    </>
+  ),
+  spark: (
+    <>
+      <path {...line} d="M11 3.5l1.6 4.9a3 3 0 0 0 1.9 1.9L19.5 12l-5 1.7a3 3 0 0 0-1.9 1.9L11 20.5l-1.6-4.9a3 3 0 0 0-1.9-1.9L2.5 12l5-1.7a3 3 0 0 0 1.9-1.9z" />
+      <path {...line} d="M18.5 3v4M16.5 5h4" />
+    </>
+  ),
+  play: (
+    <>
+      <rect {...line} x="3" y="5" width="18" height="14" rx="4" />
+      <path {...line} d="M10 9.2v5.6l4.8-2.8z" />
+    </>
+  ),
+  palette: (
+    <>
+      <path {...line} d="M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.8-.8 1.8-1.8 0-1.3-1-1.7-1-2.9 0-1 .8-1.8 1.8-1.8H17a3.5 3.5 0 0 0 3.5-3.5c0-4-3.8-7-8.5-7z" />
+      <circle cx="8" cy="11" r="1.1" fill="currentColor" />
+      <circle cx="10.5" cy="7.5" r="1.1" fill="currentColor" />
+      <circle cx="14.8" cy="8" r="1.1" fill="currentColor" />
+    </>
+  ),
+  briefcase: (
+    <>
+      <rect {...line} x="3.5" y="7" width="17" height="12" rx="2.5" />
+      <path {...line} d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M3.5 12.5h17M11 12.5v1.5h2v-1.5" />
+    </>
+  ),
+  shield: (
+    <>
+      <path {...line} d="M12 3l7 2.8v5.4c0 4.4-3 8-7 9.8-4-1.8-7-5.4-7-9.8V5.8z" />
+      <path {...line} d="M9 12l2 2 4-4" />
+    </>
+  ),
+  phone: (
+    <>
+      <rect {...line} x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+      <path {...line} d="M10.5 18.5h3" />
+    </>
+  ),
+  bolt: <path {...line} d="M13 2.5L5 13.5h6l-1 8 8-11h-6z" />,
+  code: <path {...line} d="M8.5 7.5L4 12l4.5 4.5M15.5 7.5L20 12l-4.5 4.5M13.5 5l-3 14" />,
+  music: (
+    <>
+      <path {...line} d="M9 17.5V5.5l10-2v12" />
+      <circle {...line} cx="6.5" cy="17.5" r="2.5" />
+      <circle {...line} cx="16.5" cy="15.5" r="2.5" />
+    </>
+  ),
+  book: <path {...line} d="M5 4.5h10.5A2.5 2.5 0 0 1 18 7v13H7.5A2.5 2.5 0 0 1 5 17.5zM5 17.5A2.5 2.5 0 0 1 7.5 15H18M9 8.5h5" />,
+  card: (
+    <>
+      <rect {...line} x="3" y="5.5" width="18" height="13" rx="2.5" />
+      <path {...line} d="M3 10h18M7 14.5h3" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle {...line} cx="12" cy="12" r="8.5" />
+      <path {...line} d="M3.5 12h17M12 3.5c2.4 2.5 3.5 5.3 3.5 8.5s-1.1 6-3.5 8.5c-2.4-2.5-3.5-5.3-3.5-8.5S9.6 6 12 3.5z" />
+    </>
+  ),
+  star: <path {...line} d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z" />,
+  cart: (
+    <>
+      <path {...line} d="M3 4.5h2.2l2.2 10.2a1.5 1.5 0 0 0 1.5 1.2h8.4a1.5 1.5 0 0 0 1.5-1.1l1.4-6.3H6.2" />
+      <circle cx="9.5" cy="19.5" r="1.3" fill="currentColor" />
+      <circle cx="17" cy="19.5" r="1.3" fill="currentColor" />
+    </>
+  ),
+  chat: <path {...line} d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17h0A2.5 2.5 0 0 1 4 14.5z" />,
+  cloud: <path {...line} d="M7.5 18.5a4.5 4.5 0 0 1-.6-9 5.5 5.5 0 0 1 10.6 1.4A3.8 3.8 0 0 1 17 18.5z" />,
+};
+
+/** The names an owner can pick for a category (same list as CATEGORY_ICON_NAMES in packages/api). */
+export const CATEGORY_ICON_NAMES = Object.keys(CATEGORY_PATHS);
+
+/** A category's icon; categories without one get a neutral tile mark. */
+export function CategoryIcon({ name, size = 24 }: { name?: string | null; size?: number }) {
+  const art = (name && CATEGORY_PATHS[name]) || CATEGORY_PATHS.star;
+  return <Svg size={size}>{art}</Svg>;
+}
+
+export const ArrowIcon = ({ size = 18 }: P) => (
+  <Svg size={size}>
+    <path {...line} d="M5 12h14M13 6l6 6-6 6" />
+  </Svg>
+);

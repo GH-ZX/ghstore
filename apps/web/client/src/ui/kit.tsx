@@ -1,5 +1,5 @@
 /** Small shared components: logo, sheets, tiles, money, states. */
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorText } from "../lib/i18n";
 import { usd, syp } from "../lib/format";
 import { useApp, useT } from "../lib/state";
@@ -68,10 +68,17 @@ export function Money({ cents, showSyp = false, className }: { cents: number; sh
   );
 }
 
+/** Logos (brand marks, site icons, SVGs) are shown whole on a soft tile instead of cropped like photos. */
+const LOGO_URL = /simpleicons|favicons|\.svg(\?|$)/i;
+
 export function Tile({ name, imageUrl, className }: { name: string; imageUrl?: string | null; className?: string }) {
+  // A picture that fails to load falls back to the product's monogram.
+  const [broken, setBroken] = useState<string | null>(null);
+  const show = imageUrl && broken !== imageUrl;
+  const logo = show && LOGO_URL.test(imageUrl);
   return (
-    <span className={`tile ${className ?? ""}`} aria-hidden="true">
-      {imageUrl ? <img src={imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : monogramOf(name)}
+    <span className={`tile${logo ? " tile--logo" : ""} ${className ?? ""}`} aria-hidden="true">
+      {show ? <img src={imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setBroken(imageUrl)} /> : monogramOf(name)}
     </span>
   );
 }

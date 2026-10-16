@@ -8,6 +8,7 @@ import { Logo, Seg, Toast } from "../ui/kit";
 import { AdminOrders } from "./Orders";
 import { Broadcast } from "./Broadcast";
 import { Catalog } from "./Catalog";
+import { HomeAdmin } from "./Home";
 import { Coupons } from "./Coupons";
 import { Overview } from "./Overview";
 import { Settings } from "./Settings";
@@ -20,6 +21,7 @@ const SECTIONS: { path: string; key: MsgKey; owner?: boolean }[] = [
   { path: "/admin/topups", key: "topups" },
   { path: "/admin/orders", key: "orders" },
   { path: "/admin/catalog", key: "catalog", owner: true },
+  { path: "/admin/home", key: "homePage", owner: true },
   { path: "/admin/coupons", key: "coupons", owner: true },
   { path: "/admin/broadcast", key: "broadcast", owner: true },
   { path: "/admin/suppliers", key: "suppliers", owner: true },
@@ -83,6 +85,7 @@ export function Admin() {
         {section.key === "topups" && <Topups canAct={canAct} />}
         {section.key === "orders" && <AdminOrders canAct={canAct} />}
         {section.key === "catalog" && <Catalog />}
+        {section.key === "homePage" && <HomeAdmin />}
         {section.key === "coupons" && <Coupons />}
         {section.key === "broadcast" && <Broadcast />}
         {section.key === "suppliers" && <Suppliers />}
