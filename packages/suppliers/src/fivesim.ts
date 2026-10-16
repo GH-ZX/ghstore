@@ -362,8 +362,21 @@ export function createFiveSim(ctx: AdapterContext): FiveSimAdapter {
         const buy = (o: string) =>
           user(`/buy/activation/${enc(country)}/${enc(o)}/${enc(service)}${o === "any" && maxCost !== undefined ? `?maxPrice=${maxCost.toFixed(4)}` : ""}`);
         let r = await buy(op);
-        // That operator just ran out: any operator within the cap.
-        if (op !== "any" && operator === "any" && !r.ok && /no free phones/i.test(supplierMessage(r, secrets))) r = await buy("any");
+        if (op !== "any" && operator === "any") {
+          const bought = obj(r.json);
+          const paid = num(bought?.price);
+          const id = str(bought?.id);
+          if (r.ok && id && paid !== null && maxCost !== undefined && paid > maxCost + 1e-9) {
+            // The operator's price rose between the check and the buy: 5sim cannot cap a
+            // chosen operator, so give the number back (a cancelled number costs nothing)
+            // and buy within the cap instead.
+            await close("cancel", id).catch(() => false);
+            r = await buy("any");
+          } else if (!r.ok && /no free phones/i.test(supplierMessage(r, secrets))) {
+            // That operator just ran out: any operator within the cap.
+            r = await buy("any");
+          }
+        }
         const order = obj(r.json);
         const id = str(order?.id);
         const phone = str(order?.phone);

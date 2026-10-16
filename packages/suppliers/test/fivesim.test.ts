@@ -150,6 +150,25 @@ describe("fivesim purchase", () => {
     expect(calls.map((c) => c.path)).toEqual(["/v1/guest/prices?country=usa&product=telegram", "/v1/user/buy/activation/usa/good/telegram"]);
   });
 
+  it("gives a number back when its operator charged more than the cap, and buys within the cap", async () => {
+    const { ctx, calls } = context(
+      {
+        "GET /v1/guest/prices?country=usa&product=telegram": json(ratedPrices),
+        "GET /v1/user/buy/activation/usa/good/telegram": json({ id: 8, phone: "+1888", price: 0.35, status: "PENDING" }),
+        "GET /v1/user/cancel/8": json({ id: 8, status: "CANCELED" }),
+        "GET /v1/user/buy/activation/usa/any/telegram": json({ id: 9, phone: "+1999", price: 0.19, status: "PENDING" }),
+      },
+      config,
+    );
+    expect(await createFiveSim(ctx).purchase({ ...req, maxCostCents: 20 })).toMatchObject({ status: "pending", supplierOrderId: "9" });
+    expect(calls.map((c) => c.path)).toEqual([
+      "/v1/guest/prices?country=usa&product=telegram",
+      "/v1/user/buy/activation/usa/good/telegram",
+      "/v1/user/cancel/8",
+      "/v1/user/buy/activation/usa/any/telegram?maxPrice=0.2000",
+    ]);
+  });
+
   it("falls back to any operator within the cap when the chosen one just ran out", async () => {
     const { ctx, calls } = context(
       {
