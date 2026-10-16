@@ -37,6 +37,8 @@ someone else's store.
 | 5SIM virtual numbers: success rates, best operator, countdown, code, cancel / try another number with refund | Done, tested |
 | Admin → Settings → APIs: supplier and SAM account balances, details, latest movements | Done, tested |
 | Sales made in person by the owner (no wallet), product badges chosen per product | Done, tested |
+| Admin → Profit: charts, comparison with the period before, price calculator; supplier balances at their pace | Done, tested |
+| Automatic badges (New, Best seller), pinned packages, USDT found by its exact amount, retry limit for numbers, opening splash | Done, tested |
 | Per-supplier check schedules (5 min to 24 h), out-of-stock hiding | Done, tested |
 | Products delivered by hand, details asked after paying, supplier deliveries checked before release | Done, tested |
 | Clean names for BatStore / ProdSeller shorthand, package warranties | Done, tested |

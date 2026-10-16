@@ -61,6 +61,12 @@ three doors from the same code:
   `/profile`, `/login`, `/admin/*`. Deep links into the Mini App: `?startapp=p_<slug>`
   (a product), `r_<code>` (a friend's invite), `wallet`, `orders`, `invite`.
   Website invite links are `/?ref=<code>`; the code is kept until sign-in.
+- **Opening splash**: `index.html` carries the logo (drawn from `ui/logo.ts`,
+  the same drawing as `Logo`) so it shows before any script loads; it draws
+  itself in and stays until the user, their balance and the home page's
+  products are loaded (at least 0.9 s, at most 6 s), so "Sign in" never flashes
+  for someone signed in. Coming back to the app after 20 s reads the user and
+  balance again.
 - No router or state library: a 90-line history router and a small store.
   Admin code is split into its own chunk, so customers never download it.
 - `_headers` sets a strict Content-Security-Policy; Telegram's iframe on
@@ -149,10 +155,21 @@ the customer ticks "I have these ready" before paying.
 | Telegram Stars | `successful_payment` arrives on the authenticated bot webhook; amount and payer are checked against the invoice. Mini App only (Telegram's rule for digital goods). |
 | ShamCash (SAM API) | SAM calls the callback URL, which carries a secret token; the store then asks SAM for the invoice status. |
 | NOWPayments | IPN signature checked (HMAC-SHA512), then the payment is fetched from NOWPayments. |
-| USDT BEP20 (manual) | The customer is shown a unique amount (e.g. 10.37) and pastes the transaction hash; the store reads the chain: right token, right address, exact amount, mined after the request, 20 confirmations. |
+| USDT BEP20 (manual) | The customer is shown a unique amount (e.g. 10.37). Pasting the transaction hash checks it at once; otherwise the `usdt_deposits` job finds it by that exact amount. Either way the store reads the chain: right token, right address, exact amount, mined after the request, 20 confirmations, hash never used before. |
 
 Anything that does not match exactly (underpaid, overpaid, wrong payer) goes to
 **review** in the admin instead of being credited.
+
+**USDT found by its amount** (`detectUsdtDeposits`, every 2 minutes while a
+USDT request is open): every open request has its own amount (requested + 1 to
+99 cents, unique among open requests), so a confirmed USDT transfer of exactly
+that amount to the store address belongs to it. The job reads the address's
+recent USDT transfers (`eth_getLogs` on `BSC_LOGS_RPC_URL`, default
+`bsc-rpc.publicnode.com`, which answers the last ~5000 blocks ≈ 35 minutes;
+the default dataseed RPC refuses log queries), checks a matching transfer
+against that request on chain first, then attaches and credits it. Where it
+stopped is kept in `app.settings` (`bep20.scan_block`). A transfer that
+matches nothing is left alone: the customer can still paste its hash.
 
 ## Prices and the margin guard
 
@@ -213,6 +230,12 @@ New supplier items are never added automatically: the owner chooses them in
 - **Units**: `products.unit_ar` / `unit_en` ("شدة" / "UC"). Packages named only
   by their amount are renamed with the unit when it changes ("60" → "60 UC",
   `withUnit` in packages/core); new packages from Choose packages get it too.
+- **Badges**: `products.badge` is a fixed badge (Instant, New, Hot, Best
+  seller, Sale), `none`, or null for automatic: Best seller for the 3 most sold
+  products of the last 30 days (3 orders or more), New for the 6 newest active
+  products added in the last 14 days (`autoBadges` in `settings.ts`). Each
+  automatic kind can be switched off in Admin → Home (`badges.auto_best`,
+  `badges.auto_new`).
 - **Pictures**: `products.image_url` (square icon) and `cover_url` (wide). The
   showcase shows the cover, the icon, or decides by itself (`home.picture_mode`,
   per slide `banners.picture_mode`). Uploads and copies live in the Supabase
@@ -236,7 +259,10 @@ it every 15 s otherwise. Before a code arrives the customer can cancel or
 report the number as already used (`POST /api/orders/:id/number`): 5SIM
 releases it and the order is refunded. "Try another number" does that and buys
 the next number of the same package at once (`again: true`), as 5SIM users do
-until a code arrives. A number that expires without a code is
+until a code arrives, at most `numbers.max_retries` times in a row (default 5,
+per customer and package within 30 minutes; Admin → Settings → Virtual
+numbers). Pinned packages (`offers.pinned`, the owner's favourite countries)
+are listed first, then the best success rates. A number that expires without a code is
 refunded too. The catalogue is read a service at a time (the full price list is
 several MB).
 
@@ -247,6 +273,7 @@ several MB).
 | `orders` | Fulfil/re-check due orders (leased, so overlapping runs are safe) |
 | `stuck_orders` | Flag orders open too long, alert owners |
 | `payments` | Re-check pending SAM/NOWPayments top-ups; expire old ones |
+| `usdt_deposits` | Every 2 min (odd minutes), only while a USDT request is open: credit transfers found by their exact amount |
 | `supplier_balances` | Every 15 min; alert once when a balance drops under its threshold |
 | `supplier_sync` | Every minute, for each supplier whose own interval is up (5 min to 24 h, Admin → Suppliers → Price and stock checks): costs, availability, margin guard |
 | `supplier_catalogue` | Every 5 min, with spare requests only: refresh up to 3 groups of the saved supplier lists (Choose packages); suppliers that list everything in one request go first, and new items of clean-name suppliers are named |
@@ -332,6 +359,15 @@ are in `store.config.ts`.
   (failed or open orders, top-ups to review, low supplier balances), for the
   previous complete day. Sent once a day in the hour `reports.daily_hour`
   (default 9) of `store.timeZone`; on/off in Admin → Settings.
+- **Profit** (Admin → Profit, owner; `GET /api/admin/reports/profit?from=&to=`,
+  local days, up to 366): sales, cost, profit after invite rewards, margin,
+  orders, customers, in-person sales, compared with the period just before;
+  charts by day (weeks or months for long ranges), supplier, product, category
+  and top-up method; and a price calculator that uses the store's own pricing
+  rules (`priceFromCost`, the margin guard) with a payment fee and sales per day.
+- **Supplier balances** (Admin → Overview): each balance with what its orders
+  cost over the last 7 days and how many days it lasts at that pace.
+- **Daily summary** also lists sales made in person (cash the owner holds).
 - **CSV exports** (Admin → Overview): orders, top-ups, wallet history for 7/30/90
   days or a year. UTF-8 with a BOM so Excel shows Arabic; cells that look like
   formulas are written as text.

@@ -21,10 +21,20 @@ fixed: confirm the plan with the owner before building, and show screenshots
   Admin → Settings (each supplier's and SAM's account: balances, details,
   latest movements); **sales made in person** by the owner; **product badges**
   chosen per product; Telegram full-screen safe areas; admin section icons.
+- **Admin → Profit** (charts, period comparison, price calculator), **supplier
+  balances** with days left on the Overview, **automatic badges** (New, Best
+  seller), **pinned packages**, **USDT found by its exact amount** (no hash
+  needed), a **retry limit** for "Try another number", in-person sales in the
+  daily summary, and the **opening splash**.
 
 ## Live checks after the next deploy
 
-- Migrations up to `0022_rates_badges_in_person.sql` are on the live database first.
+- Migrations up to `0023_auto_badges_pinned.sql` are on the live database first.
+- Open the site and the Mini App: the splash draws the logo, then the store
+  opens with the balance already shown (no "Sign in" flash).
+- A small USDT top-up: send the exact amount without pasting the hash; it is
+  credited within a few minutes (`usdt_deposits` on the Overview's jobs).
+- Admin → Profit opens for the owner; Overview shows each supplier's days left.
 - Admin → Settings → APIs: each account opens and shows its balance (5SIM in dollars).
 - In Telegram full screen, the header and the admin menu sit below Telegram's buttons.
 - Admin → Suppliers → Names: BatStore and ProdSeller items show clean names;
@@ -45,6 +55,4 @@ fixed: confirm the plan with the owner before building, and show screenshots
   (MLBB, Genshin, Free Fire…). Show the list before changing anything live.
 - **"Tell me when it's back"**: a customer asks to be told when a package that
   ran out is back (Telegram message on restock); favourites with it.
-- **Sales and profit page**: profit per supplier and product, best sellers,
-  a daily chart.
 - **MaxStore**: a real $1 order before relying on it (formats not fully verified).
