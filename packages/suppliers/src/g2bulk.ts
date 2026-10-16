@@ -28,6 +28,8 @@
  *   catalogues of games the store sells (listProductsFor), a few per run.
  *
  * externalId: "game:<code>:<catalogue name>" | "voucher:<product id>".
+ * In the store: one product per game (its catalogue entries are the packages),
+ * one per voucher brand (G2Bulk's category).
  * supplierOrderId: "g2b-game-<id>" | "g2b-vouch-<id>" (the refs the old bot stored).
  *
  * Config: G2BULK_API_KEY, G2BULK_BASE_URL (default https://api.g2bulk.com/v1),
@@ -142,6 +144,10 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
         available: true,
         kind: "id",
         fields,
+        // One store product per game, its catalogue entries as the packages.
+        productKey: `game:${code}`,
+        productName: gameName,
+        packageName: name,
         meta: { type: "topup", game: code, gameName, catalogueId: item.id ?? null, image: image(game.image_url), servers },
       }];
     });
@@ -168,6 +174,10 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
         costCents: cost,
         available: (stock ?? 0) > 0,
         kind: "code",
+        // Gift cards of one brand (G2Bulk's category) are one product.
+        ...(str(p.category_title)
+          ? { productKey: `voucher:${str(p.category_id) ?? str(p.category_title)}`, productName: str(p.category_title), packageName: title }
+          : {}),
         meta: {
           type: "voucher", categoryId: p.category_id ?? null, category: str(p.category_title) ?? null,
           faceValue: p.face_value ?? null, stock, image: image(p.image_url), description: str(p.description) ?? null,

@@ -1,5 +1,5 @@
 /**
- * Admin → Home: the carousel's banners (add, edit, order, schedule, switch off)
+ * Admin → Home: the showcase's slides (add, edit, order, schedule, switch off)
  * and the category sections below it (order, icon, show or hide). Owner only.
  */
 import { useState } from "react";
@@ -8,6 +8,7 @@ import { useT } from "../lib/state";
 import { invalidate, useApi } from "../lib/useApi";
 import { CATEGORY_ICON_NAMES, CategoryIcon } from "../ui/icons";
 import { Empty, ErrorBox, Seg, Sheet, Spinner, Switch } from "../ui/kit";
+import { ShowcaseSlide, type ShowcaseOptions, type ShowcaseStyle, type SlidePackage } from "../ui/Showcase";
 import { useAction } from "./common";
 
 interface AdminBanner {
@@ -22,6 +23,8 @@ interface AdminBanner {
   linkType: "none" | "product" | "category" | "url";
   linkValue: string | null;
   style: "accent" | "dark" | "light";
+  /** The slide's own look; null follows the store's default. */
+  look: ShowcaseStyle | null;
   sort: number;
   active: boolean;
   startsAt: string | null;
@@ -45,9 +48,36 @@ interface HomeData {
 }
 
 interface ProductLite {
+  id: string;
   slug: string;
   name_ar: string;
   name_en: string;
+  image_url: string | null;
+  /** The lowest price on sale and a few packages (filled in from the catalogue's packages). */
+  fromCents?: number | null;
+  packages?: SlidePackage[];
+  packageCount?: number;
+}
+interface OfferLite {
+  id: string;
+  product_id: string;
+  name_ar: string;
+  name_en: string;
+  price_cents: number;
+  active: boolean;
+  paused_reason: string | null;
+}
+
+const LOOKS: ShowcaseStyle[] = ["cinematic", "deal"];
+const AUTOPLAY = [0, 4, 6, 8, 10, 12];
+const DEAL_PACKAGES = [2, 3, 4];
+
+/** The same picks as the store: the cheapest, one from the middle, one near the top. */
+function pickPackages<T>(sorted: T[], max = 3): T[] {
+  if (sorted.length <= max) return sorted;
+  const picks = new Set<number>();
+  for (let i = 0; i < max; i++) picks.add(Math.round((i * (sorted.length - 1)) / max));
+  return [...picks].map((i) => sorted[i]!);
 }
 
 /** yyyy-mm-dd (local day) ↔ ISO. An end date means "until the end of that day". */
@@ -68,7 +98,16 @@ function isoToDay(iso: string | null, end: boolean): string {
 export function HomeAdmin() {
   const { t, lang } = useT();
   const { data, error, reload } = useApi<HomeData>("/api/admin/home");
-  const catalog = useApi<{ products: ProductLite[] }>("/api/admin/catalog");
+  const catalog = useApi<{ products: ProductLite[]; offers: OfferLite[] }>("/api/admin/catalog");
+  const settings = useApi<{ settings: Record<string, unknown> }>("/api/admin/settings");
+  const set = settings.data?.settings ?? {};
+  const look: ShowcaseStyle = set["home.showcase_style"] === "deal" ? "deal" : "cinematic";
+  const options: ShowcaseOptions = {
+    badgeInstant: set["home.badge_instant"] !== false,
+    badgeLabel: set["home.badge_label"] !== false,
+    autoplay: typeof set["home.autoplay_seconds"] === "number" ? (set["home.autoplay_seconds"] as number) : 6,
+  };
+  const dealPackages = typeof set["home.deal_packages"] === "number" ? (set["home.deal_packages"] as number) : 3;
   const action = useAction();
   const [editing, setEditing] = useState<AdminBanner | "new" | null>(null);
 
@@ -114,8 +153,77 @@ export function HomeAdmin() {
 
   if (!data) return error ? <ErrorBox error={error} onRetry={reload} /> : <div className="skeleton" style={{ height: 320 }} />;
   const now = Date.now();
+  /** One showcase setting (Admin → Home → Showcase), saved straight away. */
+  async function saveSetting(key: string, value: unknown) {
+    if (await action.run(`/api/admin/settings/${key}`, { method: "PUT", body: { value } })) {
+      invalidate("/api/admin/settings");
+      void settings.reload();
+      refresh();
+    }
+  }
+
   return (
     <div className="stack">
+      <section className="card card--pad stack-sm">
+        <div>
+          <h2>{t("showcaseSettings")}</h2>
+          <p className="hint">{t("showcaseLookHint")}</p>
+        </div>
+        <h3>{t("showcaseLook")}</h3>
+        <div className="look-picker" role="radiogroup" aria-label={t("showcaseLook")}>
+          {LOOKS.map((l) => (
+            <button key={l} type="button" role="radio" aria-checked={look === l} className="look-card press" disabled={action.busy || !settings.data} onClick={() => look !== l && void saveSetting("home.showcase_style", l)}>
+              <span className={`look-card__pic look-card__pic--${l}`} aria-hidden="true">
+                <i />
+                <b />
+                <b />
+                <b />
+              </span>
+              <span className="look-card__text">
+                <strong>{t(`look_${l}`)}</strong>
+                <span className="small muted">{t(`look_${l}_hint`)}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="pref-row">
+          <span className="stack-sm" style={{ gap: 2 }}>
+            <span>{t("showBadgeInstant")}</span>
+            <span className="hint">{t("showBadgeInstantHint")}</span>
+          </span>
+          <Switch checked={options.badgeInstant} onChange={(v) => void saveSetting("home.badge_instant", v)} label={t("showBadgeInstant")} />
+        </div>
+        <div className="pref-row">
+          <span className="stack-sm" style={{ gap: 2 }}>
+            <span>{t("showBadgeLabel")}</span>
+            <span className="hint">{t("showBadgeLabelHint")}</span>
+          </span>
+          <Switch checked={options.badgeLabel} onChange={(v) => void saveSetting("home.badge_label", v)} label={t("showBadgeLabel")} />
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>{t("autoplay")}</span>
+            <select className="select" value={options.autoplay} disabled={action.busy || !settings.data} onChange={(e) => void saveSetting("home.autoplay_seconds", Number(e.target.value))}>
+              {AUTOPLAY.map((n) => (
+                <option key={n} value={n}>
+                  {n === 0 ? t("autoplayOff") : t("autoplayEvery", { n })}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>{t("dealPackages")}</span>
+            <select className="select" value={dealPackages} disabled={action.busy || !settings.data} onChange={(e) => void saveSetting("home.deal_packages", Number(e.target.value))}>
+              {DEAL_PACKAGES.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
       <section className="card card--pad stack-sm">
         <div className="row-between">
           <div>
@@ -199,7 +307,17 @@ export function HomeAdmin() {
         <BannerSheet
           banner={editing === "new" ? null : editing}
           categories={data.categories}
-          products={catalog.data?.products ?? []}
+          look={look}
+          options={options}
+          products={(catalog.data?.products ?? []).map((p) => {
+            const selling = (catalog.data?.offers ?? []).filter((o) => o.product_id === p.id && o.active && !o.paused_reason).sort((a, b) => a.price_cents - b.price_cents);
+            return {
+              ...p,
+              fromCents: selling.length ? selling[0]!.price_cents : null,
+              packages: pickPackages(selling, dealPackages).map((o) => ({ id: o.id, nameAr: o.name_ar, nameEn: o.name_en, priceCents: o.price_cents })),
+              packageCount: selling.length,
+            };
+          })}
           onClose={(changed) => {
             setEditing(null);
             if (changed) refresh();
@@ -210,7 +328,7 @@ export function HomeAdmin() {
   );
 }
 
-function BannerSheet({ banner, categories, products, onClose }: { banner: AdminBanner | null; categories: AdminCategory[]; products: ProductLite[]; onClose: (changed: boolean) => void }) {
+function BannerSheet({ banner, categories, products, look: defaultLook, options, onClose }: { banner: AdminBanner | null; categories: AdminCategory[]; products: ProductLite[]; look: ShowcaseStyle; options: ShowcaseOptions; onClose: (changed: boolean) => void }) {
   const { t, lang } = useT();
   const action = useAction();
   const [titleAr, setTitleAr] = useState(banner?.titleAr ?? "");
@@ -221,6 +339,9 @@ function BannerSheet({ banner, categories, products, onClose }: { banner: AdminB
   const [ctaEn, setCtaEn] = useState(banner?.ctaEn ?? "");
   const [image, setImage] = useState(banner?.imageUrl ?? "");
   const [style, setStyle] = useState<AdminBanner["style"]>(banner?.style ?? "accent");
+  // "default" follows the store's look (Showcase settings above).
+  const [ownLook, setOwnLook] = useState<ShowcaseStyle | "default">(banner?.look ?? "default");
+  const look: ShowcaseStyle = ownLook === "default" ? defaultLook : ownLook;
   const [linkType, setLinkType] = useState<AdminBanner["linkType"]>(banner?.linkType ?? "none");
   const [linkValue, setLinkValue] = useState(banner?.linkValue ?? "");
   const [starts, setStarts] = useState(isoToDay(banner?.startsAt ?? null, false));
@@ -242,6 +363,7 @@ function BannerSheet({ banner, categories, products, onClose }: { banner: AdminB
       ctaEn: ctaEn.trim(),
       imageUrl: image.trim() || null,
       style,
+      look: ownLook === "default" ? null : ownLook,
       linkType,
       linkValue: linkType === "none" ? null : linkValue.trim(),
       startsAt: starts ? dayToIso(starts, false) : null,
@@ -255,10 +377,20 @@ function BannerSheet({ banner, categories, products, onClose }: { banner: AdminB
     if (banner && (await action.run(`/api/admin/banners/${banner.id}`, { method: "DELETE" }, t("deleted")))) onClose(true);
   }
 
-  const preview = {
+  const linked = linkType === "product" ? products.find((p) => p.slug === linkValue) : undefined;
+  const linkedCategory = linkType === "category" ? categories.find((c) => c.slug === linkValue) : undefined;
+  const previewSlide = {
+    key: "preview",
     title: (lang === "ar" ? titleAr : titleEn) || t("bannerTitle"),
-    sub: lang === "ar" ? subAr : subEn,
+    subtitle: lang === "ar" ? subAr : subEn,
+    eyebrow: linked ? pick(lang, linked.name_ar, linked.name_en) : linkedCategory ? pick(lang, linkedCategory.nameAr, linkedCategory.nameEn) : undefined,
     cta: (lang === "ar" ? ctaAr : ctaEn) || (linkType !== "none" ? t("shopNow") : ""),
+    picture: imageOk && image.trim() ? image.trim() : null,
+    art: linked ? { name: linked.name_en, imageUrl: linked.image_url } : null,
+    look,
+    packages: linked?.packages,
+    packageCount: linked?.packageCount,
+    style,
   };
   return (
     <Sheet
@@ -277,14 +409,9 @@ function BannerSheet({ banner, categories, products, onClose }: { banner: AdminB
         </div>
       }
     >
-      {/* Live preview, drawn like the store's carousel. */}
-      <div className={`slide slide--${style}${imageOk && image.trim() ? " slide--image" : ""}`} style={{ flexBasis: "auto", minHeight: 150 }}>
-        {imageOk && image.trim() && <img className="slide__bg" src={image.trim()} alt="" />}
-        <div className="slide__text">
-          <h2 className="slide__title" style={{ fontSize: 20 }}>{preview.title}</h2>
-          {preview.sub && <p className="slide__sub">{preview.sub}</p>}
-          {preview.cta && <span className="slide__cta">{preview.cta}</span>}
-        </div>
+      {/* Live preview: the store's own slide. */}
+      <div className="showcase-frame">
+        <ShowcaseSlide preview options={options} s={previewSlide} />
       </div>
 
       <div className="form-grid">
@@ -318,6 +445,18 @@ function BannerSheet({ banner, categories, products, onClose }: { banner: AdminB
         <span>{t("bannerImage")}</span>
         <input className="input" dir="ltr" value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://…" aria-invalid={!imageOk || undefined} />
         <span className="hint">{t("bannerImageHint")}</span>
+      </label>
+      <label className="field">
+        <span>{t("slideLook")}</span>
+        <select className="select" value={ownLook} onChange={(e) => setOwnLook(e.target.value as ShowcaseStyle | "default")}>
+          <option value="default">{t("slideLookDefault", { look: t(`look_${defaultLook}`) })}</option>
+          {LOOKS.map((l) => (
+            <option key={l} value={l}>
+              {t(`look_${l}`)}
+            </option>
+          ))}
+        </select>
+        {look === "deal" && linkType !== "product" && <span className="hint">{t("slideLookDealHint")}</span>}
       </label>
       <div className="pref-row">
         <span>{t("bannerStyle")}</span>

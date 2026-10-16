@@ -1,5 +1,5 @@
 /** Small shared components: logo, sheets, tiles, money, states. */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { errorText } from "../lib/i18n";
 import { usd, syp } from "../lib/format";
 import { useApp, useT } from "../lib/state";
@@ -72,15 +72,33 @@ export function Money({ cents, showSyp = false, className }: { cents: number; sh
 const LOGO_URL = /simpleicons|favicons|\.svg(\?|$)/i;
 
 export function Tile({ name, imageUrl, className }: { name: string; imageUrl?: string | null; className?: string }) {
-  // A picture that fails to load falls back to the product's monogram.
+  // A picture that fails to load falls back to the store's picture template.
   const [broken, setBroken] = useState<string | null>(null);
   const show = imageUrl && broken !== imageUrl;
   const logo = show && LOGO_URL.test(imageUrl);
+  if (!show) {
+    // The picture template: a cover in a colour of its own (the same for the same
+    // name, everywhere), with the product's monogram.
+    return (
+      <span className={`tile tile--art ${className ?? ""}`} style={{ "--h": ART_HUES[hashName(name) % ART_HUES.length] } as CSSProperties} aria-hidden="true">
+        <span className="tile__mono">{monogramOf(name)}</span>
+      </span>
+    );
+  }
   return (
     <span className={`tile${logo ? " tile--logo" : ""} ${className ?? ""}`} aria-hidden="true">
-      {show ? <img src={imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setBroken(imageUrl)} /> : monogramOf(name)}
+      <img src={imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setBroken(imageUrl)} />
     </span>
   );
+}
+
+/** Hues for the picture template: violet, magenta, rose, coral, amber, emerald, teal, blue. */
+const ART_HUES = [285, 320, 355, 25, 60, 155, 195, 250];
+
+function hashName(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return h >>> 0;
 }
 
 function monogramOf(name: string): string {

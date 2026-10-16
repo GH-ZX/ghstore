@@ -9,13 +9,15 @@
  *    to review (the new cost waits in pending_cost_cents),
  *  - pause manual-price packages whose price no longer clears the minimum margin,
  *  - pause packages the supplier stopped selling, and resume them when they return.
- * New supplier products are not added automatically: the owner imports them.
+ * New supplier products are not added automatically: the owner chooses them
+ * (Admin → Suppliers → Choose packages, selection.ts).
  * Every check leaves a short report on the supplier for the admin to read.
  */
 import { onCostChange, type PriceRule, type SupplierProduct } from "@store/core";
 import type { Services } from "./context";
 import { n, one } from "./db";
 import { alertOwners } from "./notify";
+import { noteSupplierPrices } from "./supplier-catalogue";
 
 /** Pause reasons set by the sync. Other reasons (set by staff) are never cleared here. */
 export const SYNC_REASONS = new Set(["supplier_unavailable", "cost_above_margin", "cost_jump"]);
@@ -131,6 +133,12 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
     return report;
   }
   const byRef = new Map(products.map((p) => [p.externalId, p]));
+  // Keep Admin → Choose packages' copy of the supplier's list in step (no extra request).
+  try {
+    await noteSupplierPrices(svc, supplierId, products);
+  } catch (err) {
+    console.error(`sync ${supplierId}: could not update the saved list:`, err instanceof Error ? err.message : String(err));
+  }
 
   const paused: string[] = [];
   // Packages whose cost and price did not change (nearly all of them on a normal

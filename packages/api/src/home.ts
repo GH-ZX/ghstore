@@ -10,6 +10,7 @@ import { ApiError, int, json, readJson, uuid } from "./http";
 
 const LINK_TYPES = ["none", "product", "category", "url"] as const;
 const STYLES = ["accent", "dark", "light"] as const;
+const LOOKS = ["cinematic", "deal"] as const;
 /** The icon names the web app draws (apps/web/client/src/ui/icons.tsx, CATEGORY_ICONS). */
 export const CATEGORY_ICON_NAMES = [
   "game", "gift", "spark", "play", "palette", "briefcase", "shield", "phone", "bolt", "code",
@@ -28,13 +29,14 @@ interface BannerRow {
   link_type: (typeof LINK_TYPES)[number];
   link_value: string | null;
   style: (typeof STYLES)[number];
+  look: (typeof LOOKS)[number] | null;
   sort: number;
   active: boolean;
   starts_at: string | null;
   ends_at: string | null;
 }
 
-const BANNER_COLS = `id, title_ar, title_en, subtitle_ar, subtitle_en, cta_ar, cta_en, image_url, link_type, link_value, style, sort, active, starts_at, ends_at`;
+const BANNER_COLS = `id, title_ar, title_en, subtitle_ar, subtitle_en, cta_ar, cta_en, image_url, link_type, link_value, style, look, sort, active, starts_at, ends_at`;
 
 function publicBanner(b: BannerRow) {
   return {
@@ -48,6 +50,8 @@ function publicBanner(b: BannerRow) {
     imageUrl: b.image_url,
     link: b.link_type === "none" || !b.link_value ? null : { type: b.link_type, value: b.link_value },
     style: b.style,
+    /** null: the store's default look. */
+    look: b.look,
   };
 }
 
@@ -122,6 +126,10 @@ function bannerChanges(body: Record<string, unknown>, creating: boolean): Record
   if (body.style !== undefined) {
     if (!STYLES.includes(body.style as never)) throw new ApiError("invalid_input", "style");
     c.style = body.style;
+  }
+  if (body.look !== undefined) {
+    if (body.look !== null && !LOOKS.includes(body.look as never)) throw new ApiError("invalid_input", "look");
+    c.look = body.look;
   }
   if (body.sort !== undefined) c.sort = int(body, "sort", -10_000, 10_000);
   if (body.active !== undefined) {

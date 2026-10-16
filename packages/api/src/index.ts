@@ -16,6 +16,8 @@ import * as orders from "./orders";
 import * as payments from "./payments";
 import * as promo from "./promo";
 import * as reports from "./reports";
+import * as selection from "./selection";
+import * as supplierCatalogue from "./supplier-catalogue";
 import { Router } from "./router";
 import * as keys from "./keys";
 import * as telegramSetup from "./telegram-setup";
@@ -30,6 +32,7 @@ export { normalizeSearch, matchesQuery } from "@store/core";
 export { renderTemplate, sendOutbox } from "./notify";
 export { handleBotWebhook, handleUpdate } from "./bot";
 export { syncSupplier, syncDueSuppliers } from "./sync";
+export { refreshDueCatalogues, refreshGroups, refreshItems } from "./supplier-catalogue";
 export { loadStoreKeys, STORE_KEYS } from "./keys";
 export { daySummary, localNow, previousDay, queueDailySummary, summaryText, toCsv } from "./reports";
 export { PRODUCT_PATH, productMeta, renderProductPage, robotsTxt, sitemapXml, type ProductMeta } from "./seo";
@@ -112,7 +115,10 @@ const router = new Router()
   .on("GET", "/api/admin/suppliers", adminCatalog.listSuppliers)
   .on("GET", "/api/admin/suppliers/:id/review", adminCatalog.supplierReview)
   .on("POST", "/api/admin/offers/:id/stock", adminCatalog.addStock)
-  .on("GET", "/api/admin/suppliers/:id/products", adminCatalog.listSupplierProducts)
+  .on("GET", "/api/admin/suppliers/:id/catalogue", supplierCatalogue.getCatalogue)
+  .on("GET", "/api/admin/suppliers/:id/catalogue/items", supplierCatalogue.getCatalogueItems)
+  .on("POST", "/api/admin/suppliers/:id/catalogue/refresh", supplierCatalogue.refreshCatalogue)
+  .on("POST", "/api/admin/suppliers/:id/selection", selection.applySelection)
   .on("PATCH", "/api/admin/suppliers/:id", adminCatalog.updateSupplier);
 
 /** Requests that change state must come from our own pages (or carry a bearer token). */

@@ -36,7 +36,8 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const { t, lang } = useT();
   const { me, miniApp } = useApp();
   const { data, error, reload } = useApi<ProductDetail>(`/api/products/${encodeURIComponent(slug)}`);
-  const [offerId, setOfferId] = useState<string | null>(null);
+  // A package tapped on the home showcase opens already chosen (/p/:slug?offer=id).
+  const [offerId, setOfferId] = useState<string | null>(() => new URLSearchParams(location.search).get("offer"));
   const [qty, setQty] = useState(1);
   const [values, setValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState(false);

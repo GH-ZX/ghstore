@@ -63,6 +63,8 @@ describe("g2bulk catalogue", () => {
       ["game:pubgm:120 UC", 175, true, "id"],
     ]);
     expect(pubgm[0]!.name).toBe("PUBG Mobile — 60 UC");
+    // In the store: one product per game, its catalogue entries as packages.
+    expect(pubgm[0]).toMatchObject({ productKey: "game:pubgm", productName: "PUBG Mobile", packageName: "60 UC" });
     expect(pubgm[0]!.fields).toEqual([{ key: "player_id", labelEn: "Player ID", labelAr: "معرّف اللاعب (ID)", required: true }]);
     expect(pubgm[0]!.meta?.image).toBe("https://api.g2bulk.com/images/pubgm.png");
     // Servers are only asked for games whose fields need one.
@@ -86,6 +88,9 @@ describe("g2bulk catalogue", () => {
       ["voucher:1", 84, true, "code"],
       ["voucher:2", 1811, false, "code"],
     ]);
+    // A voucher brand is one product; a voucher without one stands alone.
+    expect(vouchers[0]).toMatchObject({ productKey: "voucher:1", productName: "PUBG Mobile UC Vouchers", packageName: "60 UC Voucher" });
+    expect(vouchers[1]!.productKey).toBeUndefined();
     expect(calls.map((c) => c.path)).toEqual(["/v1/products"]);
   });
 

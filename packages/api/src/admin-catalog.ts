@@ -2,9 +2,8 @@
  * Admin catalogue: categories, products, offers (packages), manual stock and
  * supplier settings. Owner only. Every change is written to app.audit_log.
  *
- * Importing from a supplier: GET /api/admin/suppliers/:id/products lists what the
- * supplier sells (and which items are already linked); the admin then creates an
- * offer with that supplierRef. The hourly sync keeps cost and price in line.
+ * What to sell from a supplier is chosen in Admin → Suppliers → Choose packages
+ * (supplier-catalogue.ts, selection.ts). The sync keeps cost and price in line.
  */
 import { encryptText, minimumPrice, priceFromCost, type InputField, type MarkupMode } from "@store/core";
 import { requireStaff } from "./auth";
@@ -187,28 +186,6 @@ export async function getCatalog(ctx: Ctx): Promise<Response> {
       stock_available: n(o.stock_available),
     })),
     suppliers,
-  });
-}
-
-/** What a supplier sells right now, with the offer each item is linked to (if any). */
-export async function listSupplierProducts(ctx: Ctx): Promise<Response> {
-  await requireStaff(ctx, "owner");
-  const id = ctx.params.id ?? "";
-  if (!SUPPLIER_ID.test(id)) throw new ApiError("not_found");
-  const adapter = ctx.svc.supplier(id);
-  if (!adapter) throw new ApiError("bad_state");
-  // Big catalogues (G2Bulk) are listed one group at a time: first the groups, then one group's items.
-  const group = new URL(ctx.req.url).searchParams.get("group");
-  if (group !== null && !/^[A-Za-z0-9:_.-]{1,80}$/.test(group)) throw new ApiError("invalid_input", "group");
-  if (adapter.listGroups && !group) {
-    return json({ supplier: id, groups: await adapter.listGroups(), items: [] });
-  }
-  const items = await adapter.listProducts(group ?? undefined);
-  const linked = await ctx.svc.db.query<{ id: string; supplier_ref: string }>(`select id, supplier_ref from app.offers where supplier_id = $1`, [id]);
-  const byRef = new Map(linked.map((l) => [l.supplier_ref, l.id]));
-  return json({
-    supplier: id,
-    items: items.map((p) => ({ ...p, offerId: byRef.get(p.externalId) ?? null })),
   });
 }
 
@@ -411,6 +388,14 @@ export async function updateSupplier(ctx: Ctx): Promise<Response> {
   if (margin !== undefined) changes.import_min_margin_pct = margin;
   const round = optInt(body, "importRoundToCents", 1, 10_000);
   if (round !== undefined) changes.import_round_to_cents = round;
+  // New products made from this supplier's items: their category and description ({name} = the product).
+  if (body.importCategoryId !== undefined) changes.import_category_id = body.importCategoryId === null ? null : uuid(body.importCategoryId as string, "importCategoryId");
+  for (const [key, col] of [["importDescriptionAr", "import_description_ar"], ["importDescriptionEn", "import_description_en"]] as const) {
+    const v = body[key];
+    if (v === undefined) continue;
+    if (typeof v !== "string" || v.length > 4000) throw new ApiError("invalid_input", key);
+    changes[col] = v.trim();
+  }
   await updateRow(ctx, "suppliers", id, changes);
   await audit(ctx, staff.id, "supplier.update", "supplier", id, changes);
   return json({ ok: true });
@@ -445,6 +430,8 @@ export async function relinkOffer(ctx: Ctx): Promise<Response> {
       where id = $1`,
     [id, supplierRef, cost, price],
   );
+  // What this supplier sells changed: a "Choose packages" screen loaded before must reload.
+  await ctx.svc.db.query(`update app.suppliers set selection_version = selection_version + 1 where id = $1`, [cur.supplier_id]);
   if (price !== n(cur.price_cents) || cost !== (cur.cost_cents === null ? null : n(cur.cost_cents))) {
     await ctx.svc.db.query(
       `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $5, 'manual')`,
@@ -466,7 +453,7 @@ export async function listSuppliers(ctx: Ctx): Promise<Response> {
   const rows = await ctx.svc.db.query<Record<string, unknown>>(
     `select s.id, s.name, s.enabled, s.health, s.last_error, s.balance_cents, s.balance_checked_at, s.low_balance_cents,
             s.last_sync_at, s.sync_minutes, s.auto_reprice, s.max_jump_pct, s.import_markup_pct, s.import_min_margin_pct,
-            s.import_round_to_cents, s.last_sync_report,
+            s.import_round_to_cents, s.import_category_id, s.import_description_ar, s.import_description_en, s.last_sync_report,
             count(o.id) filter (where o.active) as packages,
             count(o.id) filter (where o.active and o.paused_reason is null) as selling,
             count(o.id) filter (where o.active and o.paused_reason = 'supplier_unavailable') as unavailable,
@@ -479,7 +466,9 @@ export async function listSuppliers(ctx: Ctx): Promise<Response> {
       group by s.id order by s.enabled desc, s.name`,
   );
   const num = (v: unknown) => (v === null || v === undefined ? null : n(v));
+  const categories = await ctx.svc.db.query(`select id, name_ar, name_en from app.categories order by sort, slug`);
   return json({
+    categories,
     suppliers: rows.map((r) => ({
       id: r.id,
       name: r.name,
@@ -496,6 +485,9 @@ export async function listSuppliers(ctx: Ctx): Promise<Response> {
       importMarkupPct: Number(r.import_markup_pct),
       importMinMarginPct: Number(r.import_min_margin_pct),
       importRoundToCents: Number(r.import_round_to_cents),
+      importCategoryId: r.import_category_id ?? null,
+      importDescriptionAr: r.import_description_ar ?? "",
+      importDescriptionEn: r.import_description_en ?? "",
       lastReport: r.last_sync_report ?? null,
       counts: {
         packages: n(r.packages),

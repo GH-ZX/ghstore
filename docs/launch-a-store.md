@@ -274,10 +274,14 @@ Menu button: @BotFather → `/mybots` → your bot → Bot Settings → Menu But
    markup new imports start from. "Check prices now" runs a check straight away.
    Packages of a supplier that is off are hidden from the store, and a payment
    method appears only once its keys are set.
-3. Add products in **Admin → Catalogue**: create a product, then "Import from
-   supplier" to pick the supplier's items and set the markup (the price preview
-   uses the same margin rule the server enforces). Codes and accounts you sell
-   yourself go in a package with "Manual stock" → "Add stock".
+3. Choose what to sell in **Admin → Suppliers → Choose packages**: tick what
+   each supplier offers (a whole game or category at once, or package by
+   package), review what changes, apply. New products show in the store at
+   once, with the supplier's description template and the store's picture
+   template; each supplier's category and description are under its
+   **Settings → New products**. Edit names, pictures and texts in
+   **Admin → Catalogue**. Codes and accounts you sell yourself go in a package
+   with "Manual stock" → "Add stock".
 4. **Admin → Settings**: pick the theme (Calm, Energetic, Minimal, Warm) and the
    default light/dark mode, and the SYP rate if you want Syrian pound prices shown.
    - **Support contact**: the Telegram username, WhatsApp number and email shown
@@ -293,10 +297,15 @@ Menu button: @BotFather → `/mybots` → your bot → Bot Settings → Menu But
      here, then "Send me a test" (it goes to your linked email). Customers with a
      linked email then get delivered, refunded and top-up receipts; codes stay in
      the store.
-5. **Admin → Home**: the slides of the carousel at the top of the store (title,
+5. **Admin → Home**: the slides of the showcase at the top of the store (title,
    text, button, optional picture, colour style, what it opens, and optional
    start/end dates), and the order, icon and visibility of each category's row.
-   With no slides, the carousel shows the products marked "featured".
+   A slide that opens a product shows that product's picture by itself: a big
+   wide picture (a cover photo) fills the slide, an icon becomes a card. Each
+   slide picks a look, **Cinematic** (a poster) or **Deal** (with a few of the
+   product's packages and prices), or follows the default under **Showcase**,
+   where the badges, autoplay speed and packages per Deal slide are set too. With no slides, the showcase shows the products marked "featured"
+   (and with none of those, the products with the most packages).
 6. **Admin → Users**: give staff a role. **Monitor** sees orders, top-ups and
    customers and gets order alerts, but changes nothing; **Support** also
    approves top-ups, retries and refunds; **Owner** can do everything.

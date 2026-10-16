@@ -25,6 +25,7 @@
  *   receiver (re-reads the order, never trusts the body) is kept as parseWebhook.
  *
  * externalId: BatStore product id. supplierOrderId: BatStore order id.
+ * In the store each BatStore item is a product of its own (no productKey).
  *
  * Config: BATSTORE_API_KEY, BATSTORE_BASE_URL (default
  * https://web-production-1c7b1.up.railway.app, the host of BatStore's own

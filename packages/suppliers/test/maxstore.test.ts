@@ -8,6 +8,19 @@ const UUID = "3b241101-e2bb-4255-8caf-4136c566a962";
 
 // Shapes follow docs/providers/maxstore-api.md and the website's permissive schemas.
 describe("maxstore listProducts", () => {
+  it("names packages without their category and categories without their numbering emoji", async () => {
+    const { ctx } = context(
+      {
+        "GET /api/v2/products": json([
+          { id: 204, name: "10 ليرة MTN - 1️⃣ رصيد MTN", price: 0.08, category_id: 7, category_title: "1️⃣ رصيد MTN", available: true },
+        ]),
+      },
+      config,
+    );
+    const [mtn] = await createMaxStore(ctx).listProducts();
+    expect(mtn).toMatchObject({ productKey: "category:7", productName: "رصيد MTN", packageName: "10 ليرة MTN" });
+  });
+
   it("reads a wrapped list, params_meta over params, and availability", async () => {
     const { ctx, calls } = context(
       {
@@ -45,6 +58,10 @@ describe("maxstore listProducts", () => {
     expect(list[1]?.fields).toEqual([{ key: "معرّف اللاعب", labelEn: "معرّف اللاعب", labelAr: "معرّف اللاعب", required: true }]);
     expect(list[1]?.meta).toMatchObject({ qtyMin: 1, qtyMax: 5 });
     expect(list[2]?.meta).toMatchObject({ categoryId: "9", category: "Steam" });
+    // One store product per MaxStore category; no category, no grouping.
+    expect(list[0]).toMatchObject({ productKey: "category:3", productName: "PUBG", packageName: "PUBG 60 UC" });
+    expect(list[1]?.productKey).toBeUndefined();
+    expect(list[2]).toMatchObject({ productKey: "category:9", productName: "Steam" });
     expect(calls[0]?.headers["api-token"]).toBe(KEY);
   });
 });

@@ -6,6 +6,7 @@ import { matchesQuery, type InputField } from "@store/core";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
 import { liveBanners } from "./home";
+import { showcaseSettings } from "./settings";
 import { ApiError, json } from "./http";
 
 interface ProductRow {
@@ -57,15 +58,65 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
       packages: n(r.offer_count),
       searchTerms: r.search_terms,
     }));
+  const home = !q && !cat;
+  const banners = home ? await liveBanners(db) : [];
   return json(
     {
       categories: categories.map((c) => ({ slug: c.slug, nameAr: c.name_ar, nameEn: c.name_en, icon: c.icon })),
       products,
-      // The home page carousel (Admin → Home); empty when searching or filtering.
-      banners: q || cat ? [] : await liveBanners(db),
+      // The home page showcase (Admin → Home); empty when searching or filtering.
+      banners,
+      ...(home ? { showcase: await showcase(db, banners, products) } : {}),
     },
     { headers: { "cache-control": q ? "no-store" : "public, max-age=30" } },
   );
+}
+
+interface ShowcasePackage {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  priceCents: number;
+}
+
+/** A few packages to show on a slide: the cheapest, one from the middle and one near the top. */
+export function pickPackages<T>(sorted: T[], max = 3): T[] {
+  if (sorted.length <= max) return sorted;
+  const picks = new Set<number>();
+  for (let i = 0; i < max; i++) picks.add(Math.round((i * (sorted.length - 1)) / max));
+  return [...picks].map((i) => sorted[i]!);
+}
+
+/**
+ * The showcase's settings and, for its slides' products (the banners' products,
+ * or the products it shows without banners), a few packages with prices for
+ * slides in the "deal" look.
+ */
+async function showcase(db: Ctx["svc"]["db"], banners: Awaited<ReturnType<typeof liveBanners>>, products: { id: string; slug: string; featured: boolean; packages: number }[]) {
+  const settings = await showcaseSettings(db);
+  const deal = (look: string | null) => (look ?? settings.style) === "deal";
+  const slugs = banners.length
+    ? banners.flatMap((b) => (b.link?.type === "product" && deal(b.look) ? [b.link.value] : []))
+    : deal(null)
+      ? (products.some((p) => p.featured) ? products.filter((p) => p.featured) : [...products].sort((a, b) => b.packages - a.packages)).slice(0, 6).map((p) => p.slug)
+      : [];
+  const ids = products.filter((p) => slugs.includes(p.slug));
+  const packages: Record<string, ShowcasePackage[]> = {};
+  if (ids.length) {
+    const rows = await db.query<{ product_id: string; id: string; name_ar: string; name_en: string; price_cents: string | number }>(
+      `select o.product_id, o.id, o.name_ar, o.name_en, o.price_cents
+         from app.offers o
+        where o.product_id in (select jsonb_array_elements_text($1::text::jsonb)::uuid) and o.active and o.paused_reason is null
+          and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))
+        order by o.price_cents, o.sort`,
+      [JSON.stringify(ids.map((p) => p.id))],
+    );
+    for (const p of ids) {
+      const list = rows.filter((r) => r.product_id === p.id).map((r) => ({ id: r.id, nameAr: r.name_ar, nameEn: r.name_en, priceCents: n(r.price_cents) }));
+      packages[p.slug] = pickPackages(list, settings.dealPackages);
+    }
+  }
+  return { ...settings, packages };
 }
 
 export async function getProduct(ctx: Ctx): Promise<Response> {

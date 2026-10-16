@@ -101,6 +101,20 @@ function classify(status: unknown): "completed" | "failed" | "pending" {
   return "pending"; // "wait" and anything unknown: refunding would give the goods away
 }
 
+/**
+ * One store product per MaxStore category. Its names carry the category
+ * ("10 ليرة MTN - 1️⃣ رصيد MTN" in "1️⃣ رصيد MTN"), and categories start with a
+ * numbering emoji: both are dropped from what customers see.
+ */
+function grouping(name: string, categoryId: string | null, category: string) {
+  const clean = category.replace(/^(?:\p{N}️?⃣|\p{Extended_Pictographic}|️|\s)+/u, "").trim() || category;
+  let packageName = name;
+  for (const sep of [" - ", " – ", " — ", " | "]) {
+    if (name.endsWith(`${sep}${category}`)) packageName = name.slice(0, -(sep.length + category.length)).trim() || name;
+  }
+  return { productKey: `category:${categoryId ?? category}`, productName: clean, packageName };
+}
+
 export function createMaxStore(ctx: AdapterContext): SupplierAdapter {
   const base = baseUrl(ctx, "MAXSTORE_BASE_URL", "https://maxstore1.com");
   const key = cfg(ctx, "MAXSTORE_API_KEY");
@@ -155,18 +169,22 @@ export function createMaxStore(ctx: AdapterContext): SupplierAdapter {
         const category = obj(p.category);
         const qty = obj(p.qty_values);
         const fixed = productType === "package";
+        const name = str(p.name) ?? str(p.title) ?? str(p.product_name) ?? id;
+        const categoryId = str(p.category_id) ?? str(p.categoryId) ?? str(category?.id) ?? null;
+        const categoryName = str(p.category_title) ?? str(p.category_name) ?? str(p.categoryTitle)
+          ?? (typeof p.category === "string" ? p.category : str(category?.name) ?? str(category?.title)) ?? null;
         return [{
           externalId: id,
-          name: str(p.name) ?? str(p.title) ?? str(p.product_name) ?? id,
+          name,
           costCents: cost,
           available: readAvailable(p.available) && (stock === null || stock > 0),
           kind: productType === "voucher" ? "code" : fields.length > 0 ? "id" : "code",
           ...(fields.length > 0 ? { fields } : {}),
+          ...(categoryName ? grouping(name, categoryId, categoryName) : {}),
           meta: {
             productType, stock,
-            categoryId: str(p.category_id) ?? str(p.categoryId) ?? str(category?.id) ?? null,
-            category: str(p.category_title) ?? str(p.category_name) ?? str(p.categoryTitle)
-              ?? (typeof p.category === "string" ? p.category : str(category?.name) ?? str(category?.title)) ?? null,
+            categoryId,
+            category: categoryName,
             qtyMin: fixed ? 1 : num(qty?.min) ?? 1,
             qtyMax: fixed ? 1 : num(qty?.max),
             fieldOptions: options,

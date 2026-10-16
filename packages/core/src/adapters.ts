@@ -40,6 +40,16 @@ export interface SupplierProduct {
   fields?: InputField[];
   /** Supplier-specific extras (category, region, image...). Never secrets. */
   meta?: Record<string, unknown>;
+  /**
+   * How this supplier's own catalogue suggests selling the item: items sharing a
+   * productKey become packages of one store product called productName (G2Bulk:
+   * a game, MaxStore: a category, 5SIM: a service). Without one, the item is a
+   * product of its own (BatStore, ProdSeller). The owner can still move it.
+   */
+  productKey?: string;
+  productName?: string;
+  /** The item's name as a package inside that product ("60 UC" in "PUBG Mobile"). Defaults to name. */
+  packageName?: string;
 }
 
 export interface PurchaseRequest {

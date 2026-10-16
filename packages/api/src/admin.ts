@@ -6,7 +6,7 @@
 import { requireStaff } from "./auth";
 import { EMAIL_FROM, sendTestEmail } from "./email";
 import { TIME_ZONE } from "./reports";
-import { CHANNEL_URL, EMAIL, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
+import { CHANNEL_URL, EMAIL, SHOWCASE_AUTOPLAY, SHOWCASE_STYLES, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder } from "./fulfilment";
@@ -167,6 +167,13 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "email.receipts": (v) => typeof v === "boolean",
   "email.from": (v) => v === null || (typeof v === "string" && EMAIL_FROM.test(v)),
   "login.google": (v) => typeof v === "boolean",
+  // How the home page's showcase looks (Admin → Home): a poster per slide, or a deal with its packages.
+  "home.showcase_style": (v) => typeof v === "string" && (SHOWCASE_STYLES as readonly string[]).includes(v),
+  // The showcase's badges, autoplay (seconds per slide, 0 = off) and packages per deal slide.
+  "home.badge_instant": (v) => typeof v === "boolean",
+  "home.badge_label": (v) => typeof v === "boolean",
+  "home.autoplay_seconds": (v) => typeof v === "number" && (SHOWCASE_AUTOPLAY as readonly number[]).includes(v),
+  "home.deal_packages": (v) => typeof v === "number" && Number.isInteger(v) && v >= 2 && v <= 4,
 };
 
 export async function getSettings(ctx: Ctx): Promise<Response> {

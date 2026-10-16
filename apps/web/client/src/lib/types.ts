@@ -53,6 +53,8 @@ export interface Banner {
   imageUrl: string | null;
   link: { type: "product" | "category" | "url"; value: string } | null;
   style: "accent" | "dark" | "light";
+  /** The slide's own look; null follows the store's default (Admin → Home). */
+  look?: "cinematic" | "deal" | null;
 }
 
 export interface ProductCard {

@@ -1,0 +1,262 @@
+/**
+ * The home page's showcase (carousel). Each slide has a look (its own, or the
+ * store's default from Admin → Home):
+ *
+ * - "cinematic": a poster. A big picture (a game's cover photo, or a banner's
+ *   own picture) fills the slide; a small one (a game icon) becomes a large card
+ *   over a blurred wash of its own colours.
+ * - "deal": a slide that sells: the product's card and a few of its packages
+ *   with prices as small glass buttons (one tap opens that package).
+ *
+ * A strip of the slides' pictures sits under the slides (over their corner on
+ * wide screens); the active one fills while it shows, and when it is full the
+ * next slide comes. Hovering, touching or focusing pauses it; reduced motion
+ * and "autoplay off" stop it. Admin → Home previews with ShowcaseSlide, so the
+ * preview is exactly what the store shows.
+ */
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { usd } from "../lib/format";
+import { pick } from "../lib/i18n";
+import { useT } from "../lib/state";
+import type { Banner } from "../lib/types";
+import { ArrowIcon, BoltIcon } from "./icons";
+import { Tile } from "./kit";
+
+export type ShowcaseStyle = "cinematic" | "deal";
+
+/** Settings from Admin → Home (see app.settings home.*). */
+export interface ShowcaseOptions {
+  badgeInstant: boolean;
+  badgeLabel: boolean;
+  /** Seconds per slide; 0 = no autoplay. */
+  autoplay: number;
+}
+
+export const DEFAULT_OPTIONS: ShowcaseOptions = { badgeInstant: true, badgeLabel: true, autoplay: 6 };
+
+export interface SlidePackage {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  priceCents: number;
+}
+
+export interface SlideData {
+  key: string;
+  look: ShowcaseStyle;
+  title: string;
+  subtitle?: ReactNode;
+  /** A small line above the title: the product, or its category. */
+  eyebrow?: string;
+  cta?: string;
+  /** The banner's own picture: always fills the slide. */
+  picture?: string | null;
+  /** The product's picture: fills the slide when it is big and wide, else a card. */
+  art?: { name: string; imageUrl: string | null } | null;
+  style: Banner["style"];
+  /** A few of the product's packages ("deal"), each opening that package. */
+  packages?: SlidePackage[];
+  /** How many packages the product has in all. */
+  packageCount?: number;
+  go?: (() => void) | null;
+  goPackage?: ((id: string) => void) | null;
+}
+
+// ───────────────────────────── picture shape
+
+/** A picture this wide and this big fills the slide; smaller ones are shown as a card. */
+const COVER_MIN_WIDTH = 900;
+const COVER_MIN_RATIO = 1.3;
+const shapes = new Map<string, "cover" | "card">();
+
+/**
+ * "cover" for a big wide picture (a game's cover photo), "card" for an icon,
+ * "unknown" while the picture is still loading (the slide then shows only its
+ * colours, rather than guess and jump).
+ */
+export function usePictureShape(url: string | null | undefined): "cover" | "card" | "unknown" {
+  const [shape, setShape] = useState<"cover" | "card" | "unknown">(() => (url ? shapes.get(url) ?? "unknown" : "card"));
+  useEffect(() => {
+    if (!url) return setShape("card");
+    const known = shapes.get(url);
+    if (known) return setShape(known);
+    setShape("unknown");
+    const img = new Image();
+    img.referrerPolicy = "no-referrer";
+    img.onload = () => {
+      const s = img.naturalWidth >= COVER_MIN_WIDTH && img.naturalWidth / Math.max(1, img.naturalHeight) >= COVER_MIN_RATIO ? "cover" : "card";
+      shapes.set(url, s);
+      setShape(s);
+    };
+    img.onerror = () => {
+      shapes.set(url, "card");
+      setShape("card");
+    };
+    img.src = url;
+  }, [url]);
+  return shape;
+}
+
+// ───────────────────────────── one slide
+
+export function ShowcaseSlide({ s, options = DEFAULT_OPTIONS, index = 0, count = 1, preview = false }: { s: SlideData; options?: ShowcaseOptions; index?: number; count?: number; preview?: boolean }) {
+  const { t, lang } = useT();
+  const artShape = usePictureShape(s.picture ? null : s.art?.imageUrl);
+  // The picture that fills the slide: the banner's own, or the product's when it is a cover photo.
+  const cover = s.picture || (s.art?.imageUrl && artShape === "cover" ? s.art.imageUrl : null);
+  const card = !cover && s.art && artShape !== "unknown" ? s.art : null;
+  // Still measuring the product's picture: its blurred colours only, for a moment.
+  const wash = card?.imageUrl ?? (artShape === "unknown" && !s.picture ? s.art?.imageUrl : null);
+  const deal = s.look === "deal";
+  const packages = deal ? s.packages ?? [] : [];
+  const cls = ["slide", `slide--${s.look}`, `slide--${s.style}`, cover ? "slide--cover" : card || wash ? "slide--card" : "slide--plain", preview ? "slide--preview" : ""].join(" ");
+
+  const cta = s.cta && (s.go || preview) && (
+    <span className="slide__cta" aria-hidden="true">
+      {s.cta}
+      <span className="flip-rtl">
+        <ArrowIcon size={14} />
+      </span>
+    </span>
+  );
+  const badges = (deal && options.badgeInstant) || (options.badgeLabel && s.eyebrow);
+
+  return (
+    <div data-i={index} className={cls} role="group" aria-roledescription="slide" aria-label={`${index + 1} / ${count}`}>
+      {cover && <img className="slide__cover" src={cover} alt="" loading={index === 0 ? "eager" : "lazy"} decoding="async" referrerPolicy="no-referrer" />}
+      {wash && <img className="slide__wash" src={wash} alt="" aria-hidden="true" loading="lazy" decoding="async" referrerPolicy="no-referrer" />}
+      {s.go && !preview && <button type="button" className="slide__hit" onClick={s.go} aria-label={s.cta ? `${s.title}: ${s.cta}` : s.title} />}
+
+      {card && <Tile className="slide__art" name={card.name} imageUrl={card.imageUrl} />}
+      <div className="slide__text">
+        {badges && (
+          <div className="slide__badges">
+            {deal && options.badgeInstant && (
+              <span>
+                <BoltIcon size={11} /> {t("instant")}
+              </span>
+            )}
+            {options.badgeLabel && s.eyebrow && <span>{s.eyebrow}</span>}
+          </div>
+        )}
+        <h2 className="slide__title">{s.title}</h2>
+        {s.subtitle && <p className="slide__sub">{s.subtitle}</p>}
+        {packages.length > 0 ? (
+          <div className="slide__packages">
+            {packages.map((p) => (
+              <button key={p.id} type="button" className="slide__pkg press" tabIndex={preview ? -1 : undefined} onClick={() => !preview && (s.goPackage ? s.goPackage(p.id) : s.go?.())}>
+                <bdi>{pick(lang, p.nameAr, p.nameEn)}</bdi>
+                <span className="num">{usd(p.priceCents)}</span>
+              </button>
+            ))}
+            <button type="button" className="slide__pkg slide__pkg--all press" tabIndex={preview ? -1 : undefined} onClick={() => !preview && s.go?.()}>
+              {t("allPackages")}
+              {s.packageCount ? <span className="num">{s.packageCount}</span> : null}
+              <span className="flip-rtl">
+                <ArrowIcon size={13} />
+              </span>
+            </button>
+          </div>
+        ) : (
+          cta && <div className="slide__actions">{cta}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────── the showcase
+
+const PAUSE_AFTER_TOUCH_MS = 8000;
+
+export function Showcase({ slides, options = DEFAULT_OPTIONS }: { slides: SlideData[]; options?: ShowcaseOptions }) {
+  const { t } = useT();
+  const track = useRef<HTMLDivElement>(null);
+  const [index, setIndex] = useState(0);
+  const [held, setHeld] = useState(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const count = slides.length;
+
+  const goTo = (i: number) => {
+    const el = track.current;
+    const slide = el?.children[i] as HTMLElement | undefined;
+    if (!el || !slide) return;
+    // offsetLeft works the same way in both directions; the browser maps it in RTL.
+    el.scrollTo({ left: slide.offsetLeft - el.offsetLeft - (el.clientWidth - slide.clientWidth) / 2, behavior: "smooth" });
+    setIndex(i);
+  };
+
+  /** The person is looking or swiping: hold autoplay for a while. */
+  const hold = () => {
+    setHeld(true);
+    clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => setHeld(false), PAUSE_AFTER_TOUCH_MS);
+  };
+  useEffect(() => () => clearTimeout(holdTimer.current), []);
+
+  // Which slide is in view (swipes, the strip and autoplay alike).
+  useEffect(() => {
+    const el = track.current;
+    if (!el || count < 2) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting && e.intersectionRatio > 0.6) setIndex(Number((e.target as HTMLElement).dataset.i));
+      },
+      { root: el, threshold: [0.6] },
+    );
+    for (const child of Array.from(el.children)) io.observe(child);
+    return () => io.disconnect();
+  }, [count]);
+
+  if (count === 0) return null;
+  const autoplay = options.autoplay > 0;
+  const next = () => goTo((index + 1) % count);
+
+  return (
+    <section
+      className={`showcase showcase--${slides[index]?.look ?? "cinematic"}`}
+      aria-roledescription="carousel"
+      aria-label={t("highlights")}
+      data-held={held || undefined}
+      style={{ "--autoplay": `${options.autoplay || 6}s` } as CSSProperties}
+    >
+      <div className="showcase__track" ref={track} onPointerDown={hold} onWheel={hold} onFocus={hold}>
+        {slides.map((s, i) => (
+          <ShowcaseSlide key={s.key} s={s} options={options} index={i} count={count} />
+        ))}
+      </div>
+
+      {count > 1 && (
+        <div className="showcase__thumbs" role="tablist" aria-label={t("highlights")}>
+          {slides.map((s, i) => (
+            <button
+              key={s.key}
+              type="button"
+              role="tab"
+              className="showcase__thumb press"
+              aria-selected={i === index}
+              aria-label={s.title}
+              onClick={() => {
+                hold();
+                goTo(i);
+              }}
+            >
+              {s.picture ? (
+                <img src={s.picture} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+              ) : s.art ? (
+                <Tile name={s.art.name} imageUrl={s.art.imageUrl} />
+              ) : (
+                <span className={`showcase__swatch showcase__swatch--${s.style}`} />
+              )}
+              {i === index && autoplay && (
+                <span className="showcase__progress">
+                  <span key={index} className="showcase__fill" onAnimationEnd={next} />
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}

@@ -30,6 +30,8 @@ describe("fivesim listProducts", () => {
       ["england/telegram", 23, true, "sms"],
     ]);
     expect(list[0]?.meta).toMatchObject({ country: "usa", service: "telegram", stock: 35, maxCostCents: 50 });
+    // One store product per service, a package per country.
+    expect(list[0]).toMatchObject({ productKey: "service:telegram", productName: "Telegram", packageName: "Usa" });
     // Guest prices are public: no key goes out.
     expect(calls.every((c) => c.headers.authorization === undefined)).toBe(true);
   });

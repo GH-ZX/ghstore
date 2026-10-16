@@ -18,6 +18,7 @@
  *   (re-reads the order, never trusts the body) is kept as parseWebhook.
  *
  * externalId: ProdSeller (Mongo) product id. supplierOrderId: ProdSeller order id.
+ * In the store each ProdSeller item is a product of its own (no productKey).
  *
  * Config: PRODSELLER_API_KEY, PRODSELLER_BASE_URL (default https://prodseller.com/v1),
  * PRODSELLER_WEBHOOK_SECRET (falls back to SUPPLIER_WEBHOOK_SECRET).

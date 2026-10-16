@@ -31,6 +31,8 @@ someone else's store.
 | Brand: logo, icon, favicon, Telegram avatar, 4 themes × light/dark | Done |
 | Web app: website, Mini App (`/tg`), admin (`/admin`) | Done: React, Arabic/English, 4 themes × light/dark, checked end to end in a browser |
 | Staff roles: Owner, Support, Monitor (watch only) | Done, tested |
+| Choose packages: tick what to sell from each supplier, review, apply | Done, tested |
+| Home showcase: product-art slides, "up next" list, progress bars | Done |
 | Email and Google sign-in, linked to Telegram (one wallet) | Done, tested |
 | Email receipts (Resend), Telegram broadcasts, job-failure alerts | Done, tested |
 

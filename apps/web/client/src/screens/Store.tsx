@@ -1,26 +1,28 @@
 /**
- * Store home: search, the banner carousel, the category bar, then one shelf per
+ * Store home: search, the showcase (ui/Showcase.tsx), the category bar, then one shelf per
  * category ("See all" opens the category's own page at /c/:slug). Typing in
  * search swaps everything below it for the matching products.
  */
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useDeferredValue, useMemo, useRef, useState, type ReactNode } from "react";
 import { matchesQuery } from "@store/core";
-import { usd } from "../lib/format";
 import { pick } from "../lib/i18n";
 import { back, linkHandler, match, navigate, usePath } from "../lib/router";
 import { useT } from "../lib/state";
 import { openExternal } from "../lib/telegram";
 import { useApi } from "../lib/useApi";
 import type { Banner, Category, ProductCard } from "../lib/types";
-import { ArrowIcon, BoltIcon, CategoryIcon, ChevronIcon, SearchIcon } from "../ui/icons";
+import { BoltIcon, CategoryIcon, ChevronIcon, SearchIcon } from "../ui/icons";
 import { Empty, ErrorBox, Money, PageLoading, Tile } from "../ui/kit";
 import { Shell } from "../ui/Shell";
+import { Showcase, type ShowcaseOptions, type ShowcaseStyle, type SlideData, type SlidePackage } from "../ui/Showcase";
 import { ProductSheet } from "./ProductSheet";
 
 interface Catalog {
   categories: Category[];
   products: ProductCard[];
   banners?: Banner[];
+  /** The showcase's settings (Admin → Home) and a few packages per "deal" slide product. */
+  showcase?: ShowcaseOptions & { style: ShowcaseStyle; packages: Record<string, SlidePackage[]> };
 }
 
 export function Store() {
@@ -72,7 +74,7 @@ function Home({ data, categories }: { data: Catalog; categories: Category[] }) {
   const banners = data.banners ?? [];
   return (
     <>
-      <Carousel banners={banners} featured={featured} />
+      <HomeShowcase data={data} />
 
       {categories.length > 1 && (
         <nav className="catbar" aria-label={t("category")}>
@@ -111,19 +113,7 @@ function Home({ data, categories }: { data: Catalog; categories: Category[] }) {
   );
 }
 
-// ───────────────────────────── carousel
-
-interface Slide {
-  key: string;
-  title: string;
-  subtitle: ReactNode;
-  cta: string;
-  imageUrl: string | null;
-  style: Banner["style"];
-  /** A product picture shown beside the text (featured slides). */
-  art?: { name: string; imageUrl: string | null };
-  go: (() => void) | null;
-}
+// ───────────────────────────── showcase (carousel)
 
 function openLink(link: Banner["link"]): (() => void) | null {
   if (!link) return null;
@@ -133,128 +123,66 @@ function openLink(link: Banner["link"]): (() => void) | null {
   return () => openExternal(link.value);
 }
 
-const AUTO_MS = 5500;
-
-function Carousel({ banners, featured }: { banners: Banner[]; featured: ProductCard[] }) {
+/**
+ * The slides: the banners from Admin → Home (a banner that opens a product shows
+ * that product's art, and its packages in the "deal" look); without banners,
+ * the featured products; without those, the products with the most to choose from.
+ */
+function useSlides(data: Catalog): SlideData[] {
   const { t, lang } = useT();
-  const track = useRef<HTMLDivElement>(null);
-  const [index, setIndex] = useState(0);
-  const touched = useRef(0);
-
-  // Banners from Admin → Home; until there are some, the featured products.
-  const slides: Slide[] = banners.length
-    ? banners.map((b) => ({
+  const fallback: ShowcaseStyle = data.showcase?.style ?? "cinematic";
+  const banners = data.banners ?? [];
+  const bySlug = new Map(data.products.map((p) => [p.slug, p]));
+  const packages = data.showcase?.packages ?? {};
+  const deal = (p: ProductCard | undefined) =>
+    p
+      ? {
+          packages: packages[p.slug] ?? [],
+          packageCount: p.packages,
+          goPackage: (id: string) => navigate(`/p/${p.slug}?offer=${encodeURIComponent(id)}`),
+        }
+      : {};
+  const catName = (slug: string) => {
+    const c = data.categories.find((x) => x.slug === slug);
+    return c ? pick(lang, c.nameAr, c.nameEn) : undefined;
+  };
+  if (banners.length) {
+    return banners.map((b) => {
+      const p = b.link?.type === "product" ? bySlug.get(b.link.value) : undefined;
+      return {
         key: b.id,
         title: pick(lang, b.titleAr, b.titleEn),
         subtitle: pick(lang, b.subtitleAr, b.subtitleEn),
+        eyebrow: p ? pick(lang, p.nameAr, p.nameEn) : b.link?.type === "category" ? catName(b.link.value) : undefined,
         cta: pick(lang, b.ctaAr, b.ctaEn) || (b.link ? t("shopNow") : ""),
-        imageUrl: b.imageUrl,
+        picture: b.imageUrl,
+        art: p ? { name: p.nameEn, imageUrl: p.imageUrl } : null,
+        look: b.look ?? fallback,
         style: b.style,
         go: openLink(b.link),
-      }))
-    : featured.slice(0, 6).map((p) => ({
-        key: p.id,
-        title: pick(lang, p.nameAr, p.nameEn),
-        subtitle: (
-          <>
-            {t("from")} <span className="num">{usd(p.fromCents)}</span>
-          </>
-        ),
-        cta: t("buyNow"),
-        imageUrl: null,
-        style: "accent" as const,
-        art: { name: p.nameEn, imageUrl: p.imageUrl },
-        go: () => navigate(`/p/${p.slug}`),
-      }));
+        ...deal(p),
+      };
+    });
+  }
+  const featured = data.products.filter((p) => p.featured);
+  const picks = (featured.length ? featured : [...data.products].sort((a, b) => b.packages - a.packages)).slice(0, 6);
+  const styles: Banner["style"][] = ["dark", "accent", "light"];
+  return picks.map((p, i) => ({
+    key: p.id,
+    title: pick(lang, p.nameAr, p.nameEn),
+    eyebrow: catName(p.category),
+    subtitle: `${t(`kind_${p.kind}`)} · ${t("instant")}`,
+    cta: t("buyNow"),
+    art: { name: p.nameEn, imageUrl: p.imageUrl },
+    look: fallback,
+    style: styles[i % styles.length]!,
+    go: () => navigate(`/p/${p.slug}`),
+    ...deal(p),
+  }));
+}
 
-  const count = slides.length;
-  const goTo = (i: number) => {
-    const el = track.current;
-    const slide = el?.children[i] as HTMLElement | undefined;
-    if (!el || !slide) return;
-    // offsetLeft works the same way in both directions; the browser maps it in RTL.
-    el.scrollTo({ left: slide.offsetLeft - el.offsetLeft - (el.clientWidth - slide.clientWidth) / 2, behavior: "smooth" });
-  };
-
-  // Which slide is in view (works for swipes, dots and autoplay alike).
-  useEffect(() => {
-    const el = track.current;
-    if (!el || count < 2) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) if (e.isIntersecting && e.intersectionRatio > 0.6) setIndex(Number((e.target as HTMLElement).dataset.i));
-      },
-      { root: el, threshold: [0.6] },
-    );
-    for (const child of Array.from(el.children)) io.observe(child);
-    return () => io.disconnect();
-  }, [count]);
-
-  // Autoplay, paused for a while after the person swipes or taps, and off for reduced motion.
-  useEffect(() => {
-    if (count < 2 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const id = setInterval(() => {
-      if (document.hidden || Date.now() - touched.current < 8000) return;
-      goTo((index + 1) % count);
-    }, AUTO_MS);
-    return () => clearInterval(id);
-  }, [index, count]);
-
-  if (count === 0) return null;
-  return (
-    <section className="carousel" aria-roledescription="carousel" aria-label={t("highlights")}>
-      <div
-        className="carousel__track"
-        ref={track}
-        onPointerDown={() => (touched.current = Date.now())}
-        onWheel={() => (touched.current = Date.now())}
-        onFocus={() => (touched.current = Date.now())}
-      >
-        {slides.map((s, i) => (
-          <div
-            key={s.key}
-            data-i={i}
-            className={`slide slide--${s.style}${s.imageUrl ? " slide--image" : ""}`}
-            role="group"
-            aria-roledescription="slide"
-            aria-label={`${i + 1} / ${count}`}
-          >
-            {s.imageUrl && <img className="slide__bg" src={s.imageUrl} alt="" loading={i === 0 ? "eager" : "lazy"} decoding="async" />}
-            <div className="slide__text">
-              <h2 className="slide__title">{s.title}</h2>
-              {s.subtitle && <p className="slide__sub">{s.subtitle}</p>}
-              {s.go && s.cta && (
-                <button type="button" className="slide__cta press" onClick={s.go}>
-                  {s.cta}
-                  <span className="flip-rtl" aria-hidden="true">
-                    <ArrowIcon size={16} />
-                  </span>
-                </button>
-              )}
-            </div>
-            {s.art && <Tile className="slide__art" name={s.art.name} imageUrl={s.art.imageUrl} />}
-            {s.go && !s.cta && <button type="button" className="slide__hit" onClick={s.go} aria-label={s.title} />}
-          </div>
-        ))}
-      </div>
-      {count > 1 && (
-        <div className="carousel__dots">
-          {slides.map((s, i) => (
-            <button
-              key={s.key}
-              type="button"
-              aria-label={`${i + 1}`}
-              aria-current={i === index ? "true" : undefined}
-              onClick={() => {
-                touched.current = Date.now();
-                goTo(i);
-              }}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  );
+function HomeShowcase({ data }: { data: Catalog }) {
+  return <Showcase slides={useSlides(data)} options={data.showcase} />;
 }
 
 // ───────────────────────────── shelves and grids

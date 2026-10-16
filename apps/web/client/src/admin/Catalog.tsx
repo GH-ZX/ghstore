@@ -1,9 +1,11 @@
 /**
- * Catalogue editor: products, their packages (offers), supplier import and
- * manual stock. Prices preview with the same rule the server enforces.
+ * Catalogue editor: products, their packages (offers) and manual stock. What
+ * to sell from a supplier is chosen in Suppliers → Choose packages (Choose.tsx).
+ * Prices preview with the same rule the server enforces.
  */
 import { useMemo, useState } from "react";
 import { matchesQuery, minimumPrice, priceFromCost, type MarkupMode } from "@store/core";
+import { linkHandler } from "../lib/router";
 import { dollarsToCents, usd } from "../lib/format";
 import { pick } from "../lib/i18n";
 import { useT } from "../lib/state";
@@ -78,8 +80,7 @@ interface CatalogData {
 type Editing =
   | { kind: "product"; product: Prod | null }
   | { kind: "offer"; product: Prod; offer: Off | null; preset?: Partial<OfferDraft> }
-  | { kind: "stock"; offer: Off }
-  | { kind: "import"; supplier: Sup };
+  | { kind: "stock"; offer: Off };
 
 export function Catalog() {
   const { t, lang } = useT();
@@ -104,9 +105,9 @@ export function Catalog() {
           {data.suppliers
             .filter((s) => s.enabled)
             .map((s) => (
-              <button key={s.id} type="button" className="btn btn--xs btn--ghost press" onClick={() => setEditing({ kind: "import", supplier: s })}>
-                {t("importFrom")}: {s.name}
-              </button>
+              <a key={s.id} className="btn btn--xs btn--ghost press" href={`/admin/suppliers/choose/${s.id}`} onClick={linkHandler(`/admin/suppliers/choose/${s.id}`)}>
+                {t("choosePackages")}: {s.name}
+              </a>
             ))}
           <button type="button" className="btn btn--sm press" onClick={() => setEditing({ kind: "product", product: null })}>
             <PlusIcon size={18} />
@@ -132,20 +133,6 @@ export function Catalog() {
       {editing?.kind === "product" && <ProductEditor product={editing.product} categories={data.categories} onClose={close} />}
       {editing?.kind === "offer" && <OfferEditor product={editing.product} offer={editing.offer} preset={editing.preset} suppliers={data.suppliers} onClose={close} />}
       {editing?.kind === "stock" && <StockEditor offer={editing.offer} onClose={close} />}
-      {editing?.kind === "import" && (
-        <ImportSheet
-          supplier={editing.supplier}
-          products={data.products}
-          linked={data.offers.filter((o) => o.supplier_id === editing.supplier.id)}
-          onRelinked={() => {
-            invalidate("/api/catalog");
-            void reload();
-          }}
-          onClose={close}
-          onPick={(product, preset) => setEditing({ kind: "offer", product, offer: null, preset })}
-          onNewProduct={() => setEditing({ kind: "product", product: null })}
-        />
-      )}
     </div>
   );
 }
@@ -582,7 +569,7 @@ function ChoicesInput({ options, onChange }: { options: InputField["options"]; o
   return <input className="input" dir="auto" value={text} placeholder="Asia, Europe, America" onChange={(e) => setText(e.target.value)} onBlur={commit} />;
 }
 
-// ───────────────────────────── stock and import
+// ───────────────────────────── stock
 
 function StockEditor({ offer, onClose }: { offer: Off; onClose: () => void }) {
   const { t } = useT();
@@ -609,145 +596,6 @@ function StockEditor({ offer, onClose }: { offer: Off; onClose: () => void }) {
         <span>{t("stockItems")}</span>
         <textarea className="textarea num" dir="ltr" rows={10} value={text} onChange={(e) => setText(e.target.value)} />
       </label>
-    </Sheet>
-  );
-}
-
-interface SupplierItem {
-  externalId: string;
-  name: string;
-  costCents: number;
-  available: boolean;
-  kind: Kind;
-  fields?: InputField[];
-  offerId: string | null;
-}
-
-function ImportSheet({ supplier, products, linked, onRelinked, onClose, onPick, onNewProduct }: { supplier: Sup; products: Prod[]; linked: Off[]; onRelinked: () => void; onClose: () => void; onPick: (p: Prod, preset: Partial<OfferDraft>) => void; onNewProduct: () => void }) {
-  const { t, lang } = useT();
-  const action = useAction();
-  // Packages whose supplier item disappeared (e.g. the supplier renumbered its catalogue): they can be pointed at a new item.
-  const orphans = linked.filter((o) => o.paused_reason === "supplier_unavailable");
-  const productName = (id: string) => {
-    const p = products.find((x) => x.id === id);
-    return p ? pick(lang, p.name_ar, p.name_en) : "";
-  };
-  async function relink(offerId: string, item: SupplierItem) {
-    if (await action.run(`/api/admin/offers/${offerId}/relink`, { body: { supplierRef: item.externalId, costCents: item.costCents } }, t("relinked"))) {
-      onRelinked();
-      void reload();
-    }
-  }
-  // Big catalogues (G2Bulk) come in groups: pick a game, then its packages load.
-  const [group, setGroup] = useState("");
-  const base = `/api/admin/suppliers/${supplier.id}/products`;
-  const top = useApi<{ items: SupplierItem[]; groups?: { id: string; name: string }[] }>(base);
-  const groups = top.data?.groups ?? null;
-  const inGroup = useApi<{ items: SupplierItem[] }>(groups && group ? `${base}?group=${encodeURIComponent(group)}` : null);
-  const { data, error, reload } = groups ? (group ? inGroup : { data: undefined, error: null, reload: () => {} }) : top;
-  const [q, setQ] = useState("");
-  const [gq, setGq] = useState("");
-  const [target, setTarget] = useState(products[0]?.id ?? "");
-  const items = (data?.items ?? []).filter((i) => !q || matchesQuery(`${i.name} ${i.externalId}`, q)).slice(0, 200);
-  const product = products.find((p) => p.id === target);
-  return (
-    <Sheet onClose={onClose} label={`${t("importFrom")}: ${supplier.name}`}>
-      {products.length === 0 ? (
-        <Empty>
-          <button type="button" className="btn btn--sm press" onClick={onNewProduct}>
-            {t("newProduct")}
-          </button>
-        </Empty>
-      ) : (
-        <label className="field">
-          <span>{t("product")}</span>
-          <select className="select" value={target} onChange={(e) => setTarget(e.target.value)}>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {pick(lang, p.name_ar, p.name_en)}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {groups && (
-        <>
-          <input className="input" value={gq} onChange={(e) => setGq(e.target.value)} placeholder={t("searchGroups")} />
-          <label className="field">
-            <span>{t("supplierGroup")}</span>
-            <select className="select" value={group} onChange={(e) => setGroup(e.target.value)}>
-              <option value="">{t("chooseGroup", { n: groups.length })}</option>
-              {groups.filter((g) => !gq || matchesQuery(`${g.name} ${g.id}`, gq)).slice(0, 300).map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      )}
-      <ErrorBox error={top.error} onRetry={top.reload} />
-      {(!groups || group) && <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchLabel")} />}
-      <ErrorBox error={error} onRetry={reload} />
-      {((!top.data && !top.error) || (groups && group && !data && !error)) && <Spinner />}
-      {data && (
-        <div className="list">
-          {items.map((i) => (
-            <div key={i.externalId} className="list-row" style={{ opacity: i.available ? 1 : 0.5 }}>
-              <span className="list-row__main">
-                <span className="list-row__title">{i.name}</span>
-                <span className="list-row__meta num">
-                  {i.externalId} · {t(`kind_${i.kind}`)}
-                </span>
-              </span>
-              <span className="num">{usd(i.costCents)}</span>
-              {!i.offerId && orphans.length > 0 && (
-                <select
-                  className="select"
-                  style={{ maxWidth: 200, fontSize: 13 }}
-                  aria-label={t("replacePackage")}
-                  value=""
-                  disabled={action.busy}
-                  onChange={(e) => e.target.value && void relink(e.target.value, i)}
-                >
-                  <option value="">{t("replacePackage")}</option>
-                  {orphans.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {productName(o.product_id)} · {pick(lang, o.name_ar, o.name_en)} (#{o.supplier_ref})
-                    </option>
-                  ))}
-                </select>
-              )}
-              {i.offerId ? (
-                <span className="badge badge--good">{t("linked")}</span>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn--xs press"
-                  disabled={!product}
-                  onClick={() =>
-                    product &&
-                    onPick(product, {
-                      nameAr: i.name,
-                      nameEn: i.name,
-                      supplierId: supplier.id,
-                      supplierRef: i.externalId,
-                      cost: (i.costCents / 100).toFixed(2),
-                      fields: i.fields ?? [],
-                      markupMode: "percent",
-                      markupValue: String(Number(supplier.import_markup_pct ?? 15)),
-                      minMarginPct: String(Number(supplier.import_min_margin_pct ?? 5)),
-                      roundToCents: String(supplier.import_round_to_cents ?? 1),
-                    })
-                  }
-                >
-                  {t("link")}
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </Sheet>
   );
 }

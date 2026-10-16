@@ -111,6 +111,10 @@ export function createFiveSim(ctx: AdapterContext): FiveSimAdapter {
             costCents: costCents(Math.min(...costs)),
             available: inStock.length > 0,
             kind: "sms",
+            // One store product per service (Telegram, WhatsApp...), a package per country.
+            productKey: `service:${service}`,
+            productName: service.charAt(0).toUpperCase() + service.slice(1),
+            packageName: country.charAt(0).toUpperCase() + country.slice(1),
             meta: {
               country, service, operator,
               stock: inStock.reduce((sum, o) => sum + o.count, 0),

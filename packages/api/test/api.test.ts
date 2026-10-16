@@ -350,14 +350,15 @@ describe("admin", () => {
     expect(p2.status).toBe(201);
     const pid = p2.data.id;
 
-    // Import: the supplier listing shows which refs are already linked.
+    // Choose packages: the supplier's list shows which items are already sold.
     catalog = async () => [
       { externalId: `ext-${run}`, name: "60 UC", costCents: 100, available: true, kind: "id" },
       { externalId: `ff-100-${run}`, name: "100 Diamonds", costCents: 95, available: true, kind: "id" },
     ];
-    const list = await h.call("GET", "/api/admin/suppliers/fake/products", { token: owner });
-    expect(list.data.items.find((i: any) => i.externalId === `ext-${run}`).offerId).toBe(offerId);
-    expect(list.data.items.find((i: any) => i.externalId === `ff-100-${run}`).offerId).toBeNull();
+    expect((await h.call("POST", "/api/admin/suppliers/fake/catalogue/refresh", { token: owner, body: {} })).data.ok).toBe(true);
+    const list = await h.call("GET", "/api/admin/suppliers/fake/catalogue/items?group=", { token: owner });
+    expect(list.data.items.find((i: any) => i.ref === `ext-${run}`).offer.id).toBe(offerId);
+    expect(list.data.items.find((i: any) => i.ref === `ff-100-${run}`).offer).toBeNull();
 
     const o = await h.call("POST", `/api/admin/products/${pid}/offers`, {
       token: owner,
@@ -527,9 +528,9 @@ describe("supplier sync and margin guard", () => {
 
     const report = await syncSupplier(counting.svc, supplier);
     expect(report).toMatchObject({ checked: 40, repriced: 1, paused: 0, missing: 0 });
-    // settings + select packages + 1 reprice (update + history) + 1 write for the 39 unchanged
-    // + supplier row + its report
-    expect(queries).toBe(7);
+    // settings + select packages + saved supplier list (Choose packages) + 1 reprice (update + history)
+    // + 1 write for the 39 unchanged + supplier row + its report
+    expect(queries).toBe(8);
     const rows = await db.query<{ id: string; checked: boolean; price_cents: string | number }>(
       `select id, cost_checked_at is not null as checked, price_cents from app.offers where supplier_id = $1`, [supplier],
     );

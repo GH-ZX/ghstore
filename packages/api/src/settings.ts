@@ -58,6 +58,41 @@ export async function channelUrl(db: Db): Promise<string | null> {
   return str((await readSettings(db, ["telegram.channel_url"]))["telegram.channel_url"], CHANNEL_URL);
 }
 
+/** The home page showcase's look: a poster per slide ("cinematic"), or a deal with its packages ("deal"). */
+export const SHOWCASE_STYLES = ["cinematic", "deal"] as const;
+export type ShowcaseStyle = (typeof SHOWCASE_STYLES)[number];
+
+/** Autoplay choices for the showcase, in seconds per slide (0 = off). */
+export const SHOWCASE_AUTOPLAY = [0, 4, 6, 8, 10, 12] as const;
+
+export interface ShowcaseSettings {
+  /** The look of slides that do not pick their own. */
+  style: ShowcaseStyle;
+  /** The "Instant" badge on deal slides. */
+  badgeInstant: boolean;
+  /** The product's or category's name above a slide's title. */
+  badgeLabel: boolean;
+  /** Seconds per slide, 0 = no autoplay. */
+  autoplay: number;
+  /** How many packages a deal slide shows. */
+  dealPackages: number;
+}
+
+/** The showcase's settings (Admin → Home), with the defaults for anything not set. */
+export async function showcaseSettings(db: Db): Promise<ShowcaseSettings> {
+  const s = await readSettings(db, ["home.showcase_style", "home.badge_instant", "home.badge_label", "home.autoplay_seconds", "home.deal_packages"]);
+  const style = s["home.showcase_style"];
+  const autoplay = s["home.autoplay_seconds"];
+  const deal = s["home.deal_packages"];
+  return {
+    style: (SHOWCASE_STYLES as readonly unknown[]).includes(style) ? (style as ShowcaseStyle) : "cinematic",
+    badgeInstant: s["home.badge_instant"] !== false,
+    badgeLabel: s["home.badge_label"] !== false,
+    autoplay: (SHOWCASE_AUTOPLAY as readonly unknown[]).includes(autoplay) ? (autoplay as number) : 6,
+    dealPackages: typeof deal === "number" && Number.isInteger(deal) && deal >= 2 && deal <= 4 ? deal : 3,
+  };
+}
+
 /** Remember the bot's username as Telegram reports it (no write when unchanged). */
 export async function saveBotUsername(db: Db, username: string | null): Promise<void> {
   if (!username || !BOT_USERNAME.test(username)) return;

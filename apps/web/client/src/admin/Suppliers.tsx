@@ -1,16 +1,18 @@
 /**
  * Suppliers: one card per supplier with what matters at a glance (working or
- * not, balance, what sells, what waits for you) and three actions: check
- * prices now, review paused packages, and settings. API keys live in
- * Settings → Keys.
+ * not, balance, what sells, what waits for you) and its actions: choose what
+ * to sell (Choose.tsx), check prices now, review paused packages, and
+ * settings. API keys live in Settings → Keys.
  */
 import { useState } from "react";
 import { dollarsToCents, toLatinDigits, usd } from "../lib/format";
 import { api, ApiFail } from "../lib/api";
 import { errorText, pick } from "../lib/i18n";
+import { linkHandler, usePath } from "../lib/router";
 import { toast, useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
 import { Empty, ErrorBox, Sheet, Spinner, Switch } from "../ui/kit";
+import { Choose } from "./Choose";
 import { ago, useAction } from "./common";
 
 interface Report {
@@ -40,6 +42,9 @@ interface Sup {
   importMarkupPct: number;
   importMinMarginPct: number;
   importRoundToCents: number;
+  importCategoryId: string | null;
+  importDescriptionAr: string;
+  importDescriptionEn: string;
   lastReport: Report | null;
   counts: { packages: number; selling: number; unavailable: number; belowMargin: number; costJump: number; pausedByStaff: number; notChecked: number };
 }
@@ -66,9 +71,22 @@ function everyLabel(t: T, m: number): string {
   return m < 60 ? t("everyMin", { n: m }) : m === 60 ? t("everyHour") : t("everyHours", { n: m / 60 });
 }
 
+interface Cat {
+  id: string;
+  name_ar: string;
+  name_en: string;
+}
+
 export function Suppliers() {
+  const path = usePath();
+  const choose = /^\/admin\/suppliers\/choose\/([a-z0-9_]{2,32})$/.exec(path);
+  if (choose) return <Choose supplierId={choose[1]!} />;
+  return <SupplierList />;
+}
+
+function SupplierList() {
   const { t } = useT();
-  const { data, error, reload } = useApi<{ suppliers: Sup[] }>("/api/admin/suppliers");
+  const { data, error, reload } = useApi<{ suppliers: Sup[]; categories: Cat[] }>("/api/admin/suppliers");
   const [settings, setSettings] = useState<Sup | null>(null);
   const [review, setReview] = useState<Sup | null>(null);
 
@@ -84,6 +102,7 @@ export function Suppliers() {
       {settings && (
         <SettingsSheet
           s={settings}
+          categories={data.categories}
           onClose={(changed) => {
             setSettings(null);
             if (changed) void reload();
@@ -201,7 +220,10 @@ function SupplierCard({ s, onChanged, onSettings, onReview }: { s: Sup; onChange
       </div>
 
       <div className="wrap">
-        <button type="button" className="btn btn--sm press" disabled={checking || !s.enabled} onClick={check}>
+        <a className="btn btn--sm press" href={`/admin/suppliers/choose/${s.id}`} onClick={linkHandler(`/admin/suppliers/choose/${s.id}`)}>
+          {t("choosePackages")}
+        </a>
+        <button type="button" className="btn btn--sm btn--soft press" disabled={checking || !s.enabled} onClick={check}>
           {checking ? <Spinner small /> : t("supCheckNow")}
         </button>
         <button type="button" className="btn btn--sm btn--ghost press" onClick={onSettings}>
@@ -212,8 +234,8 @@ function SupplierCard({ s, onChanged, onSettings, onReview }: { s: Sup; onChange
   );
 }
 
-function SettingsSheet({ s, onClose }: { s: Sup; onClose: (changed: boolean) => void }) {
-  const { t } = useT();
+function SettingsSheet({ s, categories, onClose }: { s: Sup; categories: Cat[]; onClose: (changed: boolean) => void }) {
+  const { t, lang } = useT();
   const action = useAction();
   const [every, setEvery] = useState(s.syncMinutes);
   const [auto, setAuto] = useState(s.autoReprice);
@@ -222,6 +244,9 @@ function SettingsSheet({ s, onClose }: { s: Sup; onClose: (changed: boolean) => 
   const [markup, setMarkup] = useState(String(s.importMarkupPct));
   const [margin, setMargin] = useState(String(s.importMinMarginPct));
   const [round, setRound] = useState(s.importRoundToCents);
+  const [category, setCategory] = useState(s.importCategoryId ?? "");
+  const [descAr, setDescAr] = useState(s.importDescriptionAr);
+  const [descEn, setDescEn] = useState(s.importDescriptionEn);
 
   const lowCents = dollarsToCents(low);
   const markupN = Number(toLatinDigits(markup));
@@ -238,6 +263,9 @@ function SettingsSheet({ s, onClose }: { s: Sup; onClose: (changed: boolean) => 
       importMarkupPct: Math.round(markupN * 100) / 100,
       importMinMarginPct: Math.round(marginN * 100) / 100,
       importRoundToCents: round,
+      importCategoryId: category || null,
+      importDescriptionAr: descAr,
+      importDescriptionEn: descEn,
     };
     if (await action.run(`/api/admin/suppliers/${s.id}`, { method: "PATCH", body })) onClose(true);
   }
@@ -313,6 +341,29 @@ function SettingsSheet({ s, onClose }: { s: Sup; onClose: (changed: boolean) => 
           </select>
         </label>
       </div>
+
+      <h3>{t("supNewProducts")}</h3>
+      <p className="hint">{t("supNewProductsHint")}</p>
+      <label className="field">
+        <span>{t("supNewCategory")}</span>
+        <select className="select" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">{t("supNewCategoryFirst")}</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {pick(lang, c.name_ar, c.name_en)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        <span>{t("descriptionAr")}</span>
+        <textarea className="textarea" dir="rtl" rows={4} maxLength={4000} value={descAr} onChange={(e) => setDescAr(e.target.value)} />
+      </label>
+      <label className="field">
+        <span>{t("descriptionEn")}</span>
+        <textarea className="textarea" dir="ltr" rows={4} maxLength={4000} value={descEn} onChange={(e) => setDescEn(e.target.value)} />
+        <span className="hint">{t("supDescHint")}</span>
+      </label>
     </Sheet>
   );
 }

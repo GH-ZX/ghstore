@@ -133,8 +133,33 @@ each supplier's catalogue and:
 - pauses offers the supplier stopped selling, and resumes them when they return;
 - tells the owners in Telegram.
 
-New supplier items are never added automatically: the owner imports them in the
-admin (`GET /api/admin/suppliers/:id/products`, then create an offer).
+New supplier items are never added automatically: the owner chooses them in
+**Admin → Suppliers → Choose packages**.
+
+## Choosing what to sell (Choose packages)
+
+- **A saved copy of each supplier's list**: `app.supplier_groups` and
+  `app.supplier_items` (migration 0018), filled a group at a time (a G2Bulk
+  game, or the whole list of a supplier that lists everything at once, group
+  id `""`). It is read when the owner opens a group whose copy is older than a
+  day, on "Refresh list", by the `supplier_catalogue` job with the requests a
+  run has left, and the price check writes the costs it reads anyway. A failed
+  or empty read never marks anything as gone. Code: `packages/api/src/supplier-catalogue.ts`.
+- **Each supplier groups its own way**: an adapter tells, per item, which
+  store product it belongs to (`productKey`, `productName`, `packageName` on
+  `SupplierProduct`): G2Bulk one product per game (and per voucher brand),
+  MaxStore per category, 5SIM per service; BatStore and ProdSeller items are
+  products of their own. The screen has no supplier-specific code.
+- **Applying** (`POST /api/admin/suppliers/:id/selection`, `selection.ts`): a
+  dry run returns the plan, the real run does it in one transaction, owner
+  only, audit logged, at most 500 changes. Every item is checked against the
+  saved copy; a screen loaded before another change is refused
+  (`suppliers.selection_version`). New packages join the product that already
+  sells their group, or a new product (shown at once, in the supplier's import
+  category, with its description template, priced with its import markup and
+  always above the margin floor). Unticked packages are deleted if never
+  ordered, archived (hidden) if they have orders; a product left with nothing
+  to sell is hidden; ticking an archived package brings it back.
 
 ## Scheduled jobs (every minute)
 
@@ -145,6 +170,7 @@ admin (`GET /api/admin/suppliers/:id/products`, then create an offer).
 | `payments` | Re-check pending SAM/NOWPayments top-ups; expire old ones |
 | `supplier_balances` | Every 15 min; alert once when a balance drops under its threshold |
 | `supplier_sync` | Hourly per supplier: costs, availability, margin guard |
+| `supplier_catalogue` | Every 5 min, with spare requests only: refresh up to 3 groups of the saved supplier lists (Choose packages) |
 | `outbox` | Send queued Telegram notifications |
 | `buy_again` | Twice an hour: queue due "buy again" reminders |
 | `daily_summary` | Every 10 minutes; in the owner's chosen local hour (default 09:00), queue yesterday's summary once |
