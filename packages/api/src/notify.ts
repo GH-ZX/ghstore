@@ -44,11 +44,18 @@ const TEMPLATES: Record<string, { ar: (d: Data) => string; en: (d: Data) => stri
     ar: (d) => `تنبيه: ${String(d.text ?? "")}`,
     en: (d) => `Alert: ${String(d.text ?? "")}`,
   },
+  broadcast: {
+    ar: (d) => String(d.text_ar ?? d.text_en ?? ""),
+    en: (d) => String(d.text_en ?? d.text_ar ?? ""),
+  },
   staff_order: {
     ar: (d) => `طلب جديد ${String(d.ref ?? "")}: ${String(d.name_ar ?? "")} (${String(d.offer_ar ?? "")}) — ${formatUsd(n(d.total_cents))}`,
     en: (d) => `New order ${String(d.ref ?? "")}: ${String(d.name_en ?? "")} (${String(d.offer_en ?? "")}) — ${formatUsd(n(d.total_cents))}`,
   },
 };
+
+/** Telegram errors that mean this chat can never receive the bot's messages. */
+const UNREACHABLE = /bot was blocked by the user|user is deactivated|chat not found|bot can't initiate conversation/i;
 
 /** Messages for the people running the store, never for customers. */
 const STAFF_TEMPLATES = new Set(["staff_alert", "staff_order", "daily_summary"]);
@@ -60,15 +67,17 @@ export function renderTemplate(template: string, locale: "ar" | "en", data: Data
 
 /** Send up to `limit` pending messages. Returns how many were sent. */
 export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promise<number> {
-  const rows = await svc.db.query<{ id: string | number; template: string; data: Data; locale: "ar" | "en"; notify: boolean; chat_id: string | null; attempts: number }>(
+  const claimed = await svc.db.query<{ id: string | number; priority: number; template: string; data: Data; locale: "ar" | "en"; notify: boolean; chat_id: string | null; attempts: number }>(
     `update app.outbox o set attempts = o.attempts + 1, available_at = now() + interval '2 minutes'
-      where o.id in (select id from app.outbox where status = 'pending' and available_at <= now() order by id limit $1 for update skip locked)
-     returning o.id, o.template, o.data, o.attempts,
+      where o.id in (select id from app.outbox where status = 'pending' and available_at <= now() order by priority, id limit $1 for update skip locked)
+     returning o.id, o.priority, o.template, o.data, o.attempts,
        (select u.locale from app.users u where u.id = o.user_id) as locale,
        (select u.notify from app.users u where u.id = o.user_id) as notify,
        (select i.subject from app.identities i where i.user_id = o.user_id and i.provider = 'telegram' limit 1) as chat_id`,
     [limit],
   );
+  // UPDATE ... RETURNING has no order: receipts and alerts first, then broadcasts, oldest first.
+  const rows = claimed.sort((a, b) => a.priority - b.priority || n(a.id) - n(b.id));
   let sent = 0;
   // Staff messages come from the separate staff-alerts bot when the owner set one.
   const staffBot = rows.some((r) => STAFF_TEMPLATES.has(r.template)) && !!(await effectiveEnv(env, svc.db)).NOTIFY_BOT_TOKEN;
@@ -81,9 +90,10 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
       continue;
     }
     try {
-      // "Buy again" opens the product itself; everything else opens the store.
-      const slug = r.template === "buy_again" && typeof r.data?.slug === "string" && /^[a-z0-9-]{1,80}$/.test(r.data.slug) ? r.data.slug : null;
-      const label = slug ? (r.locale === "en" ? "Buy again" : "اطلبه مجدداً")
+      // "Buy again" and product broadcasts open the product itself; everything else opens the store.
+      const slug = (r.template === "buy_again" || r.template === "broadcast") && typeof r.data?.slug === "string" && /^[a-z0-9-]{1,80}$/.test(r.data.slug) ? r.data.slug : null;
+      const label = slug
+        ? r.template === "buy_again" ? (r.locale === "en" ? "Buy again" : "اطلبه مجدداً") : r.locale === "en" ? "View" : "عرض المنتج"
         : isStaff ? (r.locale === "en" ? "Open admin" : "افتح الإدارة")
         : r.locale === "en" ? "Open store" : "افتح المتجر";
       const url = slug ? `${env.PUBLIC_BASE_URL}/tg?startapp=p_${slug}` : isStaff ? `${env.PUBLIC_BASE_URL}/tg?startapp=admin` : `${env.PUBLIC_BASE_URL}/tg`;
@@ -98,7 +108,9 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
       sent++;
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 300) : "error";
-      await svc.db.query(`update app.outbox set status = case when attempts >= 5 then 'failed' else 'pending' end, last_error = $2 where id = $1`, [r.id, msg]);
+      // The person blocked the bot or deleted their account: trying again will not help.
+      const final = UNREACHABLE.test(msg);
+      await svc.db.query(`update app.outbox set status = case when $3 or attempts >= 5 then 'failed' else 'pending' end, last_error = $2 where id = $1`, [r.id, msg, final]);
     }
   }
   return sent;

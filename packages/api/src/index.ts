@@ -5,6 +5,7 @@
  */
 import * as admin from "./admin";
 import * as adminCatalog from "./admin-catalog";
+import * as broadcast from "./broadcast";
 import * as auth from "./auth";
 import * as catalog from "./catalog";
 import { publicConfig } from "./config";
@@ -80,6 +81,11 @@ const router = new Router()
   .on("GET", "/api/admin/keys", keys.listKeys)
   .on("PUT", "/api/admin/keys/:name", keys.putKey)
   .on("GET", "/api/admin/export/:kind", reports.exportCsv)
+  .on("GET", "/api/admin/broadcasts", broadcast.listBroadcasts)
+  .on("GET", "/api/admin/broadcasts/audience", broadcast.broadcastAudience)
+  .on("POST", "/api/admin/broadcasts/test", broadcast.testBroadcast)
+  .on("POST", "/api/admin/broadcasts", broadcast.createBroadcast)
+  .on("POST", "/api/admin/broadcasts/:id/cancel", broadcast.cancelBroadcast)
   .on("GET", "/api/admin/coupons", promo.listCoupons)
   .on("POST", "/api/admin/coupons", promo.createCoupon)
   .on("PATCH", "/api/admin/coupons/:id", promo.updateCoupon)
