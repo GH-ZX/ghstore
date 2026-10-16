@@ -57,7 +57,13 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
   const max = config?.payments.maxCents ?? 100_000;
 
   const [step, setStep] = useState<Step>(paymentId ? "pay" : "choose");
-  const [amountText, setAmountText] = useState(String(Math.min(Math.max(Math.ceil(initialCents / 100), min / 100), max / 100)));
+  const [amountText, setAmountText] = useState(String(Math.min(Math.max(Math.ceil(initialCents / 100), Math.ceil(min / 100)), Math.floor(max / 100))));
+  // Quick amounts within the owner's limits (or multiples of the minimum when it is high).
+  const presets = (() => {
+    const inRange = PRESETS.filter((p) => p >= min && p <= max);
+    if (inRange.length >= 3) return inRange;
+    return [1, 2, 5, 10].map((k) => Math.ceil((min * k) / 100) * 100).filter((p, i, a) => p <= max && a.indexOf(p) === i);
+  })();
   const [method, setMethod] = useState<PaymentMethod | null>(methods[0] ?? null);
   const [topup, setTopup] = useState<{ id: string; method: PaymentMethod; amountCents: number; action: PaymentAction | null; sendBy?: string | null } | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -416,7 +422,7 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
       </label>
       {!amountOk && <span className="error-text" style={{ textAlign: "center" }}>{t("minMax", { min: usd(min), max: usd(max) })}</span>}
       <div className="amounts" role="group" aria-label={t("amount")}>
-        {PRESETS.map((p) => (
+        {presets.map((p) => (
           <button key={p} type="button" className="press" aria-pressed={cents === p} onClick={() => setAmountText(String(p / 100))}>
             ${p / 100}
           </button>

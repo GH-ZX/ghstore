@@ -39,6 +39,7 @@ someone else's store.
 | Sales made in person by the owner (no wallet), product badges chosen per product | Done, tested |
 | Admin → Profit: charts, comparison with the period before, price calculator; supplier balances at their pace | Done, tested |
 | Automatic badges (New, Best seller), pinned packages, USDT found by its exact amount, retry limit for numbers, opening splash | Done, tested |
+| Favourites, "notify me" for sold-out packages, top-up limits set by the owner, header search | Done, tested |
 | Per-supplier check schedules (5 min to 24 h), out-of-stock hiding | Done, tested |
 | Products delivered by hand, details asked after paying, supplier deliveries checked before release | Done, tested |
 | Clean names for BatStore / ProdSeller shorthand, package warranties | Done, tested |

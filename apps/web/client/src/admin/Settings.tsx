@@ -191,6 +191,8 @@ export function Settings() {
   const [channel, setChannel] = useState("");
   const [stars, setStars] = useState("");
   const [retries, setRetries] = useState("5");
+  const [minTopup, setMinTopup] = useState("1");
+  const [maxTopup, setMaxTopup] = useState("1000");
   const [mailFrom, setMailFrom] = useState("");
   const [testTo, setTestTo] = useState("");
   const [testing, setTesting] = useState(false);
@@ -230,6 +232,10 @@ export function Settings() {
     setStars(typeof sr === "number" ? String(sr) : "");
     const mr = data.settings["numbers.max_retries"];
     setRetries(typeof mr === "number" ? String(mr) : "5");
+    const mn = data.settings["payments.min_topup_cents"];
+    setMinTopup(typeof mn === "number" ? String(mn / 100) : "1");
+    const mx = data.settings["payments.max_topup_cents"];
+    setMaxTopup(typeof mx === "number" ? String(mx / 100) : "1000");
     const dh = data.settings["reports.daily_hour"];
     setHour(typeof dh === "number" ? String(dh) : "9");
     const d = data.settings["referral.days"];
@@ -253,6 +259,8 @@ export function Settings() {
     if (key === "telegram.channel_url" && cur.telegram) setState({ config: { ...cur, telegram: { ...cur.telegram, channel: value as string | null } } });
     if (key.startsWith("support.")) setState({ config: { ...cur, support: { ...cur.support, [key.slice(8)]: value as string | null } } });
     if (key === "payments.stars_per_usd") setState({ config: { ...cur, payments: { ...cur.payments, starsPerUsd: value as number | null } } });
+    if (key === "payments.min_topup_cents") setState({ config: { ...cur, payments: { ...cur.payments, minCents: value as number } } });
+    if (key === "payments.max_topup_cents") setState({ config: { ...cur, payments: { ...cur.payments, maxCents: value as number } } });
     applyTheme();
   }
 
@@ -393,6 +401,51 @@ export function Settings() {
         >
           {t("save")}
         </button>
+      </section>
+
+      <section className="card card--pad stack-sm">
+        <div>
+          <h2>{t("topupLimitsTitle")}</h2>
+          <p className="hint">{t("topupLimitsHint")}</p>
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>{t("topupMin")}</span>
+            <span className="input-wrap">
+              <span className="input-wrap__pre muted">$</span>
+              <input className="input num" inputMode="decimal" value={minTopup} onChange={(e) => setMinTopup(e.target.value.replace(/[^\d.]/g, "").slice(0, 8))} />
+            </span>
+          </label>
+          <label className="field">
+            <span>{t("topupMax")}</span>
+            <span className="input-wrap">
+              <span className="input-wrap__pre muted">$</span>
+              <input className="input num" inputMode="decimal" value={maxTopup} onChange={(e) => setMaxTopup(e.target.value.replace(/[^\d.]/g, "").slice(0, 8))} />
+            </span>
+          </label>
+        </div>
+        {(() => {
+          const mn = Math.round(Number(minTopup) * 100);
+          const mx = Math.round(Number(maxTopup) * 100);
+          const ok = mn >= 10 && mn <= 100_000 && mx >= 100 && mx <= 1_000_000 && mx >= mn;
+          return (
+            <>
+              {!ok && <span className="error-text">{t("topupLimitsBad")}</span>}
+              <button
+                type="button"
+                className="btn btn--sm press"
+                style={{ alignSelf: "flex-start" }}
+                disabled={action.busy || !ok}
+                onClick={async () => {
+                  await put("payments.min_topup_cents", mn);
+                  await put("payments.max_topup_cents", mx);
+                }}
+              >
+                {t("save")}
+              </button>
+            </>
+          );
+        })()}
       </section>
 
       <section className="card card--pad stack-sm">

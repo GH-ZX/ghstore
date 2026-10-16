@@ -29,6 +29,12 @@ fixed: confirm the plan with the owner before building, and show screenshots
 
 ## Live checks after the next deploy
 
+- Migrations up to `0025_favorites_stock_alerts.sql` are on the live database.
+- Heart a product, then see it in Profile → Favourites; on a sold-out package
+  tap "Notify me", then put it back on sale: one Telegram message arrives.
+- Admin → Settings → Top-ups: set the smallest top-up; the add-funds screen
+  starts from it and refuses less.
+
 - Migrations up to `0023_auto_badges_pinned.sql` are on the live database first.
 - Open the site and the Mini App: the splash draws the logo, then the store
   opens with the balance already shown (no "Sign in" flash).
@@ -53,6 +59,4 @@ fixed: confirm the plan with the owner before building, and show screenshots
 - **Units and covers for every game**: units in both languages (UC, Diamonds,
   Genesis Crystals, CP…) and wide covers for the games still without one
   (MLBB, Genshin, Free Fire…). Show the list before changing anything live.
-- **"Tell me when it's back"**: a customer asks to be told when a package that
-  ran out is back (Telegram message on restock); favourites with it.
 - **MaxStore**: a real $1 order before relying on it (formats not fully verified).

@@ -2,15 +2,15 @@
 import { store } from "@store/config";
 import { useState } from "react";
 import { api, ApiFail, setToken } from "../lib/api";
-import { errorText } from "../lib/i18n";
+import { errorText, pick } from "../lib/i18n";
 import { copyText, usd } from "../lib/format";
-import { navigate } from "../lib/router";
+import { linkHandler, navigate } from "../lib/router";
 import { refreshMe, setLang, setMode, signOut, toast, useApp, useT, type Mode } from "../lib/state";
 import { haptic, openExternal, openTelegramLink } from "../lib/telegram";
-import type { Referral } from "../lib/types";
+import type { Favorites, Referral } from "../lib/types";
 import { useApi } from "../lib/useApi";
-import { ChevronIcon, GiftIcon, WalletIcon } from "../ui/icons";
-import { Seg, Sheet, Switch } from "../ui/kit";
+import { ChevronIcon, GiftIcon, HeartIcon, WalletIcon } from "../ui/icons";
+import { Seg, Sheet, Switch, Tile } from "../ui/kit";
 import { AdminLink, Shell } from "../ui/Shell";
 import { EmailCode, linkWebLogin, RequireUser, startLink } from "./Login";
 
@@ -86,6 +86,8 @@ function ProfileView() {
           {t("topUp")}
         </button>
       </div>
+
+      <FavoritesCard />
 
       <InviteCard />
 
@@ -365,5 +367,38 @@ function LoginsCard() {
         </Sheet>
       )}
     </div>
+  );
+}
+
+/** Saved products (the heart on a product), newest first; a sold-out one says so. */
+function FavoritesCard() {
+  const { t, lang } = useT();
+  const { data } = useApi<Favorites>("/api/favorites");
+  return (
+    <section className="card card--pad stack-sm">
+      <div className="wrap" style={{ gap: 8 }}>
+        <HeartIcon size={18} active />
+        <strong>{t("favorites")}</strong>
+        {data && data.products.length > 0 && <span className="small muted num">{data.products.length}</span>}
+      </div>
+      {!data && <div className="skeleton" style={{ height: 96 }} />}
+      {data && data.products.length === 0 && <p className="small muted">{t("favoritesEmpty")}</p>}
+      {data && data.products.length > 0 && (
+        <div className="fav-row">
+          {data.products.map((p) => {
+            const to = `/p/${p.slug}`;
+            return (
+              <a key={p.id} href={to} onClick={linkHandler(to)} className="fav-item press">
+                <Tile name={p.nameEn} imageUrl={p.imageUrl} className="fav-item__pic" />
+                <span className="fav-item__name">{pick(lang, p.nameAr, p.nameEn)}</span>
+                <span className={p.fromCents === null ? "small bad" : "small num fav-item__price"}>
+                  {p.fromCents === null ? t("soldOut") : `${t("from")} ${usd(p.fromCents)}`}
+                </span>
+              </a>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }

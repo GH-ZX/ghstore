@@ -1,7 +1,8 @@
 /**
  * Product sheet: pick a package, fill its fields, buy from the wallet. A
  * product delivered by hand lists the details it will ask for after paying,
- * and the customer confirms they have them ready.
+ * and the customer confirms they have them ready. The heart saves the product;
+ * a sold-out package offers "Notify me" (a Telegram message when it is back).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { matchesQuery } from "@store/core";
@@ -12,8 +13,8 @@ import { navigate } from "../lib/router";
 import { refreshMe, toast, useApp, useT } from "../lib/state";
 import { haptic, openTelegramLink } from "../lib/telegram";
 import { invalidate, useApi } from "../lib/useApi";
-import type { CouponQuote, InputField, Offer, ProductDetail } from "../lib/types";
-import { CheckIcon, ShareIcon, ShieldIcon } from "../ui/icons";
+import type { CouponQuote, Favorites, InputField, Offer, ProductDetail } from "../lib/types";
+import { BellIcon, CheckIcon, HeartIcon, ShareIcon, ShieldIcon } from "../ui/icons";
 import { ErrorBox, Sheet, Spinner, Tile } from "../ui/kit";
 
 interface Placed {
@@ -64,7 +65,16 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
 
   // Field names are the supplier's own; look them up without touching Object internals.
   const valueOf = (key: string): string => (Object.hasOwn(values, key) ? values[key] ?? "" : "");
-  const offer: Offer | undefined = useMemo(() => data?.offers.find((o) => o.id === offerId) ?? data?.offers[0], [data, offerId]);
+  // The first package on sale unless one was chosen (sold-out ones come last).
+  const offer: Offer | undefined = useMemo(
+    () => data?.offers.find((o) => o.id === offerId) ?? data?.offers.find((o) => !o.soldOut) ?? data?.offers[0],
+    [data, offerId],
+  );
+  const soldOut = !!offer?.soldOut;
+  const favs = useApi<Favorites>(me ? "/api/favorites" : null);
+  const isFav = !!data && !!favs.data?.productIds.includes(data.product.id);
+  const waiting = !!offer && !!favs.data?.offerIds.includes(offer.id);
+  const [savingFav, setSavingFav] = useState(false);
   const name = data ? pick(lang, data.product.nameAr, data.product.nameEn) : "";
   const listTotal = (offer?.priceCents ?? 0) * qty;
   const total = coupon ? coupon.totalCents : listTotal;
@@ -90,6 +100,38 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
       }
     }
     if (await copyText(link)) toast(t("linkCopied"));
+  }
+
+  /** Sign in first (the heart and "Notify me" belong to an account). */
+  function needAccount(): boolean {
+    if (me) return false;
+    navigate(`/login?next=${encodeURIComponent(`/p/${slug}`)}`);
+    return true;
+  }
+
+  async function toggle(path: string, on: boolean, done: string) {
+    setSavingFav(true);
+    try {
+      await api(path, { method: on ? "DELETE" : "PUT" });
+      haptic(on ? "tap" : "success");
+      toast(done);
+      invalidate("/api/favorites");
+      await favs.reload();
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    } finally {
+      setSavingFav(false);
+    }
+  }
+
+  function toggleFavorite() {
+    if (!data || needAccount()) return;
+    void toggle(`/api/favorites/${data.product.id}`, isFav, isFav ? t("favRemoved") : t("favAdded"));
+  }
+
+  function toggleAlert() {
+    if (!offer || needAccount()) return;
+    void toggle(`/api/stock-alerts/${offer.id}`, waiting, waiting ? t("notifyOff") : t("notifyOnToast"));
   }
 
   function choose(o: Offer) {
@@ -197,6 +239,11 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
         <span className="wrap" style={{ gap: 10, flexWrap: "nowrap" }}>
           <span className="small muted">{data ? t(`kind_${data.product.kind}`) : ""}</span>
           {data && (
+            <button type="button" className={isFav ? "icon-btn icon-btn--on press" : "icon-btn press"} aria-label={isFav ? t("favRemove") : t("favAdd")} aria-pressed={isFav} onClick={toggleFavorite} disabled={savingFav}>
+              <HeartIcon active={isFav} />
+            </button>
+          )}
+          {data && (
             <button type="button" className="icon-btn press" aria-label={t("share")} onClick={share}>
               <ShareIcon />
             </button>
@@ -205,7 +252,23 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
       }
       foot={
         data &&
-        offer && (
+        offer &&
+        (soldOut ? (
+          <>
+            <button type="button" className={waiting ? "btn btn--block btn--soft press" : "btn btn--block press"} onClick={toggleAlert} disabled={savingFav}>
+              {savingFav ? (
+                <Spinner small />
+              ) : (
+                <>
+                  <BellIcon size={18} active={waiting} /> {waiting ? t("notifyOn") : t("notifyMe")}
+                </>
+              )}
+            </button>
+            <span className="small muted" style={{ textAlign: "center" }}>
+              {waiting ? t("notifyOnHint") : t("notifyHint")}
+            </span>
+          </>
+        ) : (
           <>
             {coupon && (
               <div className="row-between small">
@@ -240,7 +303,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
               )}
             </button>
           </>
-        )
+        ))
       }
     >
       {!data && !error && (
@@ -281,6 +344,13 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             </span>
           </div>
 
+          {soldOut && (
+            <div className="soldout-note">
+              <BellIcon size={18} />
+              <span>{t("soldOutNote")}</span>
+            </div>
+          )}
+
           {data.product.kind === "sms" && <p className="small muted">{t("numBuyHint")}</p>}
 
           {data.offers.length > 1 && (
@@ -301,9 +371,10 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
               )}
               <div className={data.offers.length > 6 ? "options options--many" : "options"} role="radiogroup" aria-label={t("package")}>
                 {data.offers.filter((o) => o.id === offer.id || !pq || matchesQuery(`${o.nameAr} ${o.nameEn}`, pq)).map((o) => (
-                  <button key={o.id} type="button" role="radio" aria-checked={o.id === offer.id} className="option press" onClick={() => choose(o)}>
+                  <button key={o.id} type="button" role="radio" aria-checked={o.id === offer.id} className={o.soldOut ? "option option--soldout press" : "option press"} onClick={() => choose(o)}>
                     <span className="option__name">
                       <span>{pick(lang, o.nameAr, o.nameEn)}</span>
+                      {o.soldOut && <span className="option__soldout">{t("soldOut")}</span>}
                       {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "") && (
                         <span className="option__note">
                           <ShieldIcon size={11} /> {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "")}
@@ -322,7 +393,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             </div>
           )}
 
-          {offer.maxQuantity > 1 && (
+          {!soldOut && offer.maxQuantity > 1 && (
             <div className="row-between">
               <span className="small" style={{ fontWeight: 600 }}>
                 {t("quantity")}
@@ -341,7 +412,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             </div>
           )}
 
-          {offer.fields.map((f) => {
+          {!soldOut && offer.fields.map((f) => {
             const value = valueOf(f.key);
             const bad = (touched || value !== "") && fieldError(f, value);
             const numeric = f.pattern ? /^\^?\[0-9\]|\\d/.test(f.pattern) : false;
@@ -397,7 +468,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             );
           })}
 
-          {after.length > 0 && (
+          {!soldOut && after.length > 0 && (
             <div className="card card--pad after-note stack-sm">
               <strong>{t("afterTitle")}</strong>
               <span className="small muted">{t("afterHint")}</span>
@@ -416,7 +487,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             </div>
           )}
 
-          {me && (
+          {me && !soldOut && (
             <div className="stack-sm">
               {coupon ? (
                 <div className="copy-box" style={{ fontFamily: "inherit" }}>

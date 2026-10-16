@@ -52,6 +52,25 @@ export const SearchIcon = ({ size = 20 }: P) => (
   </Svg>
 );
 
+export const HeartIcon = ({ size = 20, active }: P) => (
+  <Svg size={size}>
+    <path
+      d="M12 20s-7.5-4.4-7.5-10.1A4.4 4.4 0 0 1 12 7.3a4.4 4.4 0 0 1 7.5 2.6C19.5 15.6 12 20 12 20Z"
+      fill={active ? "#E5484D" : "none"}
+      stroke={active ? "#E5484D" : "currentColor"}
+      strokeWidth="1.8"
+      strokeLinejoin="round"
+    />
+  </Svg>
+);
+
+export const BellIcon = ({ size = 20, active }: P) => (
+  <Svg size={size}>
+    <path d="M6 16.5V11a6 6 0 1 1 12 0v5.5l1.5 2h-15z" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    <path d="M10 20.5a2.2 2.2 0 0 0 4 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </Svg>
+);
+
 export const GlobeIcon = ({ size = 20 }: P) => (
   <Svg size={size}>
     <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
@@ -137,7 +156,7 @@ export function MethodMark({ method, size = 40 }: { method: string; size?: numbe
   if (method === "sam") return <img src={SHAMCASH_LOGO} width={size} height={size} alt="" aria-hidden="true" className="method-logo" />;
   if (method === "nowpayments")
     return (
-      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+      <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
         <circle cx="19" cy="19" r="16" fill="#14B8A6" />
         <path d="M12 12h14M19 12v15M13.5 17.5c3 1.2 8 1.2 11 0" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round" fill="none" />
         <circle cx="31" cy="31" r="8" fill="#FACC15" />
@@ -146,7 +165,7 @@ export function MethodMark({ method, size = 40 }: { method: string; size?: numbe
     );
   if (method === "bep20")
     return (
-      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+      <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
         <circle cx="19" cy="19" r="16" fill="#0F766E" />
         <path d="M12 12h14M19 12v15M13.5 17.5c3 1.2 8 1.2 11 0" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round" fill="none" />
         <circle cx="31" cy="31" r="8" fill="#F59E0B" />
@@ -154,7 +173,7 @@ export function MethodMark({ method, size = 40 }: { method: string; size?: numbe
       </svg>
     );
   return (
-    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
       <path d="M20 3.5l4.9 10 11 1.6-8 7.8 1.9 11L20 28.7l-9.8 5.2 1.9-11-8-7.8 11-1.6z" fill="#F5B301" />
       <path d="M20 9.5l3 6.1 6.7 1-4.9 4.7 1.2 6.7-6-3.2-6 3.2 1.2-6.7-4.9-4.7 6.7-1z" fill="#FFD84D" />
     </svg>

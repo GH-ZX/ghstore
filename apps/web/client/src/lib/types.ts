@@ -105,6 +105,15 @@ export interface Offer {
   warrantyEn?: string | null;
   /** How often it delivers, 0-100 (virtual numbers: the share of numbers that got their SMS). */
   successPct?: number | null;
+  /** None left right now: customers can ask to be told when it is back. */
+  soldOut?: boolean;
+}
+
+/** The customer's saved products and the sold-out packages they wait for. */
+export interface Favorites {
+  productIds: string[];
+  offerIds: string[];
+  products: { id: string; slug: string; nameAr: string; nameEn: string; imageUrl: string | null; category: string; fromCents: number | null }[];
 }
 
 /** What a customer gives after paying for a product delivered by hand. */

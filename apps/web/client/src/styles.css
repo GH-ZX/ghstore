@@ -259,6 +259,36 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .badge--warn { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--muted); }
 
+/* favourites and sold-out packages */
+.icon-btn--on { border-color: color-mix(in srgb, #E5484D 45%, var(--line)); background: color-mix(in srgb, #E5484D 8%, var(--surface)); }
+.option--soldout { opacity: .62; }
+.option--soldout[aria-checked="true"] { opacity: 1; }
+.option--soldout .num { text-decoration: line-through; color: var(--muted); }
+.option__soldout { font-size: 11px; font-weight: 700; color: var(--bad); }
+.soldout-note { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--bad) 9%, transparent); color: var(--bad); font-size: 14px; font-weight: 600; }
+
+.fav-row { display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.fav-row::-webkit-scrollbar { display: none; }
+.fav-item { flex: none; width: 104px; display: flex; flex-direction: column; gap: 4px; color: inherit; text-decoration: none; }
+.fav-item__pic { width: 104px !important; height: 104px !important; border-radius: 18px !important; }
+.fav-item__name { font-size: 13px; font-weight: 700; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fav-item__price { color: var(--accent-text); font-weight: 700; }
+
+/* admin top-ups as cards */
+.pay-cards { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 760px) { .pay-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1200px) { .pay-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.pay-card { border-radius: 18px; border: 1px solid var(--line); background: var(--surface); padding: 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pay-card--review { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.pay-card__top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pay-card__who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pay-card__who strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pay-card__amount { font-size: 20px; font-weight: 800; flex: none; }
+.pay-card__ref { overflow-wrap: anywhere; }
+.pay-card__why { font-size: 13px; border-radius: 12px; padding: 8px 10px; background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.chip__count { margin-inline-start: 6px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; background: var(--surface-2); }
+.chip__count--alert { background: var(--warn); color: #1c1305; }
+
 /* search box (admin lists) */
 .search {
   height: 48px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line);

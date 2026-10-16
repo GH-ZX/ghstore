@@ -155,6 +155,13 @@ the customer ticks "I have these ready" before paying.
 
 ## Top-up flow
 
+The smallest and largest top-up are the owner's (Admin → Settings → Top-ups:
+`payments.min_topup_cents`, `payments.max_topup_cents`; $1 and $1,000 when
+unset), sent to the app in `/api/config` and enforced when a top-up is made.
+Admin → Top-ups shows one card per top-up with counts per list, the exact USDT
+amount asked, the reason in words, and "Credit" prefilled (what arrived when
+less did).
+
 | Method | How it is confirmed |
 | --- | --- |
 | Telegram Stars | `successful_payment` arrives on the authenticated bot webhook; amount and payer are checked against the invoice. Mini App only (Telegram's rule for digital goods). |
@@ -246,8 +253,12 @@ New supplier items are never added automatically: the owner chooses them in
 ## Stock, units and pictures
 
 - **Out of stock**: a package the supplier has none of is paused
-  (`supplier_unavailable`) and disappears from the store; the next check puts
-  it back when stock returns. A purchase refused for lack of stock is refunded
+  (`supplier_unavailable`); the next check puts it back when stock returns. On
+  the product page it stays, last and greyed "Sold out" (as does an own-stock
+  package with no code left, `SOLD_OUT_SQL` in `favorites.ts`), with "Notify me":
+  `app.stock_alerts`, and one `back_in_stock` Telegram message when it is on
+  sale again (the price check, the owner adding codes or lifting a pause). The
+  heart saves a product (`app.favorites`, Profile → Favourites). A purchase refused for lack of stock is refunded
   and pauses its package at once. Telegram alerts for stock changes are a
   per-supplier option (`suppliers.stock_alerts`, off by default); price jumps
   and lost margins always alert.
