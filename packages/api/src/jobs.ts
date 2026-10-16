@@ -11,18 +11,41 @@ import { queueDailySummary } from "./reports";
 import { settlePayment } from "./payments";
 import { syncDueSuppliers } from "./sync";
 
-async function heartbeat(svc: Services, name: string, fn: () => Promise<unknown>): Promise<void> {
+/** Failed runs in a row before the owner hears about it on Telegram. */
+export const JOB_ALERT_AFTER = 3;
+
+export async function heartbeat(svc: Services, name: string, fn: () => Promise<unknown>): Promise<void> {
   await svc.db.query(
     `insert into app.job_heartbeats (name, last_started_at) values ($1, now()) on conflict (name) do update set last_started_at = now()`,
     [name],
   );
   try {
     await fn();
-    await svc.db.query(`update app.job_heartbeats set last_ok_at = now(), last_error = null where name = $1`, [name]);
+    const ok = await svc.db.query<{ recovered: boolean }>(
+      `update app.job_heartbeats h set last_ok_at = now(), last_error = null, failures = 0, alerted_at = null
+         from (select alerted_at from app.job_heartbeats where name = $1) p
+        where h.name = $1
+        returning p.alerted_at is not null as recovered`,
+      [name],
+    );
+    if (ok[0]?.recovered) await alertOwners(svc, `✅ Job "${name}" works again.`);
   } catch (err) {
     const msg = err instanceof Error ? err.message.slice(0, 500) : String(err);
     console.error(`job ${name} failed:`, msg);
-    await svc.db.query(`update app.job_heartbeats set last_error = $2 where name = $1`, [name, msg]);
+    try {
+      const failed = await svc.db.query<{ failures: number; alert: boolean }>(
+        `update app.job_heartbeats
+            set last_error = $2, failures = failures + 1,
+                alerted_at = case when failures + 1 >= $3 and alerted_at is null then now() else alerted_at end
+          where name = $1
+          returning failures, (failures >= $3 and alerted_at = now()) as alert`,
+        [name, msg, JOB_ALERT_AFTER],
+      );
+      const f = failed[0];
+      if (f?.alert) await alertOwners(svc, `⚠️ Job "${name}" failed ${f.failures} times in a row: ${msg.slice(0, 300)}`);
+    } catch (e) {
+      console.error(`job ${name}: could not record the failure:`, e instanceof Error ? e.message : String(e));
+    }
   }
 }
 

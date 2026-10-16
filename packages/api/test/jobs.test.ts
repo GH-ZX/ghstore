@@ -1,0 +1,53 @@
+/** Scheduled jobs tell the owner when one keeps failing, once, and again when it recovers. */
+import { afterAll, describe, expect, it } from "vitest";
+import { heartbeat, JOB_ALERT_AFTER } from "../src/jobs";
+import { connectTestDb, Harness } from "./helpers";
+
+const conn = await connectTestDb();
+const db = conn.db;
+const h = new Harness(db);
+const job = `test_job_${Date.now().toString(36)}`;
+
+afterAll(async () => {
+  await db.query(`delete from app.job_heartbeats where name = $1`, [job]);
+  await conn.close();
+});
+
+async function alerts(): Promise<string[]> {
+  const rows = await db.query<{ text: string }>(
+    `select o.data->>'text' as text from app.outbox o join app.users u on u.id = o.user_id
+      where o.template = 'staff_alert' and u.role = 'owner' and o.data->>'text' like $1 order by o.id`,
+    [`%"${job}"%`],
+  );
+  return [...new Set(rows.map((r) => r.text))];
+}
+
+describe("job failure alerts", () => {
+  it("alert the owner after repeated failures, only once, and when the job recovers", async () => {
+    await h.login(900001, "Owner"); // makes sure an owner exists
+    const fail = () => heartbeat(h.svc, job, async () => Promise.reject(new Error("supplier API timed out")));
+
+    for (let i = 1; i < JOB_ALERT_AFTER; i++) await fail();
+    expect(await alerts()).toEqual([]);
+    await fail();
+    expect(await alerts()).toEqual([`⚠️ Job "${job}" failed ${JOB_ALERT_AFTER} times in a row: supplier API timed out`]);
+    await fail();
+    await fail();
+    expect((await alerts()).length).toBe(1);
+    const row = (await db.query<{ failures: number; last_error: string }>(`select failures, last_error from app.job_heartbeats where name = $1`, [job]))[0]!;
+    expect(row).toMatchObject({ failures: JOB_ALERT_AFTER + 2, last_error: "supplier API timed out" });
+
+    await heartbeat(h.svc, job, async () => undefined);
+    expect(await alerts()).toEqual([
+      `⚠️ Job "${job}" failed ${JOB_ALERT_AFTER} times in a row: supplier API timed out`,
+      `✅ Job "${job}" works again.`,
+    ]);
+    const reset = (await db.query<{ failures: number; alerted_at: string | null }>(`select failures, alerted_at from app.job_heartbeats where name = $1`, [job]))[0]!;
+    expect(reset).toEqual({ failures: 0, alerted_at: null });
+
+    // A single blip after recovering stays quiet.
+    await fail();
+    await heartbeat(h.svc, job, async () => undefined);
+    expect((await alerts()).length).toBe(2);
+  });
+});
