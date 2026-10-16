@@ -160,6 +160,20 @@ the customer ticks "I have these ready" before paying.
 Anything that does not match exactly (underpaid, overpaid, wrong payer) goes to
 **review** in the admin instead of being credited.
 
+**15 minutes to pay, and Cancel.** Every top-up shows a countdown from the
+server's `secondsLeft` (a phone's clock may be off) and a Cancel button while
+unpaid (`POST /api/topups/:id/cancel`; USDT only before a hash). Closing
+marks it `expired` with a note (`CLOSED_NOTES`):
+- Stars: Telegram's checkout is refused after the window, so nothing is charged.
+- ShamCash / NOWPayments close 17 minutes after the request; a payment the
+  provider still confirms later (webhook, or the 2-minute re-check for 2 days)
+  reopens and credits it: the money arrived. A Stars payment Telegram took is
+  credited the same way.
+- Manual USDT: a transfer must be mined within the 15 minutes (plus 2 minutes
+  for clocks, `notAfter` in `verifyTransfer`); the request stays open 30 more
+  minutes to paste the hash of a transfer made in time, then closes and its
+  amount is free again.
+
 **USDT found by its amount** (`detectUsdtDeposits`, every 2 minutes while a
 USDT request is open): every open request has its own amount (requested + 1 to
 99 cents, unique among open requests), so a confirmed USDT transfer of exactly

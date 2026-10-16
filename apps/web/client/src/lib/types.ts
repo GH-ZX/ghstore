@@ -226,6 +226,10 @@ export interface CreatedTopup {
   amountCents: number;
   action: PaymentAction;
   expiresAt: string | null;
+  /** Pay before this time, by the server's clock. */
+  sendBy?: string | null;
+  /** Seconds left to pay (the countdown starts from this). */
+  secondsLeft?: number;
 }
 
 export interface Topup {
@@ -239,6 +243,10 @@ export interface Topup {
   txHash: string | null;
   /** Manual USDT only: waiting for a hash, checking it on chain, or it did not match. */
   stage: "await_hash" | "checking" | "mismatch" | null;
+  /** Pay before this time (15 minutes from the request), by the server's clock. */
+  sendBy: string | null;
+  /** Seconds left to pay, by the server's clock (the countdown starts from this). */
+  secondsLeft?: number;
 }
 
 export interface CouponQuote {

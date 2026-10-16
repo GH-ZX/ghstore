@@ -1,5 +1,6 @@
 /**
- * Add funds: pick an amount and a method, then follow that method's step.
+ * Add funds: pick an amount and a method, then follow that method's step
+ * within 15 minutes (a countdown, and Cancel while unpaid).
  *  - ShamCash (SAM): open the invoice, we watch for the payment.
  *  - USDT auto (NOWPayments): send to the shown address, we watch for it.
  *  - USDT manual (BEP20): send the exact amount, paste the transaction hash.
@@ -18,15 +19,33 @@ import { CheckIcon, MethodMark } from "../ui/icons";
 import { Sheet, Spinner } from "../ui/kit";
 
 type Step = "choose" | "pay" | "done";
-type Outcome = "paid" | "review" | "pending" | "failed";
+type Outcome = "paid" | "review" | "pending" | "failed" | "closed";
 
 const PRESETS = [500, 1000, 2500, 5000];
 const getLang = () => getState().lang;
+/** The payment window, for the bar under the countdown. */
+const SEND_WINDOW_S = 15 * 60;
+
+/** The local moment `seconds` from now: a deadline by this device's clock, whatever its time. */
+const deadlineIn = (seconds: number | undefined) => (seconds === undefined ? null : new Date(Date.now() + seconds * 1000).toISOString());
+
+/** Seconds left until `iso`, ticking every second (null without a time). */
+function useSecondsLeft(iso: string | null | undefined): number | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!iso) return;
+    setNow(Date.now()); // count from now, not from when the sheet opened
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [iso]);
+  return iso ? Math.min(SEND_WINDOW_S, Math.max(0, Math.floor((Date.parse(iso) - now) / 1000))) : null;
+}
 
 function outcomeOf(status: string): Outcome {
   if (status === "paid") return "paid";
   if (status === "review" || status === "partial") return "review";
-  if (status === "failed" || status === "expired" || status === "rejected") return "failed";
+  if (status === "expired") return "closed";
+  if (status === "failed" || status === "rejected") return "failed";
   return "pending";
 }
 
@@ -40,7 +59,9 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
   const [step, setStep] = useState<Step>(paymentId ? "pay" : "choose");
   const [amountText, setAmountText] = useState(String(Math.min(Math.max(Math.ceil(initialCents / 100), min / 100), max / 100)));
   const [method, setMethod] = useState<PaymentMethod | null>(methods[0] ?? null);
-  const [topup, setTopup] = useState<{ id: string; method: PaymentMethod; amountCents: number; action: PaymentAction | null } | null>(null);
+  const [topup, setTopup] = useState<{ id: string; method: PaymentMethod; amountCents: number; action: PaymentAction | null; sendBy?: string | null } | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const left = useSecondsLeft(topup?.sendBy);
   const [outcome, setOutcome] = useState<Outcome>("pending");
   const [busy, setBusy] = useState(false);
   const [watching, setWatching] = useState(false);
@@ -78,9 +99,10 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
       try {
         const p = await api<Topup>(`/api/topups/${encodeURIComponent(paymentId)}`);
         if (cancelled || !alive.current) return;
-        setTopup({ id: p.id, method: p.method, amountCents: p.amountCents, action: p.action });
+        setTopup({ id: p.id, method: p.method, amountCents: p.amountCents, action: p.action, sendBy: deadlineIn(p.secondsLeft) });
         if (p.status === "paid") finish("paid");
-        else if (p.status === "failed" || p.status === "expired" || p.status === "rejected") finish("failed");
+        else if (p.status === "expired") finish("closed");
+        else if (p.status === "failed" || p.status === "rejected") finish("failed");
         else if (p.method === "bep20") {
           if (p.stage === "checking") {
             setTx(p.txHash ?? "");
@@ -117,7 +139,8 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
         }
         const p = await api<Topup>(`/api/topups/${topup.id}`);
         if (p.status === "paid") return finish("paid");
-        if (p.status === "failed" || p.status === "expired" || p.status === "rejected") return finish("failed");
+        if (p.status === "expired") return finish("closed");
+        if (p.status === "failed" || p.status === "rejected") return finish("failed");
         if (topup.method === "bep20") {
           if (p.stage === "mismatch") {
             setWatching(false);
@@ -141,7 +164,7 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
     setBusy(true);
     try {
       const r = await api<CreatedTopup>("/api/topups", { body: { method, amountCents: cents } });
-      setTopup({ id: r.paymentId, method, amountCents: r.amountCents, action: r.action });
+      setTopup({ id: r.paymentId, method, amountCents: r.amountCents, action: r.action, sendBy: deadlineIn(r.secondsLeft) });
       setStep("pay");
       if (r.action.type === "telegram_invoice") payStars(r.action.url, r.paymentId);
       else if (r.action.type === "redirect") openExternal(r.action.url);
@@ -186,6 +209,23 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
     }
   }
 
+  /** Drop an unpaid top-up (USDT: only before a hash was given). */
+  async function cancelTopup() {
+    if (!topup) return;
+    setBusy(true);
+    try {
+      await api(`/api/topups/${topup.id}/cancel`, { method: "POST" });
+      invalidate("/api/wallet");
+      toast(t("usdtCancelled"));
+      onClose();
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      setConfirmCancel(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function copy(v: string) {
     if (await copyText(v)) toast(t("copied"));
   }
@@ -193,14 +233,14 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
   // ───────────── done
   if (step === "done") {
     const ok = outcome === "paid";
-    const title = { paid: "topupPaid", review: "topupReview", pending: "topupPending", failed: "topupFailed" } as const;
-    const text = { paid: "topupPaidText", review: "topupReviewText", pending: "topupPendingText", failed: "topupFailedText" } as const;
+    const title = { paid: "topupPaid", review: "topupReview", pending: "topupPending", failed: "topupFailed", closed: "topupClosed" } as const;
+    const text = { paid: "topupPaidText", review: "topupReviewText", pending: "topupPendingText", failed: "topupFailedText", closed: "topupClosedText" } as const;
     const color = ok ? "var(--good)" : outcome === "failed" ? "var(--bad)" : "var(--warn)";
     return (
       <Sheet onClose={onClose} label={t(title[outcome])} head={<span />}>
         <div className="done">
           <span className="done__icon pop" style={{ background: `color-mix(in srgb, ${color} 15%, transparent)`, color }}>
-            {ok ? <CheckIcon size={36} /> : outcome === "failed" ? "!" : <Spinner />}
+            {ok ? <CheckIcon size={36} /> : outcome === "failed" || outcome === "closed" ? "!" : <Spinner />}
           </span>
           <h2>{t(title[outcome])}</h2>
           <p className="muted">{t(text[outcome], { amount: usd(topup?.amountCents ?? 0) })}</p>
@@ -216,6 +256,10 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
   if (step === "pay") {
     const a = topup?.action;
     const m = topup?.method;
+    // After its 15 minutes: no more paying (USDT: only a hash for a transfer made in time).
+    const timeUp = left === 0;
+    // Cancel while unpaid: USDT before a hash, Stars before Telegram took the payment.
+    const canCancel = m === "bep20" ? !watching && !tx.trim() : m === "stars" ? !watching : true;
     return (
       <Sheet
         onClose={onClose}
@@ -232,9 +276,29 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
         }
       >
         {!topup && <Spinner />}
-        {topup && m && <p>{m === "bep20" ? t("c_bep20", { amount: a?.type === "address" ? a.amount : "" }) : t(`c_${m}`)}</p>}
+        {topup && m && !timeUp && <p>{m === "bep20" ? t("c_bep20", { amount: a?.type === "address" ? a.amount : "" }) : t(`c_${m}`)}</p>}
 
-        {a?.type === "address" && (
+        {topup && left !== null && !(m === "bep20" && watching) && (
+          <div className={timeUp ? "card card--pad usdt-timer usdt-timer--up" : "card card--pad usdt-timer"} role="timer" aria-live="off">
+            {timeUp ? (
+              <span>{m === "bep20" ? t("usdtTimeUp") : t("topupTimeUp")}</span>
+            ) : (
+              <>
+                <div className="row-between">
+                  <span className="small muted">{t("usdtSendWithin")}</span>
+                  <strong className="num usdt-timer__clock">
+                    {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}
+                  </strong>
+                </div>
+                <div className="hbar__track">
+                  <span className={left < 180 ? "hbar__fill hbar__fill--warn" : "hbar__fill"} style={{ width: `${Math.min(100, (left / SEND_WINDOW_S) * 100)}%` }} />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {a?.type === "address" && !timeUp && (
           <div className="stack-sm">
             <span className="small muted">{t("exactAmount")}</span>
             <div className="copy-box">
@@ -277,12 +341,12 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
           </label>
         )}
 
-        {a?.type === "redirect" && (
+        {a?.type === "redirect" && !timeUp && (
           <button type="button" className="btn btn--block btn--soft press" onClick={() => openExternal(a.url)}>
             {t("openInvoice")}
           </button>
         )}
-        {a?.type === "telegram_invoice" && !watching && (
+        {a?.type === "telegram_invoice" && !watching && !timeUp && (
           <button type="button" className="btn btn--block btn--soft press" onClick={() => payStars(a.url, topup!.id)}>
             {t("b_stars")}
           </button>
@@ -300,6 +364,24 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
             {busy ? <Spinner small /> : t("submitTx")}
           </button>
         )}
+        {canCancel &&
+          (confirmCancel ? (
+            <div className="card card--pad stack-sm" role="alertdialog" aria-label={t("usdtCancel")}>
+              <span>{t("usdtCancelSure")}</span>
+              <div className="wrap" style={{ gap: 8 }}>
+                <button type="button" className="btn btn--sm btn--danger press" disabled={busy} onClick={cancelTopup}>
+                  {t("usdtCancelYes")}
+                </button>
+                <button type="button" className="btn btn--sm btn--ghost press" disabled={busy} onClick={() => setConfirmCancel(false)}>
+                  {t("usdtKeep")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="btn btn--block btn--ghost press" disabled={busy} onClick={() => setConfirmCancel(true)}>
+              {t("usdtCancel")}
+            </button>
+          ))}
       </Sheet>
     );
   }
