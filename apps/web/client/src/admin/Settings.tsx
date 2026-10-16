@@ -59,9 +59,9 @@ function KeysCard() {
       {!keys ? (
         <div className="skeleton" style={{ height: 120 }} />
       ) : (
-        (["payments", "suppliers", "telegram"] as const).map((group) => (
+        (["payments", "suppliers", "telegram", "email"] as const).map((group) => (
           <div key={group} className="stack-sm">
-            <h3 style={{ margin: 0, fontSize: 15 }}>{t(group === "payments" ? "keysPayments" : group === "suppliers" ? "keysSuppliers" : "keysTelegram")}</h3>
+            <h3 style={{ margin: 0, fontSize: 15 }}>{t(group === "payments" ? "keysPayments" : group === "suppliers" ? "keysSuppliers" : group === "telegram" ? "keysTelegram" : "keysEmail")}</h3>
             {keys.filter((k) => k.group === group).map((k) => {
               const draft = drafts[k.name] ?? "";
               return (
@@ -187,6 +187,7 @@ export function Settings() {
   const [email, setEmail] = useState("");
   const [channel, setChannel] = useState("");
   const [stars, setStars] = useState("");
+  const [mailFrom, setMailFrom] = useState("");
 
   useEffect(() => {
     if (!data) return;
@@ -197,6 +198,7 @@ export function Settings() {
     setWa(text("support.whatsapp"));
     setEmail(text("support.email"));
     setChannel(text("telegram.channel_url"));
+    setMailFrom(text("email.from"));
     const sr = data.settings["payments.stars_per_usd"];
     setStars(typeof sr === "number" ? String(sr) : "");
     const dh = data.settings["reports.daily_hour"];
@@ -386,6 +388,29 @@ export function Settings() {
         >
           {t("save")}
         </button>
+      </section>
+
+      <section className="card card--pad stack-sm">
+        <div>
+          <h2>{t("emailReceipts")}</h2>
+          <p className="hint">{t("emailReceiptsHint")}</p>
+        </div>
+        <div className="pref-row">
+          <span>{t("emailReceiptsOn")}</span>
+          <Switch checked={data.settings["email.receipts"] !== false} onChange={(v) => put("email.receipts", v)} label={t("emailReceiptsOn")} />
+        </div>
+        <label className="field">
+          <span>{t("emailFrom")}</span>
+          <input className="input" dir="ltr" value={mailFrom} placeholder="GH Store <orders@gh-store.me>" autoComplete="off" onChange={(e) => setMailFrom(e.target.value)} />
+        </label>
+        <div className="wrap">
+          <button type="button" className="btn btn--sm press" disabled={action.busy} onClick={() => put("email.from", mailFrom.trim() || null)}>
+            {t("save")}
+          </button>
+          <button type="button" className="btn btn--sm btn--ghost press" disabled={action.busy} onClick={() => void action.run("/api/admin/email/test", {}, t("testEmailSent"))}>
+            {t("sendTestEmail")}
+          </button>
+        </div>
       </section>
 
       <section className="card card--pad stack-sm">

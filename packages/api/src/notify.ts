@@ -5,6 +5,7 @@
 import { formatUsd } from "@store/core";
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
+import { emailReady, emailSettings, RECEIPT_TEMPLATES, renderReceipt, sendEmail } from "./email";
 import { effectiveEnv } from "./keys";
 import { botUsername } from "./settings";
 import { summaryText, type DaySummary } from "./reports";
@@ -65,37 +66,93 @@ export function renderTemplate(template: string, locale: "ar" | "en", data: Data
   return t ? t[locale](data) : null;
 }
 
-/** Send up to `limit` pending messages. Returns how many were sent. */
+/** Send up to `limit` pending messages (Telegram and email). Returns how many were sent. */
 export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promise<number> {
-  const claimed = await svc.db.query<{ id: string | number; priority: number; template: string; data: Data; locale: "ar" | "en"; notify: boolean; chat_id: string | null; attempts: number }>(
+  const claimed = await svc.db.query<{
+    id: string | number;
+    user_id: string;
+    channel: "telegram" | "email";
+    priority: number;
+    template: string;
+    data: Data;
+    locale: "ar" | "en";
+    notify: boolean;
+    chat_id: string | null;
+    email: string | null;
+    attempts: number;
+  }>(
     `update app.outbox o set attempts = o.attempts + 1, available_at = now() + interval '2 minutes'
       where o.id in (select id from app.outbox where status = 'pending' and available_at <= now() order by priority, id limit $1 for update skip locked)
-     returning o.id, o.priority, o.template, o.data, o.attempts,
+     returning o.id, o.user_id, o.channel, o.priority, o.template, o.data, o.attempts,
        (select u.locale from app.users u where u.id = o.user_id) as locale,
        (select u.notify from app.users u where u.id = o.user_id) as notify,
-       (select i.subject from app.identities i where i.user_id = o.user_id and i.provider = 'telegram' limit 1) as chat_id`,
+       (select i.subject from app.identities i where i.user_id = o.user_id and i.provider = 'telegram' limit 1) as chat_id,
+       (select i.email from app.identities i where i.user_id = o.user_id and i.provider = 'supabase' and i.email is not null limit 1) as email`,
     [limit],
   );
   // UPDATE ... RETURNING has no order: receipts and alerts first, then broadcasts, oldest first.
   const rows = claimed.sort((a, b) => a.priority - b.priority || n(a.id) - n(b.id));
   let sent = 0;
+  const skip = (id: string | number) => svc.db.query(`update app.outbox set status = 'sent', sent_at = now(), last_error = 'skipped' where id = $1`, [id]);
+  const done = (id: string | number) => svc.db.query(`update app.outbox set status = 'sent', sent_at = now() where id = $1`, [id]);
+  const failed = (id: string | number, err: unknown) => {
+    const msg = err instanceof Error ? err.message.slice(0, 300) : "error";
+    // The person blocked the bot or deleted their account: trying again will not help.
+    const final = UNREACHABLE.test(msg);
+    return svc.db.query(`update app.outbox set status = case when $3 or attempts >= 5 then 'failed' else 'pending' end, last_error = $2 where id = $1`, [id, msg, final]);
+  };
+
+  // Email receipts: only read the settings when a batch has something to do with email.
+  const needsEmail = rows.some((r) => r.channel === "email" || (RECEIPT_TEMPLATES.has(r.template) && r.email));
+  const mail = needsEmail ? await emailSettings(env, svc.db) : null;
   // Staff messages come from the separate staff-alerts bot when the owner set one.
   const staffBot = rows.some((r) => STAFF_TEMPLATES.has(r.template)) && !!(await effectiveEnv(env, svc.db)).NOTIFY_BOT_TOKEN;
   const storeBot = staffBot ? await botUsername(svc.db) : "";
+
   for (const r of rows) {
-    const text = renderTemplate(r.template, r.locale ?? "ar", r.data ?? {});
+    const locale = r.locale ?? "ar";
+    if (r.channel === "email") {
+      if (!mail || !emailReady(mail) || !r.email || !r.notify) {
+        await skip(r.id);
+        continue;
+      }
+      try {
+        const msg = await renderReceipt(svc.db, env.PUBLIC_BASE_URL, r.user_id, r.template, locale, r.data ?? {});
+        if (!msg) {
+          await skip(r.id);
+          continue;
+        }
+        await sendEmail(svc, mail, r.email, msg, `outbox-${r.id}`);
+        await done(r.id);
+        sent++;
+      } catch (err) {
+        await failed(r.id, err);
+      }
+      continue;
+    }
+
+    // A receipt also goes by email, as its own message, the first time it is picked up.
+    if (r.attempts === 1 && RECEIPT_TEMPLATES.has(r.template) && r.email && r.notify && mail && emailReady(mail)) {
+      await svc.db.query(`insert into app.outbox (user_id, channel, template, data) values ($1, 'email', $2, $3::text::jsonb)`, [
+        r.user_id,
+        r.template,
+        JSON.stringify(r.data ?? {}),
+      ]);
+    }
+
+    const text = renderTemplate(r.template, locale, r.data ?? {});
     const isStaff = STAFF_TEMPLATES.has(r.template);
     if (!text || !r.chat_id || (!r.notify && !isStaff)) {
-      await svc.db.query(`update app.outbox set status = 'sent', sent_at = now(), last_error = 'skipped' where id = $1`, [r.id]);
+      await skip(r.id);
       continue;
     }
     try {
       // "Buy again" and product broadcasts open the product itself; everything else opens the store.
       const slug = (r.template === "buy_again" || r.template === "broadcast") && typeof r.data?.slug === "string" && /^[a-z0-9-]{1,80}$/.test(r.data.slug) ? r.data.slug : null;
       const label = slug
-        ? r.template === "buy_again" ? (r.locale === "en" ? "Buy again" : "اطلبه مجدداً") : r.locale === "en" ? "View" : "عرض المنتج"
-        : isStaff ? (r.locale === "en" ? "Open admin" : "افتح الإدارة")
-        : r.locale === "en" ? "Open store" : "افتح المتجر";
+        ? r.template === "buy_again" ? (locale === "en" ? "Buy again" : "اطلبه مجدداً") : locale === "en" ? "View" : "عرض المنتج"
+        : isStaff ? (locale === "en" ? "Open admin" : "افتح الإدارة")
+        : locale === "en" ? "Open store" : "افتح المتجر";
       const url = slug ? `${env.PUBLIC_BASE_URL}/tg?startapp=p_${slug}` : isStaff ? `${env.PUBLIC_BASE_URL}/tg?startapp=admin` : `${env.PUBLIC_BASE_URL}/tg`;
       if (isStaff && staffBot) {
         // A Mini App button would sign in through the wrong bot: link to the store bot's Mini App instead.
@@ -104,13 +161,10 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
       } else {
         await svc.telegram("sendMessage", { chat_id: r.chat_id, text, reply_markup: { inline_keyboard: [[{ text: label, web_app: { url } }]] } });
       }
-      await svc.db.query(`update app.outbox set status = 'sent', sent_at = now() where id = $1`, [r.id]);
+      await done(r.id);
       sent++;
     } catch (err) {
-      const msg = err instanceof Error ? err.message.slice(0, 300) : "error";
-      // The person blocked the bot or deleted their account: trying again will not help.
-      const final = UNREACHABLE.test(msg);
-      await svc.db.query(`update app.outbox set status = case when $3 or attempts >= 5 then 'failed' else 'pending' end, last_error = $2 where id = $1`, [r.id, msg, final]);
+      await failed(r.id, err);
     }
   }
   return sent;

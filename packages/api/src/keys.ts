@@ -18,7 +18,7 @@ import { ApiError, json, readJson } from "./http";
 
 export interface KeySpec {
   name: string;
-  group: "payments" | "suppliers" | "telegram";
+  group: "payments" | "suppliers" | "telegram" | "email";
   /** What it is for, shown in the admin. */
   label: string;
   pattern: RegExp;
@@ -40,6 +40,8 @@ export const STORE_KEYS: KeySpec[] = [
   // Optional second bot that sends staff alerts (new orders, stuck orders, daily summary).
   // A wrong value only affects those alerts, so unlike the store bot it can live here.
   { name: "NOTIFY_BOT_TOKEN", group: "telegram", label: "Staff alerts bot token (optional)", pattern: /^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$/ },
+  // Email receipts (Admin → Settings → Email receipts), sent with Resend.
+  { name: "RESEND_API_KEY", group: "email", label: "Resend API key", pattern: /^re_[A-Za-z0-9_]{10,200}$/ },
 ];
 const SPEC = new Map(STORE_KEYS.map((k) => [k.name, k]));
 

@@ -4,6 +4,7 @@
  * can change settings, balances and roles.
  */
 import { requireStaff } from "./auth";
+import { EMAIL_FROM, sendTestEmail } from "./email";
 import { TIME_ZONE } from "./reports";
 import { CHANNEL_URL, EMAIL, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
 import type { Ctx } from "./context";
@@ -162,6 +163,8 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   // Tell owners and support staff about each new order.
   "notify.new_orders": (v) => typeof v === "boolean",
   "login.email": (v) => typeof v === "boolean",
+  "email.receipts": (v) => typeof v === "boolean",
+  "email.from": (v) => v === null || (typeof v === "string" && EMAIL_FROM.test(v)),
   "login.google": (v) => typeof v === "boolean",
 };
 
@@ -255,4 +258,18 @@ export async function listUsers(ctx: Ctx): Promise<Response> {
       balanceCents: n(r.balance_cents), telegramUsername: r.telegram, telegramId: r.tg_id, email: r.email, orders: n(r.orders),
     })),
   });
+}
+
+/** Admin → Settings → Email receipts → "Send me a test": a sample receipt to the owner's linked email. */
+export async function testEmail(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  try {
+    const to = await sendTestEmail(ctx.svc, ctx.env, staff.id, staff.locale);
+    return json({ ok: true, to });
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    // Resend refused (wrong key, unverified domain...): say why, without any secret.
+    const msg = err instanceof Error ? err.message.slice(0, 200) : "error";
+    return json({ error: { code: "bad_state", field: msg } }, { status: 409 });
+  }
 }
