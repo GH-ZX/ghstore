@@ -581,6 +581,52 @@ describe("supplier sync and margin guard", () => {
     const unchecked = await db.query(`select 1 from app.offers where supplier_id = $1 and cost_checked_at is null`, [supplier]);
     expect(unchecked.length).toBe(0);
   });
+
+  it("checks every package on a supplier's first sync, even ones an import marked as checked", async () => {
+    const supplier = `f_${run}`;
+    await db.query(`insert into app.suppliers (id, name, enabled) values ($1, 'First', true)`, [supplier]);
+    await db.query(
+      `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value, cost_checked_at)
+       values ($1, 'x', 'x', $2, 'a:1', 100, 115, 'percent', 15, now() - interval '1 day')`,
+      [productId, supplier],
+    );
+    let asked = 0;
+    h.suppliers.set(supplier, {
+      ...fakeSupplier,
+      id: supplier,
+      listProductsFor: async (ids) => {
+        asked++;
+        return ids.map((id) => ({ externalId: id, name: id, costCents: 120, available: true, kind: "code" as const }));
+      },
+      syncGroup: (id) => id.split(":")[0]!,
+    });
+    const r = await syncSupplier(h.svc, supplier, { maxGroups: 5 });
+    expect(r).toMatchObject({ checked: 1, repriced: 1, complete: true });
+    expect(asked).toBe(1);
+  });
+
+  it("re-points a package at a renumbered supplier item, keeping its product and history", async () => {
+    const owner = await h.login(900001, "Owner");
+    const supplier = `r_${run}`;
+    await db.query(`insert into app.suppliers (id, name, enabled) values ($1, 'Renumbered', true)`, [supplier]);
+    const [a, b] = await Promise.all(["10", "11"].map(async (ref) => (await db.query<{ id: string }>(
+      `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value, paused_reason)
+       values ($1, 'x', 'x', $2, $3, 100, 115, 'percent', 15, 'supplier_unavailable') returning id`,
+      [productId, supplier, ref],
+    ))[0]!.id));
+    const customer = await h.login(tg(40));
+    expect((await h.call("POST", `/api/admin/offers/${a}/relink`, { token: customer, body: { supplierRef: "210", costCents: 200 } })).status).toBe(403);
+    const ok = await h.call("POST", `/api/admin/offers/${a}/relink`, { token: owner, body: { supplierRef: "210", costCents: 200 } });
+    expect(ok.status).toBe(200);
+    expect(ok.data.priceCents).toBe(230);
+    const row = (await db.query<{ supplier_ref: string; cost_cents: string | number; paused_reason: string | null }>(`select supplier_ref, cost_cents, paused_reason from app.offers where id = $1`, [a]))[0]!;
+    expect(row).toMatchObject({ supplier_ref: "210", paused_reason: null });
+    expect(Number(row.cost_cents)).toBe(200);
+    // Two packages cannot point at the same item.
+    expect((await h.call("POST", `/api/admin/offers/${b}/relink`, { token: owner, body: { supplierRef: "210", costCents: 200 } })).status).toBe(409);
+    const audit = await db.query(`select data from app.audit_log where action = 'offer.relink' and target_id = $1`, [a]);
+    expect(audit.length).toBe(1);
+  });
 });
 
 describe("suppliers switched off", () => {

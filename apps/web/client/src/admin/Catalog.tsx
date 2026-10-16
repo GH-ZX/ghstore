@@ -132,6 +132,11 @@ export function Catalog() {
         <ImportSheet
           supplier={editing.supplier}
           products={data.products}
+          linked={data.offers.filter((o) => o.supplier_id === editing.supplier.id)}
+          onRelinked={() => {
+            invalidate("/api/catalog");
+            void reload();
+          }}
           onClose={close}
           onPick={(product, preset) => setEditing({ kind: "offer", product, offer: null, preset })}
           onNewProduct={() => setEditing({ kind: "product", product: null })}
@@ -614,8 +619,21 @@ interface SupplierItem {
   offerId: string | null;
 }
 
-function ImportSheet({ supplier, products, onClose, onPick, onNewProduct }: { supplier: Sup; products: Prod[]; onClose: () => void; onPick: (p: Prod, preset: Partial<OfferDraft>) => void; onNewProduct: () => void }) {
+function ImportSheet({ supplier, products, linked, onRelinked, onClose, onPick, onNewProduct }: { supplier: Sup; products: Prod[]; linked: Off[]; onRelinked: () => void; onClose: () => void; onPick: (p: Prod, preset: Partial<OfferDraft>) => void; onNewProduct: () => void }) {
   const { t, lang } = useT();
+  const action = useAction();
+  // Packages whose supplier item disappeared (e.g. the supplier renumbered its catalogue): they can be pointed at a new item.
+  const orphans = linked.filter((o) => o.paused_reason === "supplier_unavailable");
+  const productName = (id: string) => {
+    const p = products.find((x) => x.id === id);
+    return p ? pick(lang, p.name_ar, p.name_en) : "";
+  };
+  async function relink(offerId: string, item: SupplierItem) {
+    if (await action.run(`/api/admin/offers/${offerId}/relink`, { body: { supplierRef: item.externalId, costCents: item.costCents } }, t("relinked"))) {
+      onRelinked();
+      void reload();
+    }
+  }
   // Big catalogues (G2Bulk) come in groups: pick a game, then its packages load.
   const [group, setGroup] = useState("");
   const base = `/api/admin/suppliers/${supplier.id}/products`;
@@ -679,6 +697,23 @@ function ImportSheet({ supplier, products, onClose, onPick, onNewProduct }: { su
                 </span>
               </span>
               <span className="num">{usd(i.costCents)}</span>
+              {!i.offerId && orphans.length > 0 && (
+                <select
+                  className="select"
+                  style={{ maxWidth: 200, fontSize: 13 }}
+                  aria-label={t("replacePackage")}
+                  value=""
+                  disabled={action.busy}
+                  onChange={(e) => e.target.value && void relink(e.target.value, i)}
+                >
+                  <option value="">{t("replacePackage")}</option>
+                  {orphans.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {productName(o.product_id)} · {pick(lang, o.name_ar, o.name_en)} (#{o.supplier_ref})
+                    </option>
+                  ))}
+                </select>
+              )}
               {i.offerId ? (
                 <span className="badge badge--good">{t("linked")}</span>
               ) : (

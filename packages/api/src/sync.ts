@@ -54,9 +54,11 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
   if (!adapter) return report;
 
   // `due`: not checked since the last complete pass (a pass may take several runs).
+  // A supplier never synced yet: anything not checked in the last hour is due,
+  // whatever an import recorded, while a pass in progress moves on.
   let offers = await svc.db.query<OfferRow & { due: boolean }>(
     `select o.id, o.supplier_ref, o.cost_cents, o.price_cents, o.markup_mode, o.markup_value, o.round_to_cents, o.min_margin_pct, o.paused_reason,
-            (o.cost_checked_at is null or o.cost_checked_at <= coalesce(s.last_sync_at, '-infinity')) as due
+            (o.cost_checked_at is null or o.cost_checked_at <= coalesce(s.last_sync_at, now() - interval '1 hour')) as due
        from app.offers o join app.suppliers s on s.id = o.supplier_id
       where o.supplier_id = $1 and o.active
       order by o.cost_checked_at nulls first, o.id`,

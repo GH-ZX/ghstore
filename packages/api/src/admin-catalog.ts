@@ -9,7 +9,7 @@
 import { encryptText, minimumPrice, priceFromCost, type InputField, type MarkupMode } from "@store/core";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
-import { call, must, n } from "./db";
+import { call, must, n, one } from "./db";
 import { ApiError, int, json, optStr, readJson, str, uuid } from "./http";
 
 const SLUG = /^[a-z0-9-]{1,80}$/;
@@ -398,4 +398,43 @@ export async function updateSupplier(ctx: Ctx): Promise<Response> {
   await updateRow(ctx, "suppliers", id, changes);
   await audit(ctx, staff.id, "supplier.update", "supplier", id, changes);
   return json({ ok: true });
+}
+
+/**
+ * Point an existing supplier package at another item of the same supplier, for
+ * when the supplier renumbers its catalogue (BatStore did when it moved). The
+ * package keeps its product, names, fields and history; its cost becomes the
+ * new item's and its price follows its pricing rule (a manual price must still
+ * clear the margin). The sync's own pause is lifted; a staff pause stays.
+ */
+export async function relinkOffer(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const supplierRef = str(body, "supplierRef", { max: 120 });
+  const cost = int(body, "costCents", 1, 10_000_000);
+  const cur = await must<{ supplier_id: string | null; supplier_ref: string | null; cost_cents: string | number | null; price_cents: string | number; markup_mode: MarkupMode; markup_value: string | number; round_to_cents: number; min_margin_pct: string | number }>(
+    ctx.svc.db,
+    `select supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value, round_to_cents, min_margin_pct from app.offers where id = $1`,
+    [id],
+  );
+  if (!cur.supplier_id) throw new ApiError("bad_state", "supplier");
+  const taken = await one(ctx.svc.db, `select 1 from app.offers where supplier_id = $1 and supplier_ref = $2 and id <> $3`, [cur.supplier_id, supplierRef, id]);
+  if (taken) throw new ApiError("conflict", "supplierRef");
+  const rule: OfferPricing = { mode: cur.markup_mode, value: Number(cur.markup_value), roundToCents: cur.round_to_cents, minMarginPct: Number(cur.min_margin_pct) };
+  const price = resolvePrice(cost, rule, rule.mode === "manual" ? n(cur.price_cents) : undefined);
+  await ctx.svc.db.query(
+    `update app.offers set supplier_ref = $2, cost_cents = $3, price_cents = $4, cost_checked_at = now(),
+            paused_reason = case when paused_reason in ('supplier_unavailable', 'cost_above_margin') then null else paused_reason end
+      where id = $1`,
+    [id, supplierRef, cost, price],
+  );
+  if (price !== n(cur.price_cents) || cost !== (cur.cost_cents === null ? null : n(cur.cost_cents))) {
+    await ctx.svc.db.query(
+      `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $5, 'manual')`,
+      [id, cur.cost_cents === null ? null : n(cur.cost_cents), cost, n(cur.price_cents), price],
+    );
+  }
+  await audit(ctx, staff.id, "offer.relink", "offer", id, { supplierId: cur.supplier_id, from: cur.supplier_ref, to: supplierRef, cost, price });
+  return json({ ok: true, priceCents: price });
 }

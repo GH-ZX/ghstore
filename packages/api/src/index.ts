@@ -101,6 +101,7 @@ const router = new Router()
   .on("PATCH", "/api/admin/products/:id", adminCatalog.updateProduct)
   .on("POST", "/api/admin/products/:id/offers", adminCatalog.createOffer)
   .on("PATCH", "/api/admin/offers/:id", adminCatalog.updateOffer)
+  .on("POST", "/api/admin/offers/:id/relink", adminCatalog.relinkOffer)
   .on("POST", "/api/admin/offers/:id/stock", adminCatalog.addStock)
   .on("GET", "/api/admin/suppliers/:id/products", adminCatalog.listSupplierProducts)
   .on("PATCH", "/api/admin/suppliers/:id", adminCatalog.updateSupplier);
