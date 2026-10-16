@@ -31,7 +31,15 @@ export interface SqlLike {
   begin<T>(fn: (tx: SqlLike) => Promise<T>): Promise<T>;
 }
 
-/** Connect with Bun's built-in client under `bun test`, or postgres.js under vitest/Node (CI). */
+/** The role the API runs as in tests: like the live Worker's, a member of store_server and nothing more. */
+const APP_ROLE = "store_test_app";
+
+/**
+ * Connect with Bun's built-in client under `bun test`, or postgres.js under
+ * vitest/Node (CI). `db` has every right (tests set things up with it); the
+ * Harness runs the API on `db.app`, as store_server, so a missing grant or
+ * row policy fails here as it would live.
+ */
 export async function connectTestDb(): Promise<{ db: Db; close: () => Promise<void> }> {
   const g = globalThis as { Bun?: unknown };
   if (g.Bun) {
@@ -41,7 +49,16 @@ export async function connectTestDb(): Promise<{ db: Db; close: () => Promise<vo
   }
   const { default: postgres } = await import("postgres" as string);
   const sql = postgres(TEST_DATABASE_URL, { max: 4, onnotice: () => {} });
-  return { db: makeDb(sql as SqlLike), close: () => sql.end() };
+  const db = makeDb(sql as SqlLike);
+  await db.query(
+    `do $$ begin
+       if not exists (select 1 from pg_roles where rolname = '${APP_ROLE}') then create role ${APP_ROLE} nologin; end if;
+     end $$`,
+  );
+  await db.query(`grant store_server to ${APP_ROLE}`);
+  const app = postgres(TEST_DATABASE_URL, { max: 4, onnotice: () => {}, connection: { role: APP_ROLE } });
+  (db as Db & { app?: Db }).app = makeDb(app as SqlLike);
+  return { db, close: async () => void (await Promise.all([sql.end(), app.end()])) };
 }
 
 export function makeDb(sql: SqlLike, inTx = false): Db {
@@ -66,7 +83,7 @@ export class Harness {
 
   constructor(readonly db: Db) {
     this.svc = {
-      db,
+      db: (db as Db & { app?: Db }).app ?? db,
       supplier: (id) => this.suppliers.get(id) ?? null,
       payment: (m) => this.payments.get(m) ?? null,
       now: () => new Date(),

@@ -523,7 +523,8 @@ describe("supplier sync and margin guard", () => {
     // One package's cost moved: it gets its own write and a price-change row.
     const products: SupplierProduct[] = ids.map((_, i) => ({ externalId: `bulk-${i}`, name: "b", costCents: i === 7 ? 200 : 100, available: true, kind: "code" }));
     let queries = 0;
-    const counting = new Harness({ ...db, query: (text: string, params?: readonly unknown[]) => { queries++; return db.query(text, params as unknown[]); } } as typeof db);
+    const appDb = (db as typeof db & { app?: typeof db }).app ?? db;
+    const counting = new Harness({ ...appDb, query: (text: string, params?: readonly unknown[]) => { queries++; return appDb.query(text, params as unknown[]); } } as typeof db);
     counting.suppliers.set(supplier, { ...fakeSupplier, id: supplier, listProducts: async () => products });
 
     const report = await syncSupplier(counting.svc, supplier);
