@@ -23,7 +23,7 @@ import { effectiveEnv } from "./keys";
 
 export const BUCKET = "store-images";
 const MAX_BYTES = 4 * 1024 * 1024;
-const TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif", "image/svg+xml": "svg" };
+const TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" };
 
 interface Storage {
   base: string;
@@ -67,17 +67,70 @@ export async function storeImage(svc: Services, env: ApiEnv, bytes: ArrayBuffer,
   return `${storage.base}/storage/v1/object/public/${BUCKET}/${path}`;
 }
 
-/** Fetch a picture from the web (https only, an image, not too big). */
+/**
+ * Read a body up to MAX_BYTES, counting as it arrives: a missing or wrong
+ * Content-Length cannot make us hold more than that.
+ */
+async function readCapped(body: ReadableStream<Uint8Array> | null): Promise<ArrayBuffer> {
+  if (!body) return new ArrayBuffer(0);
+  const reader = body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new ApiError("invalid_input", "size");
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.byteLength;
+  }
+  return out.buffer;
+}
+
+/** A public https address: no IP literals, local names or odd ports. */
+function publicUrl(raw: string): URL | null {
+  if (!/^https:\/\/[^\s"<>]{4,500}$/.test(raw)) return null;
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  const host = u.hostname.toLowerCase();
+  if (u.protocol !== "https:" || (u.port && u.port !== "443") || u.username || u.password) return null;
+  if (!host.includes(".") || host.startsWith("[") || /^[\d.]+$/.test(host) || /^0x/i.test(host)) return null;
+  if (/(^|\.)(localhost|local|internal|lan|home|corp|intranet)$/.test(host)) return null;
+  return u;
+}
+
+/** Fetch a picture from the web (a public https address, an image, not too big). */
 export async function fetchImage(svc: Services, url: string): Promise<{ bytes: ArrayBuffer; type: string }> {
-  if (!/^https:\/\/[^\s"<>]{4,500}$/.test(url)) throw new ApiError("invalid_input", "url");
-  const res = await svc.fetch(url, { headers: { accept: "image/*" }, redirect: "follow" });
-  if (!res.ok) throw new ApiError("invalid_input", "url");
+  let at = publicUrl(url);
+  if (!at) throw new ApiError("invalid_input", "url");
+  let res: Response | null = null;
+  // Redirects are followed by hand so every hop is checked like the first.
+  for (let hop = 0; hop <= 3; hop++) {
+    res = await svc.fetch(at.href, { headers: { accept: "image/*" }, redirect: "manual" });
+    if (res.status < 300 || res.status >= 400) break;
+    const next = res.headers.get("location");
+    await res.body?.cancel().catch(() => undefined);
+    at = next ? publicUrl(new URL(next, at).href) : null;
+    if (!at || hop === 3) throw new ApiError("invalid_input", "url");
+  }
+  if (!res || !res.ok) throw new ApiError("invalid_input", "url");
   const type = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
   if (!TYPES[type]) throw new ApiError("invalid_input", "type");
   const len = Number(res.headers.get("content-length") ?? "0");
   if (len > MAX_BYTES) throw new ApiError("invalid_input", "size");
-  const bytes = await res.arrayBuffer();
-  return { bytes, type };
+  return { bytes: await readCapped(res.body), type };
 }
 
 /** POST /api/admin/images — upload a picture, or save a copy of one from a link. */
@@ -93,7 +146,7 @@ export async function uploadImage(ctx: Ctx): Promise<Response> {
   } else {
     const len = Number(ctx.req.headers.get("content-length") ?? "0");
     if (len > MAX_BYTES) throw new ApiError("invalid_input", "size");
-    picture = { bytes: await ctx.req.arrayBuffer(), type };
+    picture = { bytes: await readCapped(ctx.req.body), type };
   }
   const url = await storeImage(ctx.svc, env, picture.bytes, picture.type);
   await ctx.svc.db.query(
@@ -119,6 +172,7 @@ export async function copyLinkedImages(svc: Services, env: ApiEnv, max = 4): Pro
        union all select image_url from app.banners where image_url is not null
      ) u
      where url not like $1 || '%'
+       and url !~* '\\.svg([?#]|$)' -- SVGs can carry scripts: they stay linked, never stored
        and not exists (select 1 from app.image_copies c where c.source_url = u.url and c.failed_at > now() - interval '1 day')
      limit $2`,
     [own, max],

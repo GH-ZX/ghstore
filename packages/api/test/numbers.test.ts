@@ -204,6 +204,10 @@ describe("store pictures", () => {
     h.fetchImpl = async (input, init) => {
       const url = String(input);
       if (url === "https://cdn.example/cover.png") return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } });
+      if (url === "https://cdn.example/moved.png") return new Response(null, { status: 302, headers: { location: "/cover.png" } });
+      if (url === "https://cdn.example/inside.png") return new Response(null, { status: 302, headers: { location: "https://169.254.169.254/latest" } });
+      if (url === "https://cdn.example/huge.png") return new Response(new Uint8Array(5 * 1024 * 1024), { headers: { "content-type": "image/png" } });
+      if (url === "https://cdn.example/icon.svg") return new Response("<svg/>", { headers: { "content-type": "image/svg+xml" } });
       if (url.startsWith("https://proj.supabase.test/storage/v1/object/store-images/")) {
         stored.push(url);
         expect((init?.headers as Record<string, string>).apikey).toBe("sb_secret_test_storage_key");
@@ -217,6 +221,11 @@ describe("store pictures", () => {
       expect(r.status).toBe(201);
       expect(r.data.url).toMatch(/^https:\/\/proj\.supabase\.test\/storage\/v1\/object\/public\/store-images\/[0-9a-f]{32}\.png$/);
       expect((await h.call("POST", "/api/admin/images", { token: owner, body: { url: "https://cdn.example/missing.png" } })).status).toBe(400);
+      // Redirects are checked hop by hop; local addresses, huge bodies and SVGs are refused.
+      expect((await h.call("POST", "/api/admin/images", { token: owner, body: { url: "https://cdn.example/moved.png" } })).data.url).toBe(r.data.url);
+      for (const bad of ["https://cdn.example/inside.png", "https://127.0.0.1/x.png", "https://localhost/x.png", "https://cdn.example:8443/x.png", "https://cdn.example/huge.png", "https://cdn.example/icon.svg"]) {
+        expect((await h.call("POST", "/api/admin/images", { token: owner, body: { url: bad } })).status, bad).toBe(400);
+      }
 
       // The job copies linked pictures and points products at the copy.
       await db.query(`update app.products set cover_url = 'https://cdn.example/cover.png' where id = $1`, [unitsProduct]);
