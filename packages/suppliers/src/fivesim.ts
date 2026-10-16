@@ -369,9 +369,11 @@ export function createFiveSim(ctx: AdapterContext): FiveSimAdapter {
           if (r.ok && id && paid !== null && maxCost !== undefined && paid > maxCost + 1e-9) {
             // The operator's price rose between the check and the buy: 5sim cannot cap a
             // chosen operator, so give the number back (a cancelled number costs nothing)
-            // and buy within the cap instead.
-            await close("cancel", id).catch(() => false);
-            r = await buy("any");
+            // and buy within the cap instead. Unless 5sim confirms the cancel, the number
+            // already bought is kept and delivered: never an active number nobody tracks.
+            const cancelled = await close("cancel", id).catch(() => false);
+            if (cancelled) r = await buy("any");
+            else console.warn(`fivesim: order ${id} cost ${paid} over the cap ${maxCost}; kept (cancel not confirmed)`);
           } else if (!r.ok && /no free phones/i.test(supplierMessage(r, secrets))) {
             // That operator just ran out: any operator within the cap.
             r = await buy("any");

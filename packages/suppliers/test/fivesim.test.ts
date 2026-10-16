@@ -169,6 +169,19 @@ describe("fivesim purchase", () => {
     ]);
   });
 
+  it("keeps (and delivers) the dearer number when 5sim does not confirm its cancel", async () => {
+    const { ctx, calls } = context(
+      {
+        "GET /v1/guest/prices?country=usa&product=telegram": json(ratedPrices),
+        "GET /v1/user/buy/activation/usa/good/telegram": json({ id: 10, phone: "+1101", price: 0.35, status: "PENDING" }),
+        "GET /v1/user/cancel/10": text("order has sms", 400),
+      },
+      config,
+    );
+    expect(await createFiveSim(ctx).purchase({ ...req, maxCostCents: 20 })).toMatchObject({ status: "pending", supplierOrderId: "10" });
+    expect(calls.some((c) => c.path.includes("/any/"))).toBe(false);
+  });
+
   it("falls back to any operator within the cap when the chosen one just ran out", async () => {
     const { ctx, calls } = context(
       {
