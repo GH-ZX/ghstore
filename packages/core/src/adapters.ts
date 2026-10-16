@@ -69,8 +69,8 @@ export interface SupplierProduct {
 export interface AccountInfo {
   fields: { label: string; value: string }[];
   balances: { currency: string; amount: number }[];
-  /** Newest first. */
-  history: { at: string | null; amount: number; currency: string; text: string; direction: "in" | "out" | null }[];
+  /** Newest first. `ref` is the provider's id for the movement, `note` what the sender wrote. */
+  history: { at: string | null; amount: number; currency: string; text: string; direction: "in" | "out" | null; ref?: string | null; note?: string | null }[];
 }
 
 export interface PurchaseRequest {
@@ -168,6 +168,11 @@ export interface CreatePaymentInput {
   /** Our payment id (uuid). Sent to the provider so callbacks can be matched. */
   paymentId: string;
   amountCents: number;
+  /**
+   * Manual crypto: the exact amount to send, in ten-thousandths of a dollar
+   * (2.0137 → 20137): the request plus a small unique tag.
+   */
+  sendUnits?: number;
   /** Shown on the provider's page where supported. */
   description: string;
   /** Where the provider should send its callback, when it has one. */
@@ -212,7 +217,7 @@ export interface PaymentAdapter {
    * Ask the provider for the current status. `expected` lets adapters compare the
    * amount and age themselves (on-chain transfers, invoices in another currency).
    */
-  checkPayment?(providerRef: string, expected?: { amountCents: number; createdAt?: string }): Promise<PaymentEvent>;
+  checkPayment?(providerRef: string, expected?: { amountCents: number; createdAt?: string; sendUnits?: number }): Promise<PaymentEvent>;
   /** The receiving account as the provider describes it (Admin → Settings → APIs). */
   accountInfo?(): Promise<AccountInfo>;
   /**
@@ -229,6 +234,10 @@ export interface Deposit {
   cents: number;
   /** True when the amount has no fraction of a cent (an exact match is possible). */
   exact: boolean;
+  /** Amount in ten-thousandths of a dollar, rounded down (2.0137 → 20137). */
+  amount4: number;
+  /** True when the amount has nothing below a ten-thousandth (it can match a request's sendUnits). */
+  exact4: boolean;
   blockNumber: number;
   from: string;
 }

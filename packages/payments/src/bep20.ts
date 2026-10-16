@@ -102,6 +102,12 @@ export interface VerifyTransferOptions {
   /** Refuse transfers mined after this instant (the request's send window closed). */
   notAfter?: Date | string | number;
   /**
+   * The exact amount to receive, in ten-thousandths of a dollar (the request plus
+   * its tag). Exactly that is "paid" for `expectedCents`; anything else is
+   * "partial" (less) or "review" (more, or a different tag).
+   */
+  exactUnits?: number;
+  /**
    * Require the received amount to equal `expectedCents` exactly. More than
    * expected becomes "review" (a person decides) instead of "paid".
    */
@@ -160,6 +166,19 @@ export function sumTransfers(receipt: Receipt, token: string, destination: strin
 /** Token base units to US cents, rounding down (dust is never credited). */
 export function unitsToCents(units: bigint, decimals: number): bigint {
   return decimals >= 2 ? units / 10n ** BigInt(decimals - 2) : units * 10n ** BigInt(2 - decimals);
+}
+
+/** Token base units to ten-thousandths of a dollar (rounded down), and whether anything smaller was left. */
+export function unitsToTenThousandths(units: bigint, decimals: number): { amount4: bigint; exact4: boolean } {
+  if (decimals < 4) return { amount4: units * 10n ** BigInt(4 - decimals), exact4: true };
+  const unit = 10n ** BigInt(decimals - 4);
+  return { amount4: units / unit, exact4: units % unit === 0n };
+}
+
+/** Ten-thousandths of a dollar as the amount to send: 20137 → "2.0137". */
+export function formatSendUnits(sendUnits: number): string {
+  if (!Number.isSafeInteger(sendUnits) || sendUnits <= 0) throw new AdapterError(ID, "sendUnits must be a positive integer");
+  return `${Math.floor(sendUnits / 10_000)}.${String(sendUnits % 10_000).padStart(4, "0")}`;
 }
 
 function toMillis(value: Date | string | number): number {
@@ -254,7 +273,11 @@ async function transfersIn(ctx: AdapterContext, s: Settings, url: string, fromBl
     const cents = Number(unitsToCents(units, s.decimals));
     if (cents <= 0 || !Number.isSafeInteger(cents)) continue;
     const from = typeof topics[1] === "string" && WORD.test(topics[1]) ? `0x${topics[1].slice(-40).toLowerCase()}` : "";
-    deposits.push({ txHash: hash, cents, exact: s.decimals >= 2 ? units % unit === 0n : true, blockNumber: Number(BigInt(log.blockNumber)), from });
+    const { amount4, exact4 } = unitsToTenThousandths(units, s.decimals);
+    deposits.push({
+      txHash: hash, cents, exact: s.decimals >= 2 ? units % unit === 0n : true,
+      amount4: Number(amount4), exact4, blockNumber: Number(BigInt(log.blockNumber)), from,
+    });
   }
   return deposits;
 }
@@ -412,6 +435,16 @@ export async function verifyTransfer(
   if (options.notAfter !== undefined && minedAt > toMillis(options.notAfter)) return result("failed", "too_late", withTime);
   if (minedAt > now + FUTURE_SKEW_MS) return result("pending", "clock_skew", withTime);
 
+  if (options.exactUnits !== undefined) {
+    const { amount4, exact4 } = unitsToTenThousandths(units, settings.decimals);
+    const want = BigInt(options.exactUnits);
+    if (amount4 < want) return result("partial", "underpaid", withTime);
+    if (amount4 !== want || !exact4) return result("review", "amount_mismatch", withTime);
+    // Exactly what was asked: the request is credited; its small tag stays with the store.
+    const paid = result("paid", undefined, withTime);
+    if (expectedCents !== undefined && expectedCents > 0) paid.event.amountCents = expectedCents;
+    return paid;
+  }
   if (expectedCents !== undefined && receivedCents < expectedCents) return result("partial", "underpaid", withTime);
   if (options.exact && expectedCents !== undefined && receivedCents !== expectedCents) return result("review", "amount_mismatch", withTime);
   return result("paid", undefined, withTime);
@@ -424,7 +457,7 @@ export interface Bep20Adapter extends PaymentAdapter {
    * providerRef must be the customer's transaction hash. With `expected`, the
    * transfer must be for exactly that amount and mined after the request was made.
    */
-  checkPayment(providerRef: string, expected?: { amountCents: number; createdAt?: string }): Promise<PaymentEvent>;
+  checkPayment(providerRef: string, expected?: { amountCents: number; createdAt?: string; sendUnits?: number }): Promise<PaymentEvent>;
   verifyTransfer(txHash: string, expectedCents?: number, options?: VerifyTransferOptions): Promise<Bep20Verification>;
 }
 
@@ -442,18 +475,19 @@ export function createBep20(ctx: AdapterContext): Bep20Adapter {
         network: BEP20_NETWORK_LABEL,
         asset: "USDT",
         address: displayAddress,
-        amount: centsToDecimal(input.amountCents),
+        amount: input.sendUnits !== undefined ? formatSendUnits(input.sendUnits) : centsToDecimal(input.amountCents),
       },
     };
   }
 
-  async function checkPayment(providerRef: string, expected?: { amountCents: number; createdAt?: string }): Promise<PaymentEvent> {
+  async function checkPayment(providerRef: string, expected?: { amountCents: number; createdAt?: string; sendUnits?: number }): Promise<PaymentEvent> {
     if (!TX_HASH.test(providerRef.trim())) {
       throw new AdapterError(ID, "checkPayment needs the transaction hash the customer submitted");
     }
     if (!expected) return (await verifyTransfer(ctx, providerRef)).event;
     const created = expected.createdAt ? Date.parse(expected.createdAt) : NaN;
     const options: VerifyTransferOptions = { exact: true };
+    if (expected.sendUnits !== undefined) options.exactUnits = expected.sendUnits;
     if (Number.isFinite(created)) {
       options.notBefore = created - NOT_BEFORE_GRACE_MS;
       // Sent within the request's window (with the same grace for clock differences).

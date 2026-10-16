@@ -36,7 +36,7 @@ const tooOld = new Set<string>();
 let busy = false;
 const usdt: PaymentAdapter = {
   id: "bep20",
-  createPayment: async (input) => ({ providerRef: input.paymentId, action: { type: "address", network: "BSC (BEP20)", asset: "USDT", address: "0xabc", amount: "10.37" } }),
+  createPayment: async (input) => ({ providerRef: input.paymentId, action: { type: "address", network: "BSC (BEP20)", asset: "USDT", address: "0xabc", amount: ((input.sendUnits ?? 0) / 10_000).toFixed(4) } }),
   checkPayment: async (ref, expected): Promise<PaymentEvent> =>
     tooOld.has(ref) ? { providerRef: ref, status: "failed", txHash: ref } : { providerRef: ref, status: "paid", txHash: ref, amountCents: expected?.amountCents ?? 0 },
   recentDeposits: async (since) => {
@@ -228,14 +228,21 @@ describe("USDT top-ups matched by their exact amount", () => {
     const t = await h.call("POST", "/api/topups", { token: customer, body: { method: "bep20", amountCents: 1000 } });
     expect(t.status).toBe(201);
     const amount = t.data.amountCents as number;
+    expect(amount).toBe(1000);
+    // What the customer sends: 10.01xx, in ten-thousandths of a dollar.
+    const send = Math.round(Number(t.data.action.amount) * 10_000);
+    expect(send).toBeGreaterThanOrEqual(100_100);
+    expect(send).toBeLessThanOrEqual(100_199);
+    const dep = (txHash: string, amount4: number, exact4: boolean, blockNumber: number, from: string): Deposit =>
+      ({ txHash, cents: Math.floor(amount4 / 100), exact: false, amount4, exact4, blockNumber, from });
     const before = (await h.call("GET", "/api/wallet", { token: customer })).data.balanceCents;
     const older = hash("e0");
     tooOld.add(older);
     deposits = [
-      { txHash: older, cents: amount, exact: true, blockNumber: 4989, from: "0xdd" }, // same amount, sent before the request
-      { txHash: hash("e1"), cents: amount + 500, exact: true, blockNumber: 4990, from: "0xaa" }, // matches nothing
-      { txHash: hash("e2"), cents: amount, exact: false, blockNumber: 4991, from: "0xbb" }, // not exact
-      { txHash: hash("e3"), cents: amount, exact: true, blockNumber: 4992, from: "0xcc" },
+      dep(older, send, true, 4989, "0xdd"), // same amount, sent before the request
+      dep(hash("e1"), send + 50_000, true, 4990, "0xaa"), // matches nothing
+      dep(hash("e2"), send, false, 4991, "0xbb"), // a fraction below a ten-thousandth more
+      dep(hash("e3"), send, true, 4992, "0xcc"),
     ];
     expect(await detectUsdtDeposits(h.svc)).toBe(1);
     expect((await h.call("GET", "/api/wallet", { token: customer })).data.balanceCents).toBe(before + amount);

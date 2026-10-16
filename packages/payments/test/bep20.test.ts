@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AdapterError } from "../../core/src/adapters";
-import { BSC_USDT_CONTRACT, TRANSFER_TOPIC, createBep20, verifyTransfer } from "../src/bep20";
+import { BSC_USDT_CONTRACT, TRANSFER_TOPIC, createBep20, formatSendUnits, verifyTransfer } from "../src/bep20";
 import { context, fakeFetch, type RecordedCall } from "./fake-fetch";
 
 const STORE = "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf";
@@ -163,6 +163,22 @@ describe("bep20: checkPayment with the payment's expected amount and time", () =
     expect(withinGrace.status).toBe("paid");
   });
 
+  it("with the amount to send (request + tag): exactly that pays the request, anything else does not", async () => {
+    // 12.34 USDT on chain: asked 12.34 for a $12.33 request (tag 0.0100) -> paid, credited $12.33.
+    const exact = await createBep20(chain({}).ctx).checkPayment(TX, { amountCents: 1233, createdAt: madeAt(60), sendUnits: 123_400 });
+    expect(exact).toMatchObject({ status: "paid", amountCents: 1233 });
+    const otherTag = await createBep20(chain({}).ctx).checkPayment(TX, { amountCents: 1233, createdAt: madeAt(60), sendUnits: 123_350 });
+    expect(otherTag.status).toBe("review");
+    const short = await createBep20(chain({}).ctx).checkPayment(TX, { amountCents: 1233, createdAt: madeAt(60), sendUnits: 123_450 });
+    expect(short.status).toBe("partial");
+  });
+
+  it("shows the amount to send with four decimals", async () => {
+    const created = await createBep20(chain({}).ctx).createPayment({ paymentId: "p-1", amountCents: 200, sendUnits: 20_137, description: "x" });
+    expect(created.action).toMatchObject({ type: "address", amount: "2.0137" });
+    expect(formatSendUnits(10_100)).toBe("1.0100");
+  });
+
   it("refuses a transfer mined after the 15-minute send window (beyond the same grace)", async () => {
     const late = await createBep20(chain({}).ctx).checkPayment(TX, { amountCents: 1234, createdAt: madeAt(20 * 60) });
     expect(late.status).toBe("failed");
@@ -286,6 +302,7 @@ describe("BEP20 deposits and account (auto-matching, Admin → Settings → APIs
     // 20 confirmations: blocks up to head - 19.
     expect(r.toBlock).toBe(BLOCK + 81);
     expect(r.deposits.map((d) => [d.cents, d.exact])).toEqual([[1037, true], [1037, false]]);
+    expect(r.deposits.map((d) => [d.amount4, d.exact4])).toEqual([[103_700, true], [103_700, false]]);
     expect(r.deposits[0]!.from).toBe(PAYER);
     const getLogs = fake.calls.find((c) => (c.body as { method: string }).method === "eth_getLogs")!;
     expect(getLogs.url).toBe(LOGS);

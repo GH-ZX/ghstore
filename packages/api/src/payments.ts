@@ -77,17 +77,20 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
   if (n(open?.c) >= 5) throw new ApiError("rate_limited");
 
   const channel = user.channel === "miniapp" ? "miniapp" : "web";
-  let payment: { id: string; amount_cents: string | number; created_at: string } | undefined;
-  // Manual USDT gets a unique amount (requested + 1..99 cents) among open requests,
-  // enforced by a unique index. A transfer is then matched by its exact amount and
-  // time, so nobody can claim another customer's public transaction hash.
-  for (let attempt = 0; attempt < 8 && !payment; attempt++) {
-    const amount = method === "bep20" ? amountCents + 1 + Math.floor(Math.random() * 99) : amountCents;
+  let payment: { id: string; amount_cents: string | number; created_at: string; send_units: string | number | null } | undefined;
+  // Manual USDT: the customer sends the request plus a small tag (0.0100 to
+  // 0.0199), unique among open requests (unique index), and is credited the
+  // request. A transfer is then matched by that exact amount and its time, so
+  // nobody can claim another customer's public transaction hash.
+  const free = method === "bep20" ? await freeSendUnits(ctx.svc.db, amountCents) : [null];
+  for (let attempt = 0; attempt < 8 && !payment && free.length; attempt++) {
+    const sendUnits = free.splice(Math.floor(Math.random() * free.length), 1)[0] ?? null;
     try {
       payment = await one(
         ctx.svc.db,
-        `insert into app.payments (user_id, method, amount_cents, channel) values ($1, $2, $3, $4) returning id, amount_cents, created_at`,
-        [user.id, method, amount, channel],
+        `insert into app.payments (user_id, method, amount_cents, channel, send_units) values ($1, $2, $3, $4, $5)
+         returning id, amount_cents, created_at, send_units`,
+        [user.id, method, amountCents, channel, sendUnits],
       );
     } catch (err) {
       if (method !== "bep20" || !isUniqueViolation(err)) throw err;
@@ -99,6 +102,7 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
   const created = await adapter.createPayment({
     paymentId: payment.id,
     amountCents: payAmount,
+    ...(payment.send_units !== null ? { sendUnits: n(payment.send_units) } : {}),
     description: `Wallet top-up`,
     callbackUrl: `${base}/api/webhooks/payments/${method}`,
     returnUrl: `${base}/wallet?payment=${payment.id}`,
@@ -115,6 +119,22 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
     { paymentId: payment.id, amountCents: payAmount, action, expiresAt: created.expiresAt ?? null, sendBy, secondsLeft: Math.round(TOPUP_WINDOW_MS / 1000) },
     { status: 201 },
   );
+}
+
+/** USDT tags (ten-thousandths of a dollar above the request) a new request may take. */
+const TAG_FROM = 100;
+const TAG_COUNT = 100;
+
+/** The amounts to send still free for a USDT request of `amountCents` (2.0100 to 2.0199 for $2). */
+async function freeSendUnits(db: Services["db"], amountCents: number): Promise<number[]> {
+  const base = amountCents * 100 + TAG_FROM;
+  const used = await db.query<{ send_units: string | number }>(
+    `select send_units from app.payments
+      where method = 'bep20' and status in ('created', 'pending', 'review') and send_units between $1 and $2`,
+    [base, base + TAG_COUNT - 1],
+  );
+  const taken = new Set(used.map((r) => n(r.send_units)));
+  return Array.from({ length: TAG_COUNT }, (_, i) => base + i).filter((u) => !taken.has(u));
 }
 
 /** Manual BEP20: the customer pastes the transaction hash; we check the chain right away. */
@@ -227,9 +247,9 @@ export async function walletHistory(ctx: Ctx): Promise<Response> {
  * provider itself says "paid". Returns the payment's status afterwards.
  */
 export async function settlePayment(svc: Services, paymentId: string): Promise<string> {
-  const p = await one<{ id: string; method: PaymentMethod; amount_cents: string | number; status: string; provider_ref: string | null; tx_hash: string | null; created_at: string; note: string | null }>(
+  const p = await one<{ id: string; method: PaymentMethod; amount_cents: string | number; status: string; provider_ref: string | null; tx_hash: string | null; created_at: string; note: string | null; send_units: string | number | null }>(
     svc.db,
-    `select id, method, amount_cents, status, provider_ref, tx_hash, created_at, note from app.payments where id = $1`,
+    `select id, method, amount_cents, status, provider_ref, tx_hash, created_at, note, send_units from app.payments where id = $1`,
     [paymentId],
   );
   if (!p) return "missing";
@@ -243,7 +263,11 @@ export async function settlePayment(svc: Services, paymentId: string): Promise<s
 
   let ev: PaymentEvent;
   try {
-    ev = await adapter.checkPayment(ref, { amountCents: n(p.amount_cents), createdAt: new Date(p.created_at).toISOString() });
+    ev = await adapter.checkPayment(ref, {
+      amountCents: n(p.amount_cents),
+      createdAt: new Date(p.created_at).toISOString(),
+      ...(p.send_units !== null ? { sendUnits: n(p.send_units) } : {}),
+    });
   } catch (err) {
     console.error("checkPayment failed", p.method, p.id, err instanceof Error ? err.message : String(err));
     return p.status;
@@ -381,11 +405,15 @@ async function saveSetting(svc: Services, key: string, value: unknown): Promise<
  * Settings → APIs).
  */
 export async function detectUsdtDeposits(svc: Services): Promise<number> {
-  const open = await svc.db.query<{ id: string; user_id: string; amount_cents: string | number; created_at: string }>(
-    `select id, user_id, amount_cents, created_at from app.payments
+  const open = await svc.db.query<{ id: string; user_id: string; amount_cents: string | number; created_at: string; send_units: string | number | null }>(
+    `select id, user_id, amount_cents, created_at, send_units from app.payments
       where method = 'bep20' and status in ('created', 'pending') and tx_hash is null and created_at > now() - interval '1 day'`,
   );
-  if (!open.length) return 0;
+  if (!open.length) {
+    // Nothing to look for: a refusing log server from before no longer counts.
+    await svc.db.query(`delete from app.settings where key = $1`, [SCAN_FAILING_KEY]);
+    return 0;
+  }
   const adapter = svc.payment("bep20");
   if (!adapter?.recentDeposits || !adapter.checkPayment) return 0;
   const saved = await svc.db.query<{ value: unknown }>(`select value from app.settings where key = $1`, [SCAN_KEY]);
@@ -411,12 +439,17 @@ export async function detectUsdtDeposits(svc: Services): Promise<number> {
   await svc.db.query(`delete from app.settings where key = $1`, [SCAN_FAILING_KEY]);
   let credited = 0;
   for (const d of deposits) {
-    if (!d.exact) continue;
-    const match = open.find((p) => n(p.amount_cents) === d.cents);
+    // Each request's exact amount to send (older requests: their cents).
+    if (!d.exact4) continue;
+    const match = open.find((p) => (p.send_units !== null ? n(p.send_units) : n(p.amount_cents) * 100) === d.amount4);
     if (!match) continue;
     let ev: PaymentEvent;
     try {
-      ev = await adapter.checkPayment(d.txHash, { amountCents: n(match.amount_cents), createdAt: new Date(match.created_at).toISOString() });
+      ev = await adapter.checkPayment(d.txHash, {
+        amountCents: n(match.amount_cents),
+        createdAt: new Date(match.created_at).toISOString(),
+        ...(match.send_units !== null ? { sendUnits: n(match.send_units) } : {}),
+      });
     } catch {
       continue; // the RPC failed: the next scan does not see it again, but the customer can paste the hash
     }

@@ -46,7 +46,7 @@ const fakeSam: PaymentAdapter = {
 const chainPaid = new Set<string>();
 const fakeBep20: PaymentAdapter = {
   id: "bep20",
-  createPayment: async (input) => ({ providerRef: input.paymentId, action: { type: "address", network: "BSC (BEP20)", asset: "USDT", address: "0xstore", amount: (input.amountCents / 100).toFixed(2) } }),
+  createPayment: async (input) => ({ providerRef: input.paymentId, action: { type: "address", network: "BSC (BEP20)", asset: "USDT", address: "0xstore", amount: ((input.sendUnits ?? input.amountCents * 100) / 10_000).toFixed(4) } }),
   checkPayment: async (txHash, expected) => ({ providerRef: txHash, txHash, status: chainPaid.has(txHash) ? "paid" : "pending", amountCents: expected?.amountCents }),
 };
 
@@ -247,14 +247,13 @@ describe("manual USDT transfers", () => {
     chainPaid.add(hash);
     const sa = await h.call("POST", `/api/topups/${pa.data.paymentId}/tx`, { token: a, body: { txHash: hash } });
     expect(sa.data.status).toBe("paid");
-    // The customer is asked for a unique amount just above the request, and credited exactly that.
-    expect(pa.data.amountCents).toBeGreaterThan(1000);
-    expect(pa.data.amountCents).toBeLessThan(1100);
-    expect(pa.data.action.amount).toBe((pa.data.amountCents / 100).toFixed(2));
-    expect((await h.call("GET", "/api/me", { token: a })).data.balanceCents).toBe(pa.data.amountCents);
+    // The customer sends the request plus a small unique tag (10.0100 to 10.0199) and is credited the request.
+    expect(pa.data.amountCents).toBe(1000);
+    expect(pa.data.action.amount).toMatch(/^10\.01\d\d$/);
+    expect((await h.call("GET", "/api/me", { token: a })).data.balanceCents).toBe(1000);
     const pb = await h.call("POST", "/api/topups", { token: b, body: { method: "bep20", amountCents: 1000 } });
     const pc = await h.call("POST", "/api/topups", { token: b, body: { method: "bep20", amountCents: 1000 } });
-    expect(pc.data.amountCents).not.toBe(pb.data.amountCents); // open requests never share an amount
+    expect(pc.data.action.amount).not.toBe(pb.data.action.amount); // open requests never share an amount to send
     const sb = await h.call("POST", `/api/topups/${pb.data.paymentId}/tx`, { token: b, body: { txHash: hash.toUpperCase().replace("0X", "0x") } });
     expect(sb.status).toBe(409);
     expect(sb.data.error.code).toBe("tx_reused");

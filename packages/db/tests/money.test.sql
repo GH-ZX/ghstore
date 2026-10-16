@@ -50,7 +50,7 @@ begin
   assert (select count(*) from app.outbox where template = 'payment_credited') = 1, 'one notification queued';
 
   -- a direct update cannot fake "paid"
-  insert into app.payments (user_id, method, amount_cents) values (u, 'bep20', 500) returning id into pay2;
+  insert into app.payments (user_id, method, amount_cents, send_units) values (u, 'bep20', 500, 50137) returning id into pay2;
   begin
     update app.payments set status = 'paid' where id = pay2;
     assert false, 'expected not_allowed';
@@ -61,14 +61,15 @@ begin
   -- transaction hashes can be used once
   perform app.submit_tx_hash(pay2, u, '0x' || repeat('ab', 32));
   assert (select status from app.payments where id = pay2) = 'review', 'manual transfer goes to review';
-  -- two open manual-USDT requests never share an amount (so a hash matches one request)
+  -- two open manual-USDT requests never share an amount to send (so a hash matches one request);
+  -- they may ask for the same amount, told apart by their small tag (5.0137 / 5.0142)
   begin
-    insert into app.payments (user_id, method, amount_cents) values (u2, 'bep20', 500);
+    insert into app.payments (user_id, method, amount_cents, send_units) values (u2, 'bep20', 500, 50137);
     assert false, 'expected a unique violation';
   exception when unique_violation then
     null;
   end;
-  insert into app.payments (user_id, method, amount_cents) values (u2, 'bep20', 501) returning id into pay;
+  insert into app.payments (user_id, method, amount_cents, send_units) values (u2, 'bep20', 500, 50142) returning id into pay;
   begin
     perform app.submit_tx_hash(pay, u2, '0x' || repeat('AB', 32));
     assert false, 'expected tx_reused';

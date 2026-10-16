@@ -25,8 +25,8 @@ What protects money, codes and accounts, and what the owner must do.
 - Telegram Stars: credited from `successful_payment` on the authenticated bot
   webhook, only when the payer is the account that opened the invoice and the
   Stars cover the price.
-- Manual USDT (BEP20): each open request has its own exact amount (e.g. 10.37,
-  enforced by a unique index). A transaction counts only if it sends that exact
+- Manual USDT (BEP20): each open request has its own exact amount to send (the
+  request plus a 0.0100–0.0199 tag, e.g. 10.0137, enforced by a unique index). A transaction counts only if it sends that exact
   amount of the real USDT contract to the store address, was mined after the
   request, and has 20 confirmations. A hash can be used once in the whole store.
   So a public transaction hash cannot be claimed by someone else.

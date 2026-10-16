@@ -44,8 +44,10 @@ export {
 
 export {
   createBep20,
+  formatSendUnits,
   sumTransfers,
   unitsToCents,
+  unitsToTenThousandths,
   verifyTransfer,
   BEP20_NETWORK_LABEL,
   BEP20_SEND_WINDOW_MS,
