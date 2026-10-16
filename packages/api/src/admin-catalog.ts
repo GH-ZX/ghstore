@@ -476,7 +476,7 @@ export async function listSuppliers(ctx: Ctx): Promise<Response> {
                                   and o.paused_reason not in ('supplier_unavailable', 'cost_above_margin', 'cost_jump')) as paused_by_staff,
             count(o.id) filter (where o.active and (o.cost_checked_at is null or o.cost_checked_at <= coalesce(s.last_sync_at, now() - interval '1 hour'))) as not_checked
        from app.suppliers s left join app.offers o on o.supplier_id = s.id
-      group by s.id order by s.name`,
+      group by s.id order by s.enabled desc, s.name`,
   );
   const num = (v: unknown) => (v === null || v === undefined ? null : n(v));
   return json({

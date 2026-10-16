@@ -63,6 +63,10 @@ interface Sup {
   id: string;
   name: string;
   enabled: boolean;
+  /** Defaults for packages imported from this supplier (Admin → Suppliers → Settings). */
+  import_markup_pct?: string | number;
+  import_min_margin_pct?: string | number;
+  import_round_to_cents?: number;
 }
 interface CatalogData {
   categories: Cat[];
@@ -730,6 +734,10 @@ function ImportSheet({ supplier, products, linked, onRelinked, onClose, onPick, 
                       supplierRef: i.externalId,
                       cost: (i.costCents / 100).toFixed(2),
                       fields: i.fields ?? [],
+                      markupMode: "percent",
+                      markupValue: String(Number(supplier.import_markup_pct ?? 15)),
+                      minMarginPct: String(Number(supplier.import_min_margin_pct ?? 5)),
+                      roundToCents: String(supplier.import_round_to_cents ?? 1),
                     })
                   }
                 >
