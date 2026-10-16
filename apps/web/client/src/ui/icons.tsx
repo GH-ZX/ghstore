@@ -52,6 +52,13 @@ export const SearchIcon = ({ size = 20 }: P) => (
   </Svg>
 );
 
+export const GlobeIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    <path d="M3.8 9.2h16.4M3.8 14.8h16.4M12 3.5c-2.6 2.4-3.7 5.2-3.7 8.5s1.1 6.1 3.7 8.5M12 3.5c2.6 2.4 3.7 5.2 3.7 8.5s-1.1 6.1-3.7 8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </Svg>
+);
+
 export const CloseIcon = ({ size = 16 }: P) => (
   <Svg size={size}>
     <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
@@ -123,17 +130,11 @@ export const AdminIcon = ({ size = 20 }: P) => (
 );
 
 /** Payment method marks, drawn for the identity (not the providers' logos). */
-export function MethodMark({ method }: { method: string }) {
-  if (method === "sam")
-    return (
-      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
-        <rect x="10" y="3" width="20" height="34" rx="5" fill="#16A34A" />
-        <rect x="13" y="7" width="14" height="21" rx="2" fill="#DCFCE7" />
-        <circle cx="20" cy="17.5" r="5" fill="#16A34A" />
-        <path d="M18.5 17.5h3M20 16v3" stroke="#DCFCE7" strokeWidth="1.4" strokeLinecap="round" />
-        <circle cx="20" cy="32.5" r="1.6" fill="#DCFCE7" />
-      </svg>
-    );
+/** ShamCash's own logo (client/public/pay). */
+export const SHAMCASH_LOGO = "/pay/shamcash.png";
+
+export function MethodMark({ method, size = 40 }: { method: string; size?: number }) {
+  if (method === "sam") return <img src={SHAMCASH_LOGO} width={size} height={size} alt="" aria-hidden="true" className="method-logo" />;
   if (method === "nowpayments")
     return (
       <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">

@@ -1,17 +1,16 @@
 /**
- * Store home: search, the showcase (ui/Showcase.tsx), the category bar, then one shelf per
- * category ("See all" opens the category's own page at /c/:slug). Typing in
- * search swaps everything below it for the matching products.
+ * Store home: the showcase (ui/Showcase.tsx), the category bar, then one shelf per
+ * category ("See all" opens the category's own page at /c/:slug). Search lives in
+ * the header (ui/Search.tsx).
  */
-import { useDeferredValue, useMemo, useRef, useState, type ReactNode } from "react";
-import { matchesQuery } from "@store/core";
+import { useMemo, useRef, type ReactNode } from "react";
 import { pick } from "../lib/i18n";
 import { back, linkHandler, match, navigate, usePath } from "../lib/router";
 import { useT } from "../lib/state";
 import { openExternal } from "../lib/telegram";
 import { useApi } from "../lib/useApi";
 import type { Banner, Category, ProductCard } from "../lib/types";
-import { BoltIcon, CategoryIcon, ChevronIcon, SearchIcon } from "../ui/icons";
+import { BoltIcon, CategoryIcon, ChevronIcon } from "../ui/icons";
 import { Empty, ErrorBox, Money, PageLoading, Tile } from "../ui/kit";
 import { Shell } from "../ui/Shell";
 import { Showcase, type ShowcaseOptions, type ShowcaseStyle, type SlideData, type SlidePackage } from "../ui/Showcase";
@@ -31,18 +30,11 @@ export function Store() {
   const open = match("/p/:slug", path);
   const catPage = match("/c/:slug", path);
   const { data, error, loading, reload } = useApi<Catalog>("/api/catalog");
-  const [q, setQ] = useState("");
-  const query = useDeferredValue(q.trim());
 
   const categories = useMemo(() => {
     const present = new Set((data?.products ?? []).map((p) => p.category));
     return (data?.categories ?? []).filter((c) => present.has(c.slug));
   }, [data]);
-
-  const results = useMemo(
-    () => (query ? (data?.products ?? []).filter((p) => matchesQuery(`${p.nameAr} ${p.nameEn} ${p.slug} ${p.searchTerms}`, query)) : []),
-    [data, query],
-  );
 
   const category = catPage ? (data?.categories ?? []).find((c) => c.slug === catPage.slug) : undefined;
   const title = category ? pick(lang, category.nameAr, category.nameEn) : t("store");
@@ -50,18 +42,11 @@ export function Store() {
   return (
     <Shell title={title}>
       <div className="stack screen home" key={catPage?.slug ?? "home"}>
-        <label className="search">
-          <SearchIcon />
-          <span className="sr-only">{t("searchLabel")}</span>
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("search")} enterKeyHint="search" />
-        </label>
-
         {loading && !data && <PageLoading />}
         <ErrorBox error={data ? null : error} onRetry={reload} />
 
-        {data && query && <Results products={results} />}
-        {data && !query && catPage && <CategoryPage slug={catPage.slug!} category={category} products={data.products} />}
-        {data && !query && !catPage && <Home data={data} categories={categories} />}
+        {data && catPage && <CategoryPage slug={catPage.slug!} category={category} products={data.products} />}
+        {data && !catPage && <Home data={data} categories={categories} />}
       </div>
       {open && <ProductSheet slug={open.slug!} onClose={() => back("/")} />}
     </Shell>
@@ -258,19 +243,6 @@ function CategoryPage({ slug, category, products }: { slug: string; category?: C
         </div>
       </div>
       {items.length === 0 ? <Empty>{t("noProducts")}</Empty> : <Grid products={items} />}
-    </>
-  );
-}
-
-function Results({ products }: { products: ProductCard[] }) {
-  const { t } = useT();
-  return (
-    <>
-      <div className="row-between">
-        <h2>{t("results")}</h2>
-        <span className="small muted">{products.length === 1 ? t("productsOne") : t("productsCount", { n: products.length })}</span>
-      </div>
-      {products.length === 0 ? <Empty>{t("noProducts")}</Empty> : <Grid products={products} />}
     </>
   );
 }

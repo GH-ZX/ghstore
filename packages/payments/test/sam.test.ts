@@ -312,7 +312,7 @@ describe("SAM account (Admin → Settings → APIs)", () => {
     expect(info.fields.map((f) => f.label)).toEqual(["syriatel", "shamcash"]);
     expect(info.fields[1]!.value).toContain("Store");
     expect(info.balances).toEqual([{ currency: "USD", amount: 4.1 }, { currency: "SYP", amount: 1606.5 }]);
-    expect(info.history).toEqual([{ at: "2026-04-30T20:17:29", amount: 1600, currency: "SYP", text: "Hussein", direction: "in" }]);
+    expect(info.history).toEqual([{ at: "2026-04-30T20:17:29", amount: 1600, currency: "SYP", text: "Hussein", direction: "in", ref: "1", note: null }]);
     // Read only: nothing but GETs.
     expect(calls.every((c) => c.method === "GET")).toBe(true);
   });

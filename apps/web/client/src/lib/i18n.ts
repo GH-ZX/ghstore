@@ -266,7 +266,10 @@ const en = {
   inPerson: "Sell in person (no wallet: you take the money yourself)", inPersonBuy: "Sell in person",
   apisTitle: "APIs", apisHint: "Each supplier's and payment account as the provider sees it: balances, details and the latest movements. Read when you open one.",
   apiSupplier: "Supplier", apiPayment: "Payments", apiReady: "connected", apiOff: "switched off", apiNoKey: "no key yet",
-  apiHistory: "Latest movements", apiRefresh: "Read again",
+  apiHistory: "Latest transfers", apiRefresh: "Read again",
+  apiTotalBalance: "Total balance", apiCurrency: "Currency", curSyp: "Pound", curUsd: "Dollar",
+  switchLang: "العربية", searchClose: "Close search", searchClear: "Clear", searchRecent: "Recent searches",
+  searchPopular: "Popular now", searchCategories: "Categories",
   // profit page, automatic badges, pinned packages, number retries, supplier balances
   profit: "Profit", profitRange: "Period", profitCustom: "Custom", profitFrom: "From", profitTo: "To",
   profitSales: "Sales", profitProfit: "Profit", profitMargin: "Margin", profitCostOf: "Cost {cost}",
@@ -597,7 +600,10 @@ const ar: Record<MsgKey, string> = {
   inPerson: "بيع مباشر (بدون محفظة: تستلم المبلغ بنفسك)", inPersonBuy: "بيع مباشر",
   apisTitle: "الواجهات البرمجية", apisHint: "حساب كل مزوّد ووسيلة دفع كما يراه المزوّد: الأرصدة والتفاصيل وآخر الحركات. تُقرأ عند فتحها.",
   apiSupplier: "مزوّد", apiPayment: "مدفوعات", apiReady: "متصل", apiOff: "متوقف", apiNoKey: "بلا مفتاح بعد",
-  apiHistory: "آخر الحركات", apiRefresh: "اقرأ مجدداً",
+  apiHistory: "آخر التحويلات", apiRefresh: "اقرأ مجدداً",
+  apiTotalBalance: "إجمالي الرصيد", apiCurrency: "العملة", curSyp: "ليرة", curUsd: "دولار",
+  switchLang: "English", searchClose: "إغلاق البحث", searchClear: "مسح", searchRecent: "عمليات بحث سابقة",
+  searchPopular: "الأكثر طلباً الآن", searchCategories: "الأقسام",
   // profit page, automatic badges, pinned packages, number retries, supplier balances
   profit: "الأرباح", profitRange: "الفترة", profitCustom: "مخصّص", profitFrom: "من", profitTo: "إلى",
   profitSales: "المبيعات", profitProfit: "الربح", profitMargin: "هامش الربح", profitCostOf: "التكلفة {cost}",

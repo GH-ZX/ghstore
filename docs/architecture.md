@@ -61,6 +61,11 @@ three doors from the same code:
   `/profile`, `/login`, `/admin/*`. Deep links into the Mini App: `?startapp=p_<slug>`
   (a product), `r_<code>` (a friend's invite), `wallet`, `orders`, `invite`.
   Website invite links are `/?ref=<code>`; the code is kept until sign-in.
+- **Header**: the same way round in both languages (logo on the left), with a
+  search button (full-screen search, `ui/Search.tsx`: recent searches on the
+  device, popular products, categories, results as you type) and a globe that
+  switches Arabic and English. Payment providers' logos (ShamCash) are in
+  `client/public/pay`.
 - **Opening splash**: `index.html` carries the logo (drawn from `ui/logo.ts`,
   the same drawing as `Logo`) so it shows before any script loads; it draws
   itself in and stays until the user, their balance and the home page's
@@ -155,7 +160,7 @@ the customer ticks "I have these ready" before paying.
 | Telegram Stars | `successful_payment` arrives on the authenticated bot webhook; amount and payer are checked against the invoice. Mini App only (Telegram's rule for digital goods). |
 | ShamCash (SAM API) | SAM calls the callback URL, which carries a secret token; the store then asks SAM for the invoice status. |
 | NOWPayments | IPN signature checked (HMAC-SHA512), then the payment is fetched from NOWPayments. |
-| USDT BEP20 (manual) | The customer is shown a unique amount (e.g. 10.37). Pasting the transaction hash checks it at once; otherwise the `usdt_deposits` job finds it by that exact amount. Either way the store reads the chain: right token, right address, exact amount, mined after the request, 20 confirmations, hash never used before. |
+| USDT BEP20 (manual) | The customer sends the request plus a small unique tag (e.g. 10.0137 for $10, `payments.send_units`) and is credited the request. Pasting the transaction hash checks it at once; otherwise the `usdt_deposits` job finds it by that exact amount. Either way the store reads the chain: right token, right address, exact amount, mined after the request, 20 confirmations, hash never used before. |
 
 Anything that does not match exactly (underpaid, overpaid, wrong payer) goes to
 **review** in the admin instead of being credited.
@@ -175,9 +180,10 @@ marks it `expired` with a note (`CLOSED_NOTES`):
   amount is free again.
 
 **USDT found by its amount** (`detectUsdtDeposits`, every 2 minutes while a
-USDT request is open): every open request has its own amount (requested + 1 to
-99 cents, unique among open requests), so a confirmed USDT transfer of exactly
-that amount to the store address belongs to it. The job reads the address's
+USDT request is open): every open request has its own amount to send (the
+request plus 0.0100 to 0.0199, in ten-thousandths of a dollar in
+`payments.send_units`, unique among open requests), so a confirmed USDT
+transfer of exactly that amount to the store address belongs to it. The job reads the address's
 recent USDT transfers with `eth_getLogs` (the dataseed RPC refuses log
 queries), at most 1500 blocks per run and never further back than ~35 minutes,
 from the first log server that answers: `BSC_LOGS_RPC_URL` if the owner set one

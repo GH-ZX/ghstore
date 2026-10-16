@@ -1,12 +1,13 @@
 /** Customer layout: floating glass header, page, floating pill tab bar. */
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usd } from "../lib/format";
 import { linkHandler, usePath, back } from "../lib/router";
 import { setLang, useApp, useT } from "../lib/state";
 import { pushBack } from "../lib/telegram";
 import type { MsgKey } from "../lib/i18n";
-import { AdminIcon, OrdersIcon, ProfileIcon, StoreIcon, WalletIcon } from "./icons";
-import { Logo, Seg, Toast } from "./kit";
+import { AdminIcon, GlobeIcon, OrdersIcon, ProfileIcon, SearchIcon, StoreIcon, WalletIcon } from "./icons";
+import { Logo, Toast } from "./kit";
+import { SearchOverlay } from "./Search";
 
 const TABS: { to: string; key: MsgKey; Icon: typeof StoreIcon }[] = [
   { to: "/", key: "store", Icon: StoreIcon },
@@ -20,11 +21,23 @@ function isActive(tab: string, path: string): boolean {
   return path === tab || path.startsWith(`${tab}/`);
 }
 
+/** The globe: one tap switches Arabic and English. */
+export function LangButton() {
+  const { lang } = useApp();
+  const { t } = useT();
+  return (
+    <button type="button" className="icon-btn press" onClick={() => setLang(lang === "ar" ? "en" : "ar")} aria-label={t("switchLang")} title={t("switchLang")}>
+      <GlobeIcon />
+    </button>
+  );
+}
+
 export function Shell({ title, children, narrow }: { title?: string; children: ReactNode; narrow?: boolean }) {
-  const { me, lang, miniApp } = useApp();
+  const { me, miniApp } = useApp();
   const { t } = useT();
   const path = usePath();
   const isRoot = TABS.some((x) => x.to === path);
+  const [searching, setSearching] = useState(false);
 
   // In Telegram, show its back button on inner pages (an order, a product).
   useEffect(() => {
@@ -35,13 +48,14 @@ export function Shell({ title, children, narrow }: { title?: string; children: R
   const staff = me && me.user.role !== "customer";
   return (
     <>
-      <header className="header">
+      {/* The same way round in both languages: the logo on the left. */}
+      <header className="header" dir="ltr">
         <a href="/" className="header__brand" onClick={linkHandler("/")} aria-label="GH Store">
           <Logo />
           <span className="header__sep" aria-hidden="true" />
-          <span className="header__title">{title ?? t("store")}</span>
+          <span className="header__title" dir="auto">{title ?? t("store")}</span>
         </a>
-        <nav className="header__nav" aria-label={t("nav")}>
+        <nav className="header__nav" aria-label={t("nav")} dir="auto">
           {TABS.map(({ to, key }) => (
             <a key={to} href={to} onClick={linkHandler(to)} aria-current={isActive(to, path) ? "page" : undefined}>
               {t(key)}
@@ -54,15 +68,10 @@ export function Shell({ title, children, narrow }: { title?: string; children: R
           )}
         </nav>
         <div className="header__actions">
-          <Seg
-            label={t("language")}
-            value={lang}
-            onChange={setLang}
-            options={[
-              { value: "ar", label: "ع" },
-              { value: "en", label: "EN" },
-            ]}
-          />
+          <button type="button" className="icon-btn press" onClick={() => setSearching(true)} aria-label={t("searchLabel")}>
+            <SearchIcon />
+          </button>
+          <LangButton />
           {me ? (
             <a className="wallet-pill press" href="/wallet" onClick={linkHandler("/wallet")} aria-label={t("wallet")}>
               <WalletIcon size={18} active />
@@ -89,6 +98,7 @@ export function Shell({ title, children, narrow }: { title?: string; children: R
           );
         })}
       </nav>
+      {searching && <SearchOverlay onClose={() => setSearching(false)} />}
       <Toast />
     </>
   );

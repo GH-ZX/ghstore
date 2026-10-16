@@ -9,7 +9,7 @@
  */
 import { build } from "esbuild";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -109,6 +109,8 @@ await writeFile(
 );
 
 await copyFile(join(here, "public", "_headers"), join(out, "_headers"));
+// Payment providers' logos (ShamCash), shown on the add-funds screen and in Admin → APIs.
+await cp(join(here, "public", "pay"), join(out, "pay"), { recursive: true });
 // robots.txt and sitemap.xml are answered by the Worker (they need the live product list).
 
 console.log(`built ${jsName} (${(js.length / 1024).toFixed(0)} KB), ${cssName} (${(css.length / 1024).toFixed(0)} KB)`);

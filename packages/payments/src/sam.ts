@@ -464,12 +464,16 @@ export function createSam(ctx: AdapterContext): SamAdapter {
         const amount = Number(t.amount);
         if (!Number.isFinite(amount)) continue;
         const type = text(t.type)?.toLowerCase() ?? "";
+        const who = text(t.counterparty);
         history.push({
           at: text(t.occurredAt),
           amount,
           currency: text(t.currency)?.toUpperCase() ?? "",
-          text: (text(t.counterparty) ?? text(t.description) ?? type).slice(0, 120),
+          text: (who ?? text(t.description) ?? type).slice(0, 120),
           direction: type === "credit" ? "in" : type === "debit" ? "out" : null,
+          ref: text(t.id) ?? text(t.reference),
+          // The sender's message, when the name is shown above it.
+          note: who ? (text(t.description)?.slice(0, 120) ?? null) : null,
         });
       }
     }

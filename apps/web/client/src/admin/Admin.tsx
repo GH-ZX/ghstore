@@ -2,9 +2,10 @@
 import { useEffect, type ReactNode } from "react";
 import { store } from "@store/config";
 import { linkHandler, navigate, usePath } from "../lib/router";
-import { setLang, useApp, useT } from "../lib/state";
+import { useApp, useT } from "../lib/state";
 import type { MsgKey } from "../lib/i18n";
-import { Logo, Seg, Toast } from "../ui/kit";
+import { Logo, Toast } from "../ui/kit";
+import { LangButton } from "../ui/Shell";
 import {
   BoxIcon, ChartIcon, ExitIcon, GearIcon, HomeIcon, MegaphoneIcon, OverviewIcon, ReceiptIcon, TicketIcon, TopupIcon, TruckIcon, UsersIcon,
 } from "../ui/icons";
@@ -35,7 +36,7 @@ const SECTIONS: { path: string; key: MsgKey; icon: ReactNode; owner?: boolean }[
 ];
 
 export function Admin() {
-  const { me, authChecked, lang } = useApp();
+  const { me, authChecked } = useApp();
   const { t } = useT();
   const path = usePath();
 
@@ -80,15 +81,7 @@ export function Admin() {
       <main className="admin__main screen" key={section.path}>
         <div className="toolbar">
           <h1>{t(section.key)}</h1>
-          <Seg
-            label={t("language")}
-            value={lang}
-            onChange={setLang}
-            options={[
-              { value: "ar", label: "ع" },
-              { value: "en", label: "EN" },
-            ]}
-          />
+          <LangButton />
         </div>
         {section.key === "overview" && <Overview />}
         {section.key === "profit" && <Profit />}
