@@ -6,6 +6,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiFail } from "./api";
 
 const cache = new Map<string, unknown>();
+/** Loads started before their screen asked (start-up), shared with the screen. */
+const inflight = new Map<string, Promise<unknown>>();
+
+/** Start loading a screen's data early; the screen then uses this load instead of starting its own. */
+export function prefetch<T>(path: string): Promise<T> {
+  let p = inflight.get(path) as Promise<T> | undefined;
+  if (!p) {
+    p = api<T>(path)
+      .then((d) => {
+        cache.set(path, d);
+        return d;
+      })
+      .finally(() => inflight.delete(path));
+    inflight.set(path, p);
+  }
+  return p;
+}
 
 export function invalidate(prefix: string): void {
   for (const k of [...cache.keys()]) if (k.startsWith(prefix)) cache.delete(k);
@@ -30,7 +47,7 @@ export function useApi<T>(path: string | null): Loaded<T> {
     setLoading(!cache.has(path));
     setError(null);
     try {
-      const d = await api<T>(path);
+      const d = await ((inflight.get(path) as Promise<T> | undefined) ?? api<T>(path));
       cache.set(path, d);
       if (current.current === path) setData(d);
     } catch (e) {

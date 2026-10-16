@@ -61,7 +61,7 @@ for (const f of ["favicon.svg", "icon-192.png", "icon-512.png", "apple-touch-ico
 // Load store.config.ts and the theme code (TypeScript) by bundling them for Node.
 const meta = await build({
   stdin: {
-    contents: `export { store } from ${JSON.stringify(join(root, "store.config.ts"))}; export { themeCss, googleFontsHref } from ${JSON.stringify(join(root, "packages", "ui", "src", "index.ts"))};`,
+    contents: `export { store } from ${JSON.stringify(join(root, "store.config.ts"))}; export { themeCss, googleFontsHref } from ${JSON.stringify(join(root, "packages", "ui", "src", "index.ts"))}; export { splashHtml } from ${JSON.stringify(join(here, "src", "ui", "logo.ts"))};`,
     resolveDir: root,
     loader: "ts",
   },
@@ -71,7 +71,7 @@ const meta = await build({
   platform: "node",
   logLevel: "warning",
 });
-const { store, themeCss, googleFontsHref } = await import(`data:text/javascript;base64,${Buffer.from(meta.outputFiles[0].contents).toString("base64")}`);
+const { store, themeCss, googleFontsHref, splashHtml } = await import(`data:text/javascript;base64,${Buffer.from(meta.outputFiles[0].contents).toString("base64")}`);
 
 const attr = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 // Replacer functions keep "$" in names or taglines literal.
@@ -83,6 +83,7 @@ const html = (await readFile(join(here, "index.html"), "utf8"))
   .replaceAll("%DIR%", () => (store.defaultLocale === "en" ? "ltr" : "rtl"))
   .replace("%THEME%", () => themeCss(store.theme.preset, store.theme.mode))
   .replace("%FONTS%", () => googleFontsHref(store.theme.preset))
+  .replace("%SPLASH%", () => splashHtml())
   .replace("%CSS%", () => `/assets/${cssName}`)
   .replace("%JS%", () => `/assets/${jsName}`);
 await writeFile(join(out, "index.html"), html);

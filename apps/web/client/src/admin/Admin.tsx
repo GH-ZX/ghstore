@@ -6,7 +6,7 @@ import { setLang, useApp, useT } from "../lib/state";
 import type { MsgKey } from "../lib/i18n";
 import { Logo, Seg, Toast } from "../ui/kit";
 import {
-  BoxIcon, ExitIcon, GearIcon, HomeIcon, MegaphoneIcon, OverviewIcon, ReceiptIcon, TicketIcon, TopupIcon, TruckIcon, UsersIcon,
+  BoxIcon, ChartIcon, ExitIcon, GearIcon, HomeIcon, MegaphoneIcon, OverviewIcon, ReceiptIcon, TicketIcon, TopupIcon, TruckIcon, UsersIcon,
 } from "../ui/icons";
 import { AdminOrders } from "./Orders";
 import { Broadcast } from "./Broadcast";
@@ -14,6 +14,7 @@ import { Catalog } from "./Catalog";
 import { HomeAdmin } from "./Home";
 import { Coupons } from "./Coupons";
 import { Overview } from "./Overview";
+import { Profit } from "./Profit";
 import { Settings } from "./Settings";
 import { Suppliers } from "./Suppliers";
 import { Topups } from "./Topups";
@@ -21,6 +22,7 @@ import { Users } from "./Users";
 
 const SECTIONS: { path: string; key: MsgKey; icon: ReactNode; owner?: boolean }[] = [
   { path: "/admin", key: "overview", icon: <OverviewIcon /> },
+  { path: "/admin/profit", key: "profit", icon: <ChartIcon />, owner: true },
   { path: "/admin/topups", key: "topups", icon: <TopupIcon /> },
   { path: "/admin/orders", key: "orders", icon: <ReceiptIcon /> },
   { path: "/admin/catalog", key: "catalog", icon: <BoxIcon />, owner: true },
@@ -89,6 +91,7 @@ export function Admin() {
           />
         </div>
         {section.key === "overview" && <Overview />}
+        {section.key === "profit" && <Profit />}
         {section.key === "topups" && <Topups canAct={canAct} />}
         {section.key === "orders" && <AdminOrders canAct={canAct} />}
         {section.key === "catalog" && <Catalog />}

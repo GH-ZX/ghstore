@@ -194,6 +194,20 @@ export function HomeAdmin() {
         </div>
         <div className="pref-row">
           <span className="stack-sm" style={{ gap: 2 }}>
+            <span>{t("autoBadgeNew")}</span>
+            <span className="hint">{t("autoBadgeNewHint")}</span>
+          </span>
+          <Switch checked={set["badges.auto_new"] !== false} onChange={(v) => void saveSetting("badges.auto_new", v)} label={t("autoBadgeNew")} />
+        </div>
+        <div className="pref-row">
+          <span className="stack-sm" style={{ gap: 2 }}>
+            <span>{t("autoBadgeBest")}</span>
+            <span className="hint">{t("autoBadgeBestHint")}</span>
+          </span>
+          <Switch checked={set["badges.auto_best"] !== false} onChange={(v) => void saveSetting("badges.auto_best", v)} label={t("autoBadgeBest")} />
+        </div>
+        <div className="pref-row">
+          <span className="stack-sm" style={{ gap: 2 }}>
             <span>{t("showBadgeInstant")}</span>
             <span className="hint">{t("showBadgeInstantHint")}</span>
           </span>

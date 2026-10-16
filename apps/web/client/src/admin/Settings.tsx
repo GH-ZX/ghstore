@@ -190,6 +190,7 @@ export function Settings() {
   const [email, setEmail] = useState("");
   const [channel, setChannel] = useState("");
   const [stars, setStars] = useState("");
+  const [retries, setRetries] = useState("5");
   const [mailFrom, setMailFrom] = useState("");
   const [testTo, setTestTo] = useState("");
   const [testing, setTesting] = useState(false);
@@ -227,6 +228,8 @@ export function Settings() {
     setMailFrom(text("email.from"));
     const sr = data.settings["payments.stars_per_usd"];
     setStars(typeof sr === "number" ? String(sr) : "");
+    const mr = data.settings["numbers.max_retries"];
+    setRetries(typeof mr === "number" ? String(mr) : "5");
     const dh = data.settings["reports.daily_hour"];
     setHour(typeof dh === "number" ? String(dh) : "9");
     const d = data.settings["referral.days"];
@@ -412,6 +415,26 @@ export function Settings() {
           style={{ alignSelf: "flex-start" }}
           disabled={action.busy || (stars !== "" && !(Number(stars) >= 1 && Number(stars) <= 1000))}
           onClick={() => put("payments.stars_per_usd", stars === "" ? null : Number(stars))}
+        >
+          {t("save")}
+        </button>
+      </section>
+
+      <section className="card card--pad stack-sm">
+        <div>
+          <h2>{t("numbersTitle")}</h2>
+          <p className="hint">{t("numbersHint")}</p>
+        </div>
+        <label className="field">
+          <span>{t("numbersRetries")}</span>
+          <input className="input num" inputMode="numeric" value={retries} onChange={(e) => setRetries(e.target.value.replace(/\D/g, "").slice(0, 2))} />
+        </label>
+        <button
+          type="button"
+          className="btn btn--sm press"
+          style={{ alignSelf: "flex-start" }}
+          disabled={action.busy || !(Number(retries) >= 1 && Number(retries) <= 20)}
+          onClick={() => put("numbers.max_retries", Number(retries))}
         >
           {t("save")}
         </button>

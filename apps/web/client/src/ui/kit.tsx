@@ -1,20 +1,23 @@
 /** Small shared components: logo, sheets, tiles, money, states. */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { store } from "@store/config";
 import { errorText } from "../lib/i18n";
 import { usd, syp } from "../lib/format";
 import { useApp, useT } from "../lib/state";
 import type { ApiFail } from "../lib/api";
 import { pushBack } from "../lib/telegram";
 import { CloseIcon } from "./icons";
+import { LOGO } from "./logo";
 
 /** Logo D: G and dot in the accent, H in the ink. */
 export function Logo({ height = 22 }: { height?: number }) {
   const width = Math.round((height * 240) / 120);
   return (
-    <svg width={width} height={height} viewBox="0 0 240 120" role="img" aria-label="GH.">
-      <path d="M92 22H40L22 40V80L40 98H80V62H54" fill="none" stroke="var(--accent-text)" strokeWidth="24" />
-      <path d="M122 10V110M182 10V110M122 60H182" fill="none" stroke="var(--ink)" strokeWidth="24" />
-      <path d="M212 86H224L230 92V104L224 110H212L206 104V92Z" fill="var(--dot)" />
+    <svg width={width} height={height} viewBox={LOGO.viewBox} role="img" aria-label={store.mark}>
+      {LOGO.strokes.map((s) => (
+        <path key={s.d} d={s.d} fill="none" stroke={s.color} strokeWidth={s.width} />
+      ))}
+      <path d={LOGO.fill.d} fill={LOGO.fill.color} />
     </svg>
   );
 }

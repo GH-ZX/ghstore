@@ -19,13 +19,27 @@ interface OverviewData {
   paymentsToReview: number;
   walletsTotalCents: number;
   newUsersToday: number;
-  suppliers: { id: string; name: string; enabled: boolean; balanceCents: number | null; low: boolean; health: string; lastError: string | null }[];
+  suppliers: {
+    id: string;
+    name: string;
+    enabled: boolean;
+    balanceCents: number | null;
+    low: boolean;
+    lowBalanceCents: number;
+    health: string;
+    lastError: string | null;
+    checkedAt: string | null;
+    /** What its orders cost over the last 7 days, and how long the balance lasts at that pace. */
+    spent7dCents: number;
+    daysLeft: number | null;
+  }[];
   jobs: { name: string; last_ok_at: string | null; last_error: string | null }[];
 }
 
 export function Overview() {
   const { t, lang } = useT();
   const { me } = useApp();
+  const owner = me?.user.role === "owner";
   const { data, error, reload } = useApi<OverviewData>("/api/admin/overview");
   if (!data) return error ? <ErrorBox error={error} onRetry={reload} /> : <div className="skeleton" style={{ height: 300 }} />;
   const kpi = (label: string, value: string, alert = false, to?: string) => {
@@ -47,7 +61,7 @@ export function Overview() {
     <div className="stack">
       <div className="kpis">
         {kpi(t("salesToday"), usd(data.salesTodayCents))}
-        {kpi(t("profitToday"), usd(data.profitTodayCents))}
+        {kpi(t("profitToday"), usd(data.profitTodayCents), false, owner ? "/admin/profit" : undefined)}
         {kpi(t("ordersToday"), String(data.ordersToday))}
         {kpi(t("newUsers"), String(data.newUsersToday))}
         {kpi(t("toReview"), String(data.paymentsToReview), data.paymentsToReview > 0, "/admin/topups")}
@@ -56,30 +70,11 @@ export function Overview() {
         {kpi(t("walletsTotal"), usd(data.walletsTotalCents))}
       </div>
 
-      <h2>{t("suppliers")}</h2>
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>{t("supplier")}</th>
-              <th>{t("balance")}</th>
-              <th>{t("health")}</th>
-              <th>{t("lastError")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.suppliers.map((s) => (
-              <tr key={s.id} style={{ opacity: s.enabled ? 1 : 0.55 }}>
-                <td>{s.name}</td>
-                <td className={s.low ? "num bad" : "num"}>{s.balanceCents === null ? "—" : usd(s.balanceCents)}</td>
-                <td>
-                  <span className={s.health === "ok" ? "badge badge--good" : s.health === "unknown" ? "badge" : "badge badge--bad"}>{s.health}</span>
-                </td>
-                <td className="wrap-cell small muted">{s.lastError ?? ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <h2>{t("supBalances")}</h2>
+      <div className="sup-cards">
+        {data.suppliers.map((s) => (
+          <SupplierCard key={s.id} s={s} />
+        ))}
       </div>
 
       <h2>{t("jobs")}</h2>
@@ -111,7 +106,39 @@ export function Overview() {
         </table>
       </div>
 
-      {me?.user.role === "owner" && <Exports />}
+      {owner && <Exports />}
+    </div>
+  );
+}
+
+/** A supplier's balance, how long it lasts at last week's pace, and whether it is working. */
+function SupplierCard({ s }: { s: OverviewData["suppliers"][number] }) {
+  const { t, lang } = useT();
+  const state = !s.enabled ? "off" : s.health === "ok" ? "ok" : s.health === "unknown" ? "unknown" : "bad";
+  const label = { off: t("supOff"), ok: t("supWorking"), unknown: t("supNotChecked"), bad: t("supProblem") }[state];
+  const days = s.daysLeft;
+  // A month of balance fills the meter.
+  const fill = days === null ? (s.balanceCents ? 100 : 0) : Math.min(100, (days / 30) * 100);
+  const tone = s.low || (days !== null && days < 3) ? "loss" : days !== null && days < 7 ? "warn" : "good";
+  return (
+    <div className={s.low ? "card card--pad sup-card sup-card--low" : "card card--pad sup-card"} style={{ opacity: s.enabled ? 1 : 0.55 }}>
+      <div className="row-between" style={{ gap: 8 }}>
+        <strong>{s.name}</strong>
+        <span className={state === "ok" ? "badge badge--good" : state === "bad" ? "badge badge--bad" : "badge"}>{label}</span>
+      </div>
+      <span className={s.low ? "num sup-card__bal bad" : "num sup-card__bal"}>{s.balanceCents === null ? "—" : usd(s.balanceCents)}</span>
+      {s.balanceCents !== null && (
+        <div className="hbar__track">
+          <span className={`hbar__fill hbar__fill--${tone}`} style={{ width: `${Math.max(2, fill)}%` }} />
+        </div>
+      )}
+      <span className="small muted">
+        {s.spent7dCents > 0 ? (days === 0 ? t("supRunsOut") : days !== null ? t("supDaysLeft", { n: days }) : "") : t("supNoSpend")}
+        {s.spent7dCents > 0 && ` · ${t("supSpent7d", { n: usd(s.spent7dCents) })}`}
+      </span>
+      {s.low && <span className="small bad">{t("supLowAlert", { n: usd(s.lowBalanceCents) })}</span>}
+      {s.lastError && state === "bad" && <span className="small muted sup-card__err">{s.lastError}</span>}
+      {s.checkedAt && <span className="small muted">{t("supCheckedAt", { when: ago(s.checkedAt, lang) })}</span>}
     </div>
   );
 }

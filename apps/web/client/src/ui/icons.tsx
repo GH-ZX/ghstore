@@ -279,6 +279,14 @@ export const OverviewIcon = ({ size = 20 }: P) => (
   </Svg>
 );
 
+export const ChartIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M4 20.5h16" {...stroke} />
+    <path d="M6.5 17v-4M11 17V9.5M15.5 17v-6M20 17V5.5" {...stroke} />
+    <path d="m4.5 10 5-4.5 4 3 6-5" {...stroke} />
+  </Svg>
+);
+
 export const TopupIcon = ({ size = 20 }: P) => (
   <Svg size={size}>
     <rect x="3" y="6" width="18" height="13" rx="3" {...stroke} />

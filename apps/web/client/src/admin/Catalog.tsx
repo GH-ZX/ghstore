@@ -46,7 +46,8 @@ interface Prod {
   /** auto: the supplier or stock delivers; manual: the team does; review: the supplier does, the team releases it. */
   delivery?: Delivery;
   after_fields?: AfterFieldDef[];
-  badge?: ProductBadge | null;
+  /** null: automatic (New, Best seller when earned); "none": never a badge. */
+  badge?: ProductBadge | "none" | null;
 }
 type Delivery = "auto" | "manual" | "review";
 interface Off {
@@ -71,6 +72,8 @@ interface Off {
   stock_available: number;
   warranty_ar?: string | null;
   warranty_en?: string | null;
+  /** Listed first in its product (virtual numbers: the owner's favourite countries). */
+  pinned?: boolean;
 }
 interface Sup {
   id: string;
@@ -158,7 +161,7 @@ function ProductBlock({ p, offers, onEdit }: { p: Prod; offers: Off[]; onEdit: (
           <span className="small muted num">/{p.slug}</span>
           <span className={p.active ? "badge badge--good" : "badge"}>{p.active ? t("active") : "—"}</span>
           {p.featured && <span className="badge">{t("featuredFlag")}</span>}
-          {p.badge && <span className={`badge badge--${p.badge}`}>{t(`badge_${p.badge}`)}</span>}
+          {p.badge && p.badge !== "none" && <span className={`badge badge--${p.badge}`}>{t(`badge_${p.badge}`)}</span>}
           {p.delivery && p.delivery !== "auto" && <span className="badge badge--warn">✋ {t(`delivery_${p.delivery}`)}</span>}
           {(p.after_fields?.length ?? 0) > 0 && <span className="badge">{t("afterCount", { n: p.after_fields!.length })}</span>}
         </div>
@@ -188,6 +191,7 @@ function ProductBlock({ p, offers, onEdit }: { p: Prod; offers: Off[]; onEdit: (
               {offers.map((o) => (
                 <tr key={o.id} style={{ opacity: o.active ? 1 : 0.55 }}>
                   <td>
+                    {o.pinned && <span title={t("pinTop")}>📌 </span>}
                     {pick(lang, o.name_ar, o.name_en)}
                     {pick(lang, o.warranty_ar ?? "", o.warranty_en ?? "") && (
                       <span className="small muted"> · {pick(lang, o.warranty_ar ?? "", o.warranty_en ?? "")}</span>
@@ -257,7 +261,7 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
     warrantyEn: product?.warranty_en ?? "",
     searchTerms: product?.search_terms ?? "",
     delivery: product?.delivery ?? ("auto" as Delivery),
-    badge: (product?.badge ?? "") as ProductBadge | "",
+    badge: (product?.badge ?? "") as ProductBadge | "none" | "",
     afterFields: product?.after_fields ?? ([] as AfterFieldDef[]),
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -341,8 +345,9 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
         </label>
         <label className="field">
           <span>{t("badge")}</span>
-          <select className="select" value={f.badge} onChange={(e) => set("badge", e.target.value as ProductBadge | "")}>
-            <option value="">{t("badgeNone")}</option>
+          <select className="select" value={f.badge} onChange={(e) => set("badge", e.target.value as ProductBadge | "none" | "")}>
+            <option value="">{t("badgeAuto")}</option>
+            <option value="none">{t("badgeNone")}</option>
             {(["instant", "new", "hot", "best", "sale"] as const).map((b) => (
               <option key={b} value={b}>
                 {t(`badge_${b}`)}
@@ -404,6 +409,7 @@ interface OfferDraft {
   fields: InputField[];
   warrantyAr: string;
   warrantyEn: string;
+  pinned: boolean;
 }
 
 function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: Prod; offer: Off | null; preset?: Partial<OfferDraft>; suppliers: Sup[]; onClose: () => void }) {
@@ -428,6 +434,7 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
     fields: offer?.input_fields ?? [],
     warrantyAr: offer?.warranty_ar ?? "",
     warrantyEn: offer?.warranty_en ?? "",
+    pinned: offer?.pinned ?? false,
     ...preset,
   });
   const set = <K extends keyof OfferDraft>(k: K, v: OfferDraft[K]) => setD((x) => ({ ...x, [k]: v }));
@@ -466,7 +473,7 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
       ...pricing,
     };
     const ok = offer
-      ? await action.run(`/api/admin/offers/${offer.id}`, { method: "PATCH", body: offer.supplier_id ? common : { ...common, costCents } })
+      ? await action.run(`/api/admin/offers/${offer.id}`, { method: "PATCH", body: { ...(offer.supplier_id ? common : { ...common, costCents }), pinned: d.pinned } })
       : await action.run(`/api/admin/products/${product.id}/offers`, {
           body: { ...common, ...(d.supplierId ? { supplierId: d.supplierId, supplierRef: d.supplierRef.trim() } : {}), ...(costCents !== null ? { costCents } : {}) },
         });
@@ -587,6 +594,15 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
           <span>{t("active")}</span>
           <Switch checked={d.active} onChange={(v) => set("active", v)} label={t("active")} />
         </div>
+        {offer && (
+          <div className="pref-row">
+            <span className="stack-sm" style={{ gap: 2 }}>
+              <span>{t("pinTop")}</span>
+              <span className="hint">{t("pinTopHint")}</span>
+            </span>
+            <Switch checked={d.pinned} onChange={(v) => set("pinned", v)} label={t("pinTop")} />
+          </div>
+        )}
         <label className="field">
           <span>{t("pkgWarrantyAr")}</span>
           <input className="input" dir="rtl" maxLength={40} value={d.warrantyAr} onChange={(e) => set("warrantyAr", e.target.value)} placeholder="ضمان كامل" />

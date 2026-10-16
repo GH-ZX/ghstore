@@ -247,7 +247,7 @@ function NumberPanel({ data, onChanged, onCopy }: { data: OrderDetail; onChanged
   async function another() {
     setBusy("again");
     try {
-      const r = await api<{ closed: boolean; orderId?: string; againError?: string }>(`/api/orders/${o.id}/number`, { method: "POST", body: { action: "used", again: true } });
+      const r = await api<{ closed: boolean; orderId?: string; againError?: string; againLimit?: number }>(`/api/orders/${o.id}/number`, { method: "POST", body: { action: "used", again: true } });
       if (!r.closed) {
         toast(t("numCodeArrived"));
         onChanged();
@@ -255,6 +255,9 @@ function NumberPanel({ data, onChanged, onCopy }: { data: OrderDetail; onChanged
         haptic("tap");
         toast(t("numAnother"));
         navigate(`/orders/${r.orderId}`, { replace: true });
+      } else if (r.againLimit) {
+        toast(t("numAgainLimit", { n: r.againLimit }), true);
+        onChanged();
       } else {
         toast(`${t("numClosed")} · ${errorText(lang, r.againError ?? "internal")}`, true);
         onChanged();
