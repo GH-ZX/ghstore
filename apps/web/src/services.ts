@@ -108,8 +108,10 @@ export function createServices(env: WorkerEnv): RequestServices {
     waitUntil: (p) => {
       pending.push(p);
     },
-    async telegram(method, payload) {
-      const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    async telegram(method, payload, bot = "store") {
+      // config holds the Worker's secrets plus the admin's keys (after ready()).
+      const token = bot === "staff" && config.NOTIFY_BOT_TOKEN ? config.NOTIFY_BOT_TOKEN : env.TELEGRAM_BOT_TOKEN;
+      const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),

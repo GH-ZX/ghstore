@@ -2,7 +2,7 @@
  * Payment and supplier keys set by the owner in Admin → Settings → Keys
  * (app.store_keys), on top of the Worker's own secrets.
  *
- * - Only the names below can be set. Webhook secrets, the bot token, DATA_KEY
+ * - Only the names below can be set. Webhook secrets, the store bot token, DATA_KEY
  *   and SESSION_SECRET stay Worker secrets: the store cannot sign anyone in, or
  *   read these values, without them.
  * - Values are AES-GCM encrypted with DATA_KEY, bound to their name, and never
@@ -18,7 +18,7 @@ import { ApiError, json, readJson } from "./http";
 
 export interface KeySpec {
   name: string;
-  group: "payments" | "suppliers";
+  group: "payments" | "suppliers" | "telegram";
   /** What it is for, shown in the admin. */
   label: string;
   pattern: RegExp;
@@ -37,6 +37,9 @@ export const STORE_KEYS: KeySpec[] = [
   { name: "MAXSTORE_API_KEY", group: "suppliers", label: "MaxStore", pattern: API_KEY },
   { name: "PRODSELLER_API_KEY", group: "suppliers", label: "ProdSeller", pattern: API_KEY },
   { name: "FIVESIM_API_KEY", group: "suppliers", label: "5SIM", pattern: API_KEY },
+  // Optional second bot that sends staff alerts (new orders, stuck orders, daily summary).
+  // A wrong value only affects those alerts, so unlike the store bot it can live here.
+  { name: "NOTIFY_BOT_TOKEN", group: "telegram", label: "Staff alerts bot token (optional)", pattern: /^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$/ },
 ];
 const SPEC = new Map(STORE_KEYS.map((k) => [k.name, k]));
 

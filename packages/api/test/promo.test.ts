@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SupplierAdapter } from "@store/core";
 import { handleBotWebhook, sendOutbox } from "../src/index";
+import { clearStoreKeysCache } from "../src/keys";
 import { queueBuyAgain } from "../src/jobs";
 import { connectTestDb, env, Harness } from "./helpers";
 
@@ -206,7 +207,8 @@ describe("bot commands", () => {
 
     const invite = await botText(id, "/invite");
     const code = (await h.call("GET", "/api/me/referral", { token })).data.code;
-    expect(String(invite.text)).toContain(`https://t.me/gh_store1_bot?start=r_${code}`);
+    const storeBot = (await h.call("GET", "/api/config")).data.telegram.bot;
+    expect(String(invite.text)).toContain(`https://t.me/${storeBot}?start=r_${code}`);
     expect(String((await botText(id, "/help", "ar")).text)).toContain("/balance");
     expect(String((await botText(id, "/nope")).text)).toContain("/help");
   });
@@ -357,5 +359,77 @@ describe("payment methods", () => {
     } finally {
       Object.assign(env, saved);
     }
+  });
+});
+
+
+describe("Telegram settings and staff alerts", () => {
+  async function owner(): Promise<string> {
+    await db.query(`delete from app.identities where provider = 'telegram' and subject = '900001'`);
+    return h.login(900001, "Owner");
+  }
+
+  it("uses the bot Telegram reports and shows the store's channel", async () => {
+    const token = await owner();
+    // Connect bot / the status check saves the username the token belongs to.
+    const telegram = h.svc.telegram;
+    h.svc.telegram = async (method, payload, which) =>
+      method === "getMe" ? { username: "ghstore_robot" } : method === "getWebhookInfo" ? { url: "" } : telegram(method, payload, which);
+    try {
+      expect((await h.call("GET", "/api/admin/telegram", { token })).data.bot).toBe("ghstore_robot");
+    } finally {
+      h.svc.telegram = telegram;
+    }
+    expect((await h.call("GET", "/api/config")).data.telegram.bot).toBe("ghstore_robot");
+    expect((await h.call("PUT", "/api/admin/settings/telegram.bot_username", { token, body: { value: "someone_else" } })).status).toBe(400);
+
+    for (const bad of ["t.me/x", "https://evil.example/ghstore", "https://t.me/ab", "javascript:alert(1)"]) {
+      expect((await h.call("PUT", "/api/admin/settings/telegram.channel_url", { token, body: { value: bad } })).status).toBe(400);
+    }
+    expect((await h.call("PUT", "/api/admin/settings/telegram.channel_url", { token, body: { value: "https://t.me/ghstore_news" } })).status).toBe(200);
+    expect((await h.call("GET", "/api/config")).data.telegram.channel).toBe("https://t.me/ghstore_news");
+    expect(String((await botText(tg(40), "/help")).text)).toContain("Our channel: https://t.me/ghstore_news");
+    await h.call("PUT", "/api/admin/settings/telegram.channel_url", { token, body: { value: null } });
+  });
+
+  it("tells owners and support staff about new orders, through the staff bot when one is set", async () => {
+    const ownerToken = await owner();
+    const helperId = tg(41);
+    const helperToken = await h.login(helperId, "Helper");
+    const helper = (await h.call("GET", "/api/me", { token: helperToken })).data.user.id;
+    expect((await h.call("POST", `/api/admin/users/${helper}/role`, { token: ownerToken, body: { role: "support" } })).status).toBe(200);
+
+    const buyer = await h.login(tg(42), "Buyer");
+    await fund(buyer, 3000);
+    const placed = await h.call("POST", "/api/orders", { token: buyer, body: { offerId, idempotencyKey: `staff-${run}-1` } });
+    expect(placed.status).toBe(201);
+    const alerts = await db.query<{ subject: string; data: Record<string, unknown> }>(
+      `select i.subject, o.data from app.outbox o join app.identities i on i.user_id = o.user_id and i.provider = 'telegram'
+        where o.template = 'staff_order' and o.data->>'ref' = $1`,
+      [`GH-${placed.data.number}`],
+    );
+    const to = alerts.map((a) => a.subject);
+    expect(to).toContain("900001");
+    expect(to).toContain(String(helperId));
+    expect(to).not.toContain(String(tg(42))); // never the customer
+    expect(alerts[0]!.data).toMatchObject({ name_en: "Netflix", offer_en: "1 month", total_cents: 1000 });
+
+    // A separate staff bot: staff messages go through it with a link to the store bot's Mini App.
+    await h.call("PUT", "/api/admin/keys/NOTIFY_BOT_TOKEN", { token: ownerToken, body: { value: "123456789:AAstaffbotTokenForTestsOnly_abcdefghij" } });
+    h.telegramCalls.length = 0;
+    await sendOutbox(h.svc, env, 1000);
+    const toHelper = h.telegramCalls.find((c) => c.payload.chat_id === String(helperId) && String(c.payload.text).includes(`GH-${placed.data.number}`));
+    expect(toHelper?.bot).toBe("staff");
+    expect(JSON.stringify(toHelper?.payload.reply_markup)).toMatch(/"url":"https:\/\/t\.me\/[A-Za-z0-9_]+\?startapp=admin"/);
+    expect(h.telegramCalls.filter((c) => c.payload.chat_id === String(tg(42))).every((c) => c.bot === "store")).toBe(true);
+    await h.call("PUT", "/api/admin/keys/NOTIFY_BOT_TOKEN", { token: ownerToken, body: { value: null } });
+    clearStoreKeysCache();
+
+    // Switched off in the admin: no more order alerts.
+    expect((await h.call("PUT", "/api/admin/settings/notify.new_orders", { token: ownerToken, body: { value: false } })).status).toBe(200);
+    const again = await h.call("POST", "/api/orders", { token: buyer, body: { offerId, idempotencyKey: `staff-${run}-2` } });
+    const none = await db.query(`select 1 from app.outbox where template = 'staff_order' and data->>'ref' = $1`, [`GH-${again.data.number}`]);
+    expect(none).toHaveLength(0);
+    await h.call("PUT", "/api/admin/settings/notify.new_orders", { token: ownerToken, body: { value: true } });
   });
 });

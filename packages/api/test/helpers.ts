@@ -58,7 +58,7 @@ export function makeDb(sql: SqlLike, inTx = false): Db {
 
 export class Harness {
   pending: Promise<unknown>[] = [];
-  telegramCalls: { method: string; payload: Record<string, unknown> }[] = [];
+  telegramCalls: { method: string; payload: Record<string, unknown>; bot: "store" | "staff" }[] = [];
   suppliers = new Map<string, SupplierAdapter>();
   payments = new Map<PaymentMethod, PaymentAdapter>();
   fetchImpl: typeof fetch = async () => new Response("not mocked", { status: 500 });
@@ -74,8 +74,8 @@ export class Harness {
       waitUntil: (p) => {
         this.pending.push(p);
       },
-      telegram: async (method, payload) => {
-        this.telegramCalls.push({ method, payload });
+      telegram: async (method, payload, bot = "store") => {
+        this.telegramCalls.push({ method, payload, bot });
         return { ok: true };
       },
     };

@@ -14,7 +14,7 @@ function arg(name: string, fallback: string): string {
 }
 
 const domain = arg("domain", "gh-store.me").replace(/^https?:\/\//, "").replace(/\/$/, "");
-const bot = arg("bot", "gh_store1_bot").replace(/^@/, "");
+const bot = arg("bot", "ghstore_robot").replace(/^@/, "");
 const token = (bytes: number) => randomBytes(bytes).toString("base64url");
 
 const secrets = {

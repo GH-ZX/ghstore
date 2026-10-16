@@ -46,6 +46,7 @@ export function Login() {
   const [busy, setBusy] = useState(false);
   const widget = useRef<HTMLDivElement>(null);
   const methods = config?.login ?? ["telegram"];
+  const bot = config?.telegram?.bot ?? store.telegramBot;
   const sb = config?.supabase ?? null;
 
   useEffect(() => {
@@ -97,7 +98,7 @@ export function Login() {
     const s = document.createElement("script");
     s.src = "https://telegram.org/js/telegram-widget.js?22";
     s.async = true;
-    s.setAttribute("data-telegram-login", store.telegramBot);
+    s.setAttribute("data-telegram-login", bot);
     s.setAttribute("data-size", "large");
     s.setAttribute("data-radius", "14");
     s.setAttribute("data-request-access", "write");
@@ -105,7 +106,7 @@ export function Login() {
     s.setAttribute("data-auth-url", `${location.origin}/login?next=${encodeURIComponent(next)}`);
     widget.current.replaceChildren(s);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [methods.join(","), lang]);
+  }, [methods.join(","), lang, bot]);
 
   async function sendCode(e: FormEvent) {
     e.preventDefault();
@@ -170,7 +171,7 @@ export function Login() {
         {methods.includes("telegram") && (
           <>
             <div className="tg-widget" ref={widget} aria-label={t("withTelegram")} />
-            <a className="btn btn--block btn--soft press" href={`https://t.me/${store.telegramBot}`} target="_blank" rel="noopener">
+            <a className="btn btn--block btn--soft press" href={`https://t.me/${bot}`} target="_blank" rel="noopener">
               {t("orOpenBot")}
             </a>
           </>

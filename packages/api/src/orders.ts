@@ -5,7 +5,9 @@ import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder, validateInput } from "./fulfilment";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
+import { alertNewOrder } from "./notify";
 import { couponCode } from "./promo";
+import { store } from "@store/config";
 
 const CHANNELS = new Set(["web", "miniapp", "bot"]);
 
@@ -45,6 +47,10 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
   );
   const r = rows[0];
   if (!r) throw new ApiError("internal");
+  if (r.created) {
+    // Owners and support staff hear about it (sent by the next outbox run).
+    await alertNewOrder(ctx.svc, r.order_id, store.orderPrefix).catch((e) => console.error("new order alert failed", r.order_id, String(e)));
+  }
   if (r.created && r.status === "paid") {
     ctx.svc.waitUntil(fulfilOrder(ctx.svc, ctx.env, r.order_id).catch((e) => console.error("fulfil failed", r.order_id, String(e))));
   }

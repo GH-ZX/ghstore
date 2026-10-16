@@ -5,7 +5,7 @@
  */
 import { requireStaff } from "./auth";
 import { TIME_ZONE } from "./reports";
-import { EMAIL, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
+import { CHANNEL_URL, EMAIL, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder } from "./fulfilment";
@@ -156,6 +156,11 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   // Telegram Stars charged per US dollar of balance (null = Stars top-ups off).
   "payments.stars_per_usd": (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 1000),
   "reports.daily_hour": (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 23,
+  // The store's Telegram channel (null = none). The bot's own username is learned from Telegram, not typed.
+  "telegram.channel_url": (v) => v === null || (typeof v === "string" && CHANNEL_URL.test(v)),
+  "telegram.bot_username": () => false,
+  // Tell owners and support staff about each new order.
+  "notify.new_orders": (v) => typeof v === "boolean",
 };
 
 export async function getSettings(ctx: Ctx): Promise<Response> {

@@ -3,6 +3,7 @@
  * read where they are needed. Nothing here has a value in code: a store copy
  * sets its own in the admin, and gh-store's come over from the old site.
  */
+import { store } from "@store/config";
 import type { Db } from "./db";
 
 export interface SupportContacts {
@@ -40,4 +41,29 @@ export async function supportContacts(db: Db): Promise<SupportContacts> {
 export async function starsPerUsd(db: Db): Promise<number | null> {
   const v = (await readSettings(db, ["payments.stars_per_usd"]))["payments.stars_per_usd"];
   return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 1000 ? v : null;
+}
+
+export const BOT_USERNAME = /^[A-Za-z][A-Za-z0-9_]{4,31}$/;
+/** A public channel (t.me/name) or a private invite link (t.me/+code). */
+export const CHANNEL_URL = /^https:\/\/t\.me\/(\+[A-Za-z0-9_-]{8,64}|[A-Za-z][A-Za-z0-9_]{4,31})$/;
+
+/** The store bot's username: saved by Connect bot, else store.config.ts. */
+export async function botUsername(db: Db): Promise<string> {
+  const v = (await readSettings(db, ["telegram.bot_username"]))["telegram.bot_username"];
+  return str(v, BOT_USERNAME) ?? store.telegramBot;
+}
+
+/** The store's Telegram channel link, or null. */
+export async function channelUrl(db: Db): Promise<string | null> {
+  return str((await readSettings(db, ["telegram.channel_url"]))["telegram.channel_url"], CHANNEL_URL);
+}
+
+/** Remember the bot's username as Telegram reports it (no write when unchanged). */
+export async function saveBotUsername(db: Db, username: string | null): Promise<void> {
+  if (!username || !BOT_USERNAME.test(username)) return;
+  await db.query(
+    `insert into app.settings (key, value, updated_at) values ('telegram.bot_username', $1::text::jsonb, now())
+     on conflict (key) do update set value = excluded.value, updated_at = now() where app.settings.value is distinct from excluded.value`,
+    [JSON.stringify(username)],
+  );
 }

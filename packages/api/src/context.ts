@@ -40,8 +40,12 @@ export interface Services {
   fetch: typeof fetch;
   /** Background work that may continue after the response (Workers ctx.waitUntil). */
   waitUntil(p: Promise<unknown>): void;
-  /** Send a Telegram Bot API request (injected so tests can capture it). */
-  telegram(method: string, payload: Record<string, unknown>): Promise<unknown>;
+  /**
+   * Send a Telegram Bot API request (injected so tests can capture it). `bot`
+   * "staff" uses the separate staff-alerts bot when one is set (NOTIFY_BOT_TOKEN
+   * in Admin → Settings → Keys), otherwise the store bot.
+   */
+  telegram(method: string, payload: Record<string, unknown>, bot?: "store" | "staff"): Promise<unknown>;
 }
 
 export interface AuthedUser {

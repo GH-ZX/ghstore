@@ -13,6 +13,8 @@ export interface PublicConfig {
   support: { telegram: string | null; whatsapp: string | null; email: string | null };
   login: ("telegram" | "email" | "google")[];
   supabase: { url: string; key: string } | null;
+  /** The store bot's username (from Connect bot) and the store's Telegram channel. */
+  telegram?: { bot: string; channel: string | null };
 }
 
 export interface Me {

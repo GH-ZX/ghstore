@@ -6,7 +6,7 @@
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
 import { fulfilOrder } from "./fulfilment";
-import { alertOwners, sendOutbox } from "./notify";
+import { alertOwners, alertStaff, sendOutbox } from "./notify";
 import { queueDailySummary } from "./reports";
 import { settlePayment } from "./payments";
 import { syncDueSuppliers } from "./sync";
@@ -46,7 +46,7 @@ export async function flagStuckOrders(svc: Services): Promise<void> {
         and created_at < now() - make_interval(hours => coalesce((select (value #>> '{}')::int from app.settings where key = 'orders.max_pending_hours'), 24))
      returning id, number`,
   );
-  if (stuck.length) await alertOwners(svc, `${stuck.length} order(s) stuck: ${stuck.map((s) => "#" + n(s.number)).join(", ")}`);
+  if (stuck.length) await alertStaff(svc, `${stuck.length} order(s) stuck: ${stuck.map((s) => "#" + n(s.number)).join(", ")}`);
 }
 
 export async function recheckPendingPayments(svc: Services, limit = 20): Promise<void> {

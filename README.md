@@ -1,7 +1,7 @@
 # GH Store
 
 One store, three doors: the **website** (gh-store.me), the **Telegram Mini App**
-(@gh_store1_bot) and the **bot** itself — all on the same accounts, wallet,
+(@ghstore_robot) and the **bot** itself — all on the same accounts, wallet,
 catalogue and orders. A multi-supplier reseller for digital goods: game top-ups,
 vouchers, accounts, subscriptions and virtual numbers.
 

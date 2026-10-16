@@ -205,6 +205,15 @@ Then open the bot's Mini App with the Telegram account in `OWNER_TELEGRAM_IDS`
 command menu in Arabic and English, and the menu button that opens the store, and
 shows whether Telegram delivers the bot's messages to the store.
 
+The store learns the bot's username from Telegram at that moment, so moving to a
+new bot later is: replace `TELEGRAM_BOT_TOKEN`, set the new bot up in @BotFather
+as above, and tap **Connect bot** again. No code change.
+
+Staff alerts (new orders, stuck orders, the daily summary) go to owners and support
+staff from the store bot, or from a separate bot whose token you save under
+**Admin → Settings → Keys → Telegram**; everyone who should get them opens that bot
+once and taps Start. The store's channel link is set with the support contacts.
+
 Connecting switches the bot away from the old server for good (a bot has one
 webhook, and polling stops once it is set). The old Python bot can then be stopped.
 

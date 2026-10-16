@@ -29,7 +29,10 @@ function ProfileView() {
   if (!me) return null;
   // Support channels the owner set in Admin → Settings.
   const sup = config?.support;
+  const bot = config?.telegram?.bot ?? store.telegramBot;
+  const channel = config?.telegram?.channel ?? null;
   const supportLinks = [
+    channel && { key: "ch", title: t("telegramChannel"), detail: channel.replace(/^https:\/\//, ""), href: channel, telegram: true },
     sup?.telegram && { key: "tg", title: t("supportTelegram"), detail: `@${sup.telegram}`, href: `https://t.me/${sup.telegram}`, telegram: true },
     sup?.whatsapp && { key: "wa", title: t("supportWhatsapp"), detail: `+${sup.whatsapp}`, href: `https://wa.me/${sup.whatsapp}`, telegram: false },
     sup?.email && { key: "em", title: t("supportEmail"), detail: sup.email, href: `mailto:${sup.email}`, telegram: false },
@@ -132,7 +135,7 @@ function ProfileView() {
           </button>
         ))}
         {!miniApp && u.hasTelegram === false && (
-          <a className="list-row" href={`https://t.me/${store.telegramBot}`} target="_blank" rel="noopener">
+          <a className="list-row" href={`https://t.me/${bot}`} target="_blank" rel="noopener">
             <span className="list-row__main">
               <span className="list-row__title">{t("openInTelegram")}</span>
             </span>
@@ -167,8 +170,9 @@ function InviteCard() {
   const { t } = useT();
   const { miniApp } = useApp();
   const { data } = useApi<Referral>("/api/me/referral");
+  const { config } = useApp();
   if (!data?.enabled) return null;
-  const botLink = `https://t.me/${store.telegramBot}?start=r_${data.code}`;
+  const botLink = `https://t.me/${config?.telegram?.bot ?? store.telegramBot}?start=r_${data.code}`;
   const webLink = `${location.origin}/?ref=${data.code}`;
   const shareLink = miniApp ? botLink : webLink;
 

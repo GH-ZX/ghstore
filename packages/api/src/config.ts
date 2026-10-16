@@ -6,7 +6,7 @@
 import type { Ctx } from "./context";
 import { json } from "./http";
 import { availableMethods, MAX_TOPUP_CENTS, MIN_TOPUP_CENTS } from "./payments";
-import { starsPerUsd, supportContacts } from "./settings";
+import { botUsername, channelUrl, starsPerUsd, supportContacts } from "./settings";
 
 const LOGIN_METHODS = ["telegram", "email", "google"] as const;
 type LoginMethod = (typeof LOGIN_METHODS)[number];
@@ -31,6 +31,8 @@ export async function publicConfig(ctx: Ctx): Promise<Response> {
       },
       // How customers reach the store (Admin → Settings → Support).
       support: await supportContacts(ctx.svc.db),
+      // The store bot (as Telegram reported it at Connect bot) and the store's channel.
+      telegram: { bot: await botUsername(ctx.svc.db), channel: await channelUrl(ctx.svc.db) },
       login,
       supabase: supabaseReady ? { url: ctx.env.SUPABASE_URL, key: ctx.env.SUPABASE_PUBLISHABLE_KEY } : null,
     },

@@ -14,7 +14,7 @@ import { n, one } from "./db";
 import { json } from "./http";
 import { creditStarsPayment, expectedStars } from "./payments";
 import { referralSettings } from "./promo";
-import { starsPerUsd, supportContacts, type SupportContacts } from "./settings";
+import { botUsername, channelUrl, starsPerUsd, supportContacts, type SupportContacts } from "./settings";
 
 type Update = Record<string, any>;
 
@@ -121,9 +121,10 @@ async function botUser(svc: Services, from: Record<string, any>): Promise<string
 }
 
 /** The support channels set in Admin → Settings, one per line. */
-function supportLines(s: SupportContacts, l: "ar" | "en"): string {
+function supportLines(s: SupportContacts, l: "ar" | "en", channel: string | null = null): string {
   const ar = l === "ar";
   const lines = [
+    channel ? `${ar ? "قناتنا" : "Our channel"}: ${channel}` : "",
     s.telegram ? `${ar ? "تيليجرام" : "Telegram"}: @${s.telegram}` : "",
     s.whatsapp ? `${ar ? "واتساب" : "WhatsApp"}: https://wa.me/${s.whatsapp}` : "",
     s.email ? `${ar ? "البريد" : "Email"}: ${s.email}` : "",
@@ -163,7 +164,7 @@ async function command(cmd: string, userId: string, chatId: unknown, l: "ar" | "
       return true;
     }
     const row = await one<{ code: string }>(svc.db, `select app.ensure_referral_code($1) as code`, [userId]);
-    const link = `https://t.me/${store.telegramBot}?start=r_${row?.code ?? ""}`;
+    const link = `https://t.me/${await botUsername(svc.db)}?start=r_${row?.code ?? ""}`;
     const share = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(T.shareText)}`;
     await svc.telegram("sendMessage", {
       chat_id: chatId,
@@ -174,7 +175,7 @@ async function command(cmd: string, userId: string, chatId: unknown, l: "ar" | "
     return true;
   }
   if (cmd === "/help") {
-    const contact = supportLines(await supportContacts(svc.db), l);
+    const contact = supportLines(await supportContacts(svc.db), l, await channelUrl(svc.db));
     await svc.telegram("sendMessage", {
       chat_id: chatId,
       text: contact ? `${T.helpCommands}\n\n${contact}` : T.help,

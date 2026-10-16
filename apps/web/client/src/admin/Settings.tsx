@@ -21,11 +21,12 @@ interface BotStatus {
   pendingUpdates: number;
   lastError: { message: string; at: string | null } | null;
   error: string | null;
+  staffBot: { username: string | null; error: string | null } | null;
 }
 
 interface StoreKey {
   name: string;
-  group: "payments" | "suppliers";
+  group: "payments" | "suppliers" | "telegram";
   label: string;
   source: "admin" | "worker" | null;
   hint: string | null;
@@ -58,9 +59,9 @@ function KeysCard() {
       {!keys ? (
         <div className="skeleton" style={{ height: 120 }} />
       ) : (
-        (["payments", "suppliers"] as const).map((group) => (
+        (["payments", "suppliers", "telegram"] as const).map((group) => (
           <div key={group} className="stack-sm">
-            <h3 style={{ margin: 0, fontSize: 15 }}>{t(group === "payments" ? "keysPayments" : "keysSuppliers")}</h3>
+            <h3 style={{ margin: 0, fontSize: 15 }}>{t(group === "payments" ? "keysPayments" : group === "suppliers" ? "keysSuppliers" : "keysTelegram")}</h3>
             {keys.filter((k) => k.group === group).map((k) => {
               const draft = drafts[k.name] ?? "";
               return (
@@ -138,6 +139,18 @@ function BotCard() {
             </p>
           )}
           {s.lastError && <p className="hint">{t("botLastError", { msg: s.lastError.message, when: ago(s.lastError.at, lang) })}</p>}
+          <div className="pref-row">
+            <span>{t("staffBot")}</span>
+            {s.staffBot?.username ? (
+              <a className="badge badge--good" dir="ltr" href={`https://t.me/${s.staffBot.username}`} target="_blank" rel="noopener">@{s.staffBot.username}</a>
+            ) : s.staffBot?.error ? (
+              <span className="badge badge--warn">{t("botNotConnected")}</span>
+            ) : (
+              <span className="badge">{t("staffBotSame")}</span>
+            )}
+          </div>
+          {s.staffBot?.error && <p className="hint">{t("botError", { msg: s.staffBot.error })}</p>}
+          <p className="hint">{s.staffBot?.username ? t("staffBotStart", { bot: s.staffBot.username }) : t("staffBotHint")}</p>
         </div>
       )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -172,6 +185,7 @@ export function Settings() {
   const [tg, setTg] = useState("");
   const [wa, setWa] = useState("");
   const [email, setEmail] = useState("");
+  const [channel, setChannel] = useState("");
   const [stars, setStars] = useState("");
 
   useEffect(() => {
@@ -182,6 +196,7 @@ export function Settings() {
     setTg(text("support.telegram"));
     setWa(text("support.whatsapp"));
     setEmail(text("support.email"));
+    setChannel(text("telegram.channel_url"));
     const sr = data.settings["payments.stars_per_usd"];
     setStars(typeof sr === "number" ? String(sr) : "");
     const dh = data.settings["reports.daily_hour"];
@@ -204,6 +219,7 @@ export function Settings() {
     if (key === "theme.preset") setState({ config: { ...cur, theme: { ...cur.theme, preset: value as PublicConfig["theme"]["preset"] } } });
     if (key === "theme.default_mode") setState({ config: { ...cur, theme: { ...cur.theme, defaultMode: value as PublicConfig["theme"]["defaultMode"] } } });
     if (key === "fx.syp_per_usd") setState({ config: { ...cur, sypPerUsd: value as number | null } });
+    if (key === "telegram.channel_url" && cur.telegram) setState({ config: { ...cur, telegram: { ...cur.telegram, channel: value as string | null } } });
     if (key.startsWith("support.")) setState({ config: { ...cur, support: { ...cur.support, [key.slice(8)]: value as string | null } } });
     if (key === "payments.stars_per_usd") setState({ config: { ...cur, payments: { ...cur.payments, starsPerUsd: value as number | null } } });
     applyTheme();
@@ -316,6 +332,16 @@ export function Settings() {
               onChange={(e) => setWa(e.target.value.replace(/[^0-9]/g, "").replace(/^00/, "").slice(0, 15))} />
           </label>
           <label className="field span-2">
+            <span>{t("telegramChannel")}</span>
+            <input id="telegram-channel" className="input" dir="ltr" value={channel} placeholder="https://t.me/…" autoComplete="off"
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                // "@name", "t.me/name" and "https://t.me/name" all become https://t.me/name
+                setChannel(v === "" ? "" : v.startsWith("@") ? `https://t.me/${v.slice(1)}` : /^(https?:\/\/)?t\.me\//i.test(v) ? `https://t.me/${v.replace(/^(https?:\/\/)?t\.me\//i, "")}` : v);
+              }} />
+            <span className="hint">{t("telegramChannelHint")}</span>
+          </label>
+          <label className="field span-2">
             <span>{t("supportEmail")}</span>
             <input className="input" dir="ltr" type="email" value={email} placeholder={t("supportEmailPh")} onChange={(e) => setEmail(e.target.value.trim())} />
           </label>
@@ -324,8 +350,10 @@ export function Settings() {
           type="button"
           className="btn btn--sm press"
           style={{ alignSelf: "flex-start" }}
-          disabled={action.busy || (tg !== "" && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(tg)) || (wa !== "" && !/^[1-9][0-9]{7,14}$/.test(wa)) || (email !== "" && !/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,24}$/.test(email))}
+          disabled={action.busy || (tg !== "" && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(tg)) || (wa !== "" && !/^[1-9][0-9]{7,14}$/.test(wa)) || (email !== "" && !/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,24}$/.test(email))
+            || (channel !== "" && !/^https:\/\/t\.me\/(\+[A-Za-z0-9_-]{8,64}|[A-Za-z][A-Za-z0-9_]{4,31})$/.test(channel))}
           onClick={async () => {
+            await put("telegram.channel_url", channel || null);
             await put("support.telegram", tg || null);
             await put("support.whatsapp", wa || null);
             await put("support.email", email || null);
@@ -368,6 +396,10 @@ export function Settings() {
         <div className="pref-row">
           <span>{t("dailySummaryOn")}</span>
           <Switch checked={data.settings["reports.daily"] !== false} onChange={(v) => put("reports.daily", v)} label={t("dailySummaryOn")} />
+        </div>
+        <div className="pref-row">
+          <span>{t("newOrderAlerts")}</span>
+          <Switch checked={data.settings["notify.new_orders"] !== false} onChange={(v) => put("notify.new_orders", v)} label={t("newOrderAlerts")} />
         </div>
         <label className="field">
           <span>{t("dailySummaryHour")}</span>

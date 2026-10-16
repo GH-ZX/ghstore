@@ -13,6 +13,8 @@ import { requireStaff } from "./auth";
 import { BOT_COMMANDS, OPEN_STORE } from "./bot";
 import type { Ctx } from "./context";
 import { ApiError, json } from "./http";
+import { effectiveEnv } from "./keys";
+import { saveBotUsername } from "./settings";
 
 /** The updates the bot handles (see bot.ts). */
 export const ALLOWED_UPDATES = ["message", "callback_query", "pre_checkout_query"];
@@ -36,6 +38,8 @@ export interface BotStatus {
   lastError: { message: string; at: string | null } | null;
   /** Why the status could not be read (for example an invalid token). */
   error: string | null;
+  /** The separate staff-alerts bot (NOTIFY_BOT_TOKEN in Admin → Settings → Keys), if set. */
+  staffBot: { username: string | null; error: string | null } | null;
 }
 
 /** Telegram's own error text without our "telegram <method>:" prefix. Never includes the token. */
@@ -55,11 +59,22 @@ export async function botStatus(ctx: Ctx): Promise<BotStatus> {
     pendingUpdates: 0,
     lastError: null,
     error: null,
+    staffBot: null,
   };
+  if ((await effectiveEnv(ctx.env, ctx.svc.db)).NOTIFY_BOT_TOKEN) {
+    try {
+      const staff = (await ctx.svc.telegram("getMe", {}, "staff")) as { username?: string } | null;
+      status.staffBot = { username: typeof staff?.username === "string" ? staff.username : null, error: null };
+    } catch (err) {
+      status.staffBot = { username: null, error: telegramError(err) };
+    }
+  }
   if (!ctx.env.TELEGRAM_BOT_TOKEN) return status;
   try {
     const me = (await ctx.svc.telegram("getMe", {})) as { username?: string } | null;
     status.bot = typeof me?.username === "string" ? me.username : null;
+    // The store's links (t.me/<bot>, the website's Telegram login) follow the bot the token belongs to.
+    await saveBotUsername(ctx.svc.db, status.bot);
     const info = (await ctx.svc.telegram("getWebhookInfo", {})) as {
       url?: string;
       pending_update_count?: number;

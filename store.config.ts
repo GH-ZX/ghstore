@@ -25,8 +25,8 @@ export const store = {
   timeZone: "Asia/Damascus",
   /** Shown next to USD prices when the admin sets fx.syp_per_usd (new Syrian pounds). */
   showSyp: true,
-  /** Telegram bot username without @, for links like t.me/<bot>. */
-  telegramBot: "gh_store1_bot",
+  /** Telegram bot username without @. Only until the owner taps Connect bot in the admin, which saves the real one. */
+  telegramBot: "ghstore_robot",
   // Support contacts and the Telegram Stars rate are set in Admin → Settings (stored in the database).
   /** Order numbers are shown as `${orderPrefix}${number}`. */
   orderPrefix: "GH-",

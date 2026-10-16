@@ -5,6 +5,8 @@
 import { formatUsd } from "@store/core";
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
+import { effectiveEnv } from "./keys";
+import { botUsername } from "./settings";
 import { summaryText, type DaySummary } from "./reports";
 
 type Data = Record<string, unknown>;
@@ -42,7 +44,14 @@ const TEMPLATES: Record<string, { ar: (d: Data) => string; en: (d: Data) => stri
     ar: (d) => `تنبيه: ${String(d.text ?? "")}`,
     en: (d) => `Alert: ${String(d.text ?? "")}`,
   },
+  staff_order: {
+    ar: (d) => `طلب جديد ${String(d.ref ?? "")}: ${String(d.name_ar ?? "")} (${String(d.offer_ar ?? "")}) — ${formatUsd(n(d.total_cents))}`,
+    en: (d) => `New order ${String(d.ref ?? "")}: ${String(d.name_en ?? "")} (${String(d.offer_en ?? "")}) — ${formatUsd(n(d.total_cents))}`,
+  },
 };
+
+/** Messages for the people running the store, never for customers. */
+const STAFF_TEMPLATES = new Set(["staff_alert", "staff_order", "daily_summary"]);
 
 export function renderTemplate(template: string, locale: "ar" | "en", data: Data): string | null {
   const t = TEMPLATES[template];
@@ -61,9 +70,12 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
     [limit],
   );
   let sent = 0;
+  // Staff messages come from the separate staff-alerts bot when the owner set one.
+  const staffBot = rows.some((r) => STAFF_TEMPLATES.has(r.template)) && !!(await effectiveEnv(env, svc.db)).NOTIFY_BOT_TOKEN;
+  const storeBot = staffBot ? await botUsername(svc.db) : "";
   for (const r of rows) {
     const text = renderTemplate(r.template, r.locale ?? "ar", r.data ?? {});
-    const isStaff = r.template === "staff_alert" || r.template === "daily_summary";
+    const isStaff = STAFF_TEMPLATES.has(r.template);
     if (!text || !r.chat_id || (!r.notify && !isStaff)) {
       await svc.db.query(`update app.outbox set status = 'sent', sent_at = now(), last_error = 'skipped' where id = $1`, [r.id]);
       continue;
@@ -75,7 +87,13 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
         : isStaff ? (r.locale === "en" ? "Open admin" : "افتح الإدارة")
         : r.locale === "en" ? "Open store" : "افتح المتجر";
       const url = slug ? `${env.PUBLIC_BASE_URL}/tg?startapp=p_${slug}` : isStaff ? `${env.PUBLIC_BASE_URL}/tg?startapp=admin` : `${env.PUBLIC_BASE_URL}/tg`;
-      await svc.telegram("sendMessage", { chat_id: r.chat_id, text, reply_markup: { inline_keyboard: [[{ text: label, web_app: { url } }]] } });
+      if (isStaff && staffBot) {
+        // A Mini App button would sign in through the wrong bot: link to the store bot's Mini App instead.
+        const link = `https://t.me/${storeBot}?startapp=admin`;
+        await svc.telegram("sendMessage", { chat_id: r.chat_id, text, reply_markup: { inline_keyboard: [[{ text: label, url: link }]] } }, "staff");
+      } else {
+        await svc.telegram("sendMessage", { chat_id: r.chat_id, text, reply_markup: { inline_keyboard: [[{ text: label, web_app: { url } }]] } });
+      }
       await svc.db.query(`update app.outbox set status = 'sent', sent_at = now() where id = $1`, [r.id]);
       sent++;
     } catch (err) {
@@ -86,11 +104,34 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
   return sent;
 }
 
-/** Queue an alert for every owner (supplier balance low, stuck orders...). */
+/** Queue an alert for every owner (supplier balance low, packages paused...). */
 export async function alertOwners(svc: Services, text: string): Promise<void> {
+  await alertStaff(svc, text, ["owner"]);
+}
+
+/** Queue an alert for the given staff roles (orders also go to support staff). */
+export async function alertStaff(svc: Services, text: string, roles: ("owner" | "support")[] = ["owner", "support"]): Promise<void> {
   await svc.db.query(
     `insert into app.outbox (user_id, template, data)
-     select id, 'staff_alert', jsonb_build_object('text', $1::text) from app.users where role = 'owner' and status = 'active'`,
-    [text.slice(0, 500)],
+     select id, 'staff_alert', jsonb_build_object('text', $1::text) from app.users
+      where role = any(string_to_array($2::text, ',')) and status = 'active'`,
+    [text.slice(0, 500), roles.join(",")],
+  );
+}
+
+/** Tell owners and support staff about a new order (Admin → Settings: notify.new_orders). */
+export async function alertNewOrder(svc: Pick<Services, "db">, orderId: string, orderPrefix: string): Promise<void> {
+  await svc.db.query(
+    `insert into app.outbox (user_id, template, data)
+     select u.id, 'staff_order',
+            jsonb_build_object('ref', $2::text || o.number, 'name_ar', p.name_ar, 'name_en', p.name_en,
+                               'offer_ar', f.name_ar, 'offer_en', f.name_en, 'total_cents', o.total_cents)
+       from app.orders o
+       join app.products p on p.id = o.product_id
+       join app.offers f on f.id = o.offer_id
+       join app.users u on u.role in ('owner', 'support') and u.status = 'active'
+      where o.id = $1
+        and (select value from app.settings where key = 'notify.new_orders') is distinct from 'false'::jsonb`,
+    [orderId, orderPrefix],
   );
 }
