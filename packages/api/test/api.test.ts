@@ -272,7 +272,6 @@ describe("admin", () => {
     const customer = await h.login(tg(8));
     expect((await h.call("GET", "/api/admin/overview", { token: customer })).status).toBe(403);
 
-    await db.query(`delete from app.identities where provider = 'telegram' and subject = '900001'`);
     const owner = await h.login(900001, "Owner");
     const ov = await h.call("GET", "/api/admin/overview", { token: owner });
     expect(ov.status).toBe(200);

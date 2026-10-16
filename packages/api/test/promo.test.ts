@@ -365,7 +365,6 @@ describe("payment methods", () => {
 
 describe("Telegram settings and staff alerts", () => {
   async function owner(): Promise<string> {
-    await db.query(`delete from app.identities where provider = 'telegram' and subject = '900001'`);
     return h.login(900001, "Owner");
   }
 

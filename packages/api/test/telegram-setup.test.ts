@@ -43,7 +43,6 @@ h.svc.telegram = async (method, payload) => {
 };
 
 async function ownerToken(): Promise<string> {
-  await db.query(`delete from app.identities where provider = 'telegram' and subject = '900001'`);
   return h.login(900001, "Owner");
 }
 

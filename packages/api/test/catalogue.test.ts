@@ -60,7 +60,6 @@ beforeAll(async () => {
   }
   gamesCategory = (await db.query<{ id: string }>(`select id from app.categories where slug = 'games'`))[0]!.id;
   await db.query(`update app.suppliers set import_category_id = $2 where id = $1`, [big, gamesCategory]);
-  await db.query(`delete from app.identities where provider = 'telegram' and subject = '900001'`);
   owner = await h.login(900001, "Owner");
   const customer = await h.login(800_000_000 + (Date.now() % 100_000_000), "Buyer");
   customerId = (await h.call("GET", "/api/me", { token: customer })).data.user.id;

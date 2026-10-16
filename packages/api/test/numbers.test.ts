@@ -88,7 +88,6 @@ beforeAll(async () => {
   for (const name of ["60", "325", "Weekly Pass"]) {
     await db.query(`insert into app.offers (product_id, name_ar, name_en, price_cents) values ($1, $2, $2, 100)`, [unitsProduct, name]);
   }
-  await db.query(`delete from app.identities where provider = 'telegram' and subject = '900001'`);
   owner = await h.login(900001, "Owner");
   customer = await h.login(830_000_000 + (Date.now() % 1_000_000), "Buyer");
   await fund(customer, 1000);

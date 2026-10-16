@@ -70,7 +70,6 @@ beforeAll(async () => {
   h.suppliers.set(shorthand, shorthandSupplier);
   await db.query(`insert into app.suppliers (id, name, enabled, max_jump_pct) values ($1, 'Accounts', true, null)`, [sup]);
   await db.query(`insert into app.suppliers (id, name, enabled, max_jump_pct, clean_names) values ($1, 'Shorthand', true, null, true)`, [shorthand]);
-  await db.query(`delete from app.identities where provider = 'telegram' and subject = '900001'`);
   owner = await h.login(900001, "Owner");
   customer = await h.login(840_000_000 + (Date.now() % 1_000_000), "Buyer");
   other = await h.login(841_000_000 + (Date.now() % 1_000_000), "Other");

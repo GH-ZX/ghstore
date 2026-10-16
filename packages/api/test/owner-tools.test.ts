@@ -49,7 +49,6 @@ beforeAll(async () => {
     `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents) values ($1, 'x', '$10', $2, 'g10', 900, 1000) returning id`,
     [p, sup],
   ))[0]!.id;
-  await db.query(`delete from app.identities where provider = 'telegram' and subject = '900001'`);
   owner = await h.login(900001, "Owner");
   customer = await h.login(850_000_000 + (Date.now() % 1_000_000), "Buyer");
 });
