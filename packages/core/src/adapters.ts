@@ -215,6 +215,22 @@ export interface PaymentAdapter {
   checkPayment?(providerRef: string, expected?: { amountCents: number; createdAt?: string }): Promise<PaymentEvent>;
   /** The receiving account as the provider describes it (Admin → Settings → APIs). */
   accountInfo?(): Promise<AccountInfo>;
+  /**
+   * Manual crypto: confirmed deposits to the store's address after `sinceBlock`
+   * (or lately), so a payment can be matched by its exact amount without the
+   * customer pasting the transaction hash. `toBlock` is where to continue from.
+   */
+  recentDeposits?(sinceBlock?: number): Promise<{ toBlock: number; deposits: Deposit[] }>;
+}
+
+export interface Deposit {
+  txHash: string;
+  /** Amount in US cents, rounded down. */
+  cents: number;
+  /** True when the amount has no fraction of a cent (an exact match is possible). */
+  exact: boolean;
+  blockNumber: number;
+  from: string;
 }
 
 export type PaymentFactory = (ctx: AdapterContext) => PaymentAdapter;

@@ -163,6 +163,24 @@ describe("virtual numbers", () => {
     expect(again.status).toBe(409);
   });
 
+  it("stops buying the next number after the set number of tries in a row", async () => {
+    // The earlier test already tried once again; allow exactly one more.
+    const done = (await db.query<{ n: string }>(`select count(*) as n from app.orders where offer_id = $1 and idempotency_key like 'again-%'`, [numberOffer]))[0]!;
+    const max = Number(done.n) + 1;
+    await db.query(`insert into app.settings (key, value) values ('numbers.max_retries', $1::text::jsonb) on conflict (key) do update set value = excluded.value`, [String(max)]);
+    try {
+      const first = await order(numberOffer, "lim1");
+      await h.settle();
+      const r1 = await h.call("POST", `/api/orders/${first.data.orderId}/number`, { token: customer, body: { action: "used", again: true } });
+      expect(r1.data.orderId).toBeTruthy();
+      await h.settle();
+      const r2 = await h.call("POST", `/api/orders/${r1.data.orderId}/number`, { token: customer, body: { action: "used", again: true } });
+      expect(r2.data).toEqual({ closed: true, againLimit: max });
+    } finally {
+      await db.query(`delete from app.settings where key = 'numbers.max_retries'`);
+    }
+  });
+
   it("shows each country's success rate and lists the best first", async () => {
     const product = (await db.query<{ product_id: string }>(`select product_id from app.offers where id = $1`, [numberOffer]))[0]!.product_id;
     const slug = (await db.query<{ slug: string }>(`select slug from app.products where id = $1`, [product]))[0]!.slug;

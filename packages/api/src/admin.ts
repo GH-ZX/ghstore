@@ -42,8 +42,14 @@ export async function overview(ctx: Ctx): Promise<Response> {
        (select count(*) from app.users where created_at >= (select start from d)) as new_users_today`,
     [TIME_ZONE],
   );
-  const suppliers = await db.query<{ id: string; name: string; enabled: boolean; balance_cents: string | number | null; low_balance_cents: string | number; health: string; last_error: string | null }>(
-    `select id, name, enabled, balance_cents, low_balance_cents, health, last_error from app.suppliers order by id`,
+  const suppliers = await db.query<{
+    id: string; name: string; enabled: boolean; balance_cents: string | number | null; low_balance_cents: string | number; health: string;
+    last_error: string | null; balance_checked_at: string | null; spent_7d: string | number;
+  }>(
+    `select s.id, s.name, s.enabled, s.balance_cents, s.low_balance_cents, s.health, s.last_error, s.balance_checked_at,
+            (select coalesce(sum(o.cost_cents), 0) from app.orders o
+              where o.supplier_id = s.id and o.status = 'delivered' and o.created_at > now() - interval '7 days') as spent_7d
+       from app.suppliers s order by s.enabled desc, s.name`,
   );
   const jobs = await db.query(`select name, last_ok_at, last_error from app.job_heartbeats order by name`);
   const t = today ?? {};
@@ -51,10 +57,17 @@ export async function overview(ctx: Ctx): Promise<Response> {
     salesTodayCents: n(t.sales_today), profitTodayCents: n(t.profit_today), ordersToday: n(t.orders_today),
     ordersOpen: n(t.orders_open), ordersFailed: n(t.orders_failed), paymentsToReview: n(t.payments_review),
     walletsTotalCents: n(t.wallets_total), newUsersToday: n(t.new_users_today),
-    suppliers: suppliers.map((s) => ({
-      id: s.id, name: s.name, enabled: s.enabled, balanceCents: s.balance_cents === null ? null : n(s.balance_cents),
-      low: s.balance_cents !== null && n(s.balance_cents) < n(s.low_balance_cents), health: s.health, lastError: s.last_error,
-    })),
+    suppliers: suppliers.map((s) => {
+      const spent = n(s.spent_7d);
+      const balance = s.balance_cents === null ? null : n(s.balance_cents);
+      return {
+        id: s.id, name: s.name, enabled: s.enabled, balanceCents: balance, lowBalanceCents: n(s.low_balance_cents),
+        low: balance !== null && balance < n(s.low_balance_cents), health: s.health, lastError: s.last_error,
+        checkedAt: s.balance_checked_at, spent7dCents: spent,
+        // At last week's pace, how many days the balance lasts (null: no spending to judge by).
+        daysLeft: balance !== null && spent > 0 ? Math.floor(balance / (spent / 7)) : null,
+      };
+    }),
     jobs,
   });
 }
@@ -182,6 +195,11 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "home.autoplay_seconds": (v) => typeof v === "number" && (SHOWCASE_AUTOPLAY as readonly number[]).includes(v),
   "home.deal_packages": (v) => typeof v === "number" && Number.isInteger(v) && v >= 2 && v <= 4,
   "home.picture_mode": (v) => typeof v === "string" && (PICTURE_MODES as readonly string[]).includes(v),
+  // Automatic badges on products left on "automatic": New (the newest) and Best seller (the most sold lately).
+  "badges.auto_new": (v) => typeof v === "boolean",
+  "badges.auto_best": (v) => typeof v === "boolean",
+  // Virtual numbers: how many times in a row a customer may report a number and get the next one.
+  "numbers.max_retries": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 20,
 };
 
 export async function getSettings(ctx: Ctx): Promise<Response> {

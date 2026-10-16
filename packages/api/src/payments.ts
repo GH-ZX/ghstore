@@ -290,3 +290,55 @@ export async function paymentWebhook(ctx: Ctx): Promise<Response> {
   const status = await settlePayment(ctx.svc, p.id);
   return json({ ok: true, status });
 }
+
+/** Where the USDT deposit scan stopped (app.settings, a block number). */
+const SCAN_KEY = "bep20.scan_block";
+
+/**
+ * Scheduled: credit USDT top-ups without the customer pasting the hash. Every
+ * open request has its own exact amount (createTopup), so a confirmed deposit
+ * of exactly that amount to the store address is that customer's: it goes
+ * checked on chain against that request first (amount, confirmations, sent
+ * after the request was made); only then is it attached and credited, so an
+ * older transfer that happens to share the amount never blocks the request.
+ * Runs only while a USDT request is open; a deposit matching nothing is left
+ * alone (the customer can still paste its hash; staff see it in Admin →
+ * Settings → APIs).
+ */
+export async function detectUsdtDeposits(svc: Services): Promise<number> {
+  const open = await svc.db.query<{ id: string; user_id: string; amount_cents: string | number; created_at: string }>(
+    `select id, user_id, amount_cents, created_at from app.payments
+      where method = 'bep20' and status in ('created', 'pending') and tx_hash is null and created_at > now() - interval '1 day'`,
+  );
+  if (!open.length) return 0;
+  const adapter = svc.payment("bep20");
+  if (!adapter?.recentDeposits || !adapter.checkPayment) return 0;
+  const saved = await svc.db.query<{ value: unknown }>(`select value from app.settings where key = $1`, [SCAN_KEY]);
+  const since = typeof saved[0]?.value === "number" ? (saved[0].value as number) : undefined;
+  const { toBlock, deposits } = await adapter.recentDeposits(since);
+  let credited = 0;
+  for (const d of deposits) {
+    if (!d.exact) continue;
+    const match = open.find((p) => n(p.amount_cents) === d.cents);
+    if (!match) continue;
+    let ev: PaymentEvent;
+    try {
+      ev = await adapter.checkPayment(d.txHash, { amountCents: n(match.amount_cents), createdAt: new Date(match.created_at).toISOString() });
+    } catch {
+      continue; // the RPC failed: the next scan does not see it again, but the customer can paste the hash
+    }
+    if (ev.status !== "paid") continue; // not this request's (sent before it, or a different amount)
+    try {
+      await call(svc.db, `select app.submit_tx_hash($1, $2, $3)`, [match.id, match.user_id, d.txHash]);
+    } catch {
+      continue; // already used for another request, or this one moved on
+    }
+    if ((await applyEvent(svc, match.id, ev)) === "paid") credited++;
+  }
+  await svc.db.query(
+    `insert into app.settings (key, value, updated_at) values ($1, $2::text::jsonb, now())
+     on conflict (key) do update set value = excluded.value, updated_at = now()`,
+    [SCAN_KEY, JSON.stringify(toBlock)],
+  );
+  return credited;
+}

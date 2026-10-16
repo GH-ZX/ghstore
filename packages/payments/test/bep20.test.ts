@@ -246,3 +246,53 @@ describe("bep20: verifyTransfer rejects", () => {
     expect((error as Error).message).not.toContain("key=test");
   });
 });
+
+describe("BEP20 deposits and account (auto-matching, Admin → Settings → APIs)", () => {
+  const LOGS = "https://logs.example/bsc";
+  function rpcFake(answers: Record<string, (params: unknown[]) => unknown>) {
+    return fakeFetch([
+      [
+        () => true,
+        (call: RecordedCall) => {
+          const req = call.body as { method: string; params: unknown[] };
+          const fn = answers[req.method];
+          if (!fn) throw new Error(`unexpected ${req.method}`);
+          return { json: { jsonrpc: "2.0", id: 1, result: fn(req.params) } };
+        },
+      ],
+    ]);
+  }
+
+  it("lists confirmed USDT deposits to the store address since a block, telling exact cents apart", async () => {
+    const fake = rpcFake({
+      eth_blockNumber: () => hex(BLOCK + 100),
+      eth_getLogs: () => [
+        { ...transferLog({ units: usdt(1037) }), blockNumber: hex(BLOCK + 50), transactionHash: "0x" + "01".repeat(32) },
+        { ...transferLog({ units: usdt(1037) + 5n }), blockNumber: hex(BLOCK + 60), transactionHash: "0x" + "02".repeat(32) },
+        { ...transferLog({ units: usdt(500), removed: true }), transactionHash: "0x" + "03".repeat(32) },
+      ],
+    });
+    const adapter = createBep20(context(fake.fetch, { ...CONFIG, BSC_LOGS_RPC_URL: LOGS }));
+    const r = await adapter.recentDeposits!(BLOCK + 10);
+    // 20 confirmations: blocks up to head - 19.
+    expect(r.toBlock).toBe(BLOCK + 81);
+    expect(r.deposits.map((d) => [d.cents, d.exact])).toEqual([[1037, true], [1037, false]]);
+    expect(r.deposits[0]!.from).toBe(PAYER);
+    const getLogs = fake.calls.find((c) => (c.body as { method: string }).method === "eth_getLogs")!;
+    expect(getLogs.url).toBe(LOGS);
+    expect((getLogs.body as { params: [{ fromBlock: string; toBlock: string }] }).params[0]).toMatchObject({ fromBlock: hex(BLOCK + 11), toBlock: hex(BLOCK + 81) });
+  });
+
+  it("shows the address's USDT and BNB balances and its latest deposits", async () => {
+    const fake = rpcFake({
+      eth_call: () => hex(usdt(4210)),
+      eth_getBalance: () => hex(25n * 10n ** 15n),
+      eth_blockNumber: () => hex(BLOCK + 100),
+      eth_getLogs: () => [transferLog({ units: usdt(1037) })],
+    });
+    const info = await createBep20(context(fake.fetch, CONFIG)).accountInfo!();
+    expect(info.balances).toEqual([{ currency: "USDT", amount: 42.1 }, { currency: "BNB", amount: 0.025 }]);
+    expect(info.fields[0]).toEqual({ label: "Address", value: STORE });
+    expect(info.history[0]).toMatchObject({ amount: 10.37, currency: "USDT", direction: "in" });
+  });
+});

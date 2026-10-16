@@ -109,3 +109,41 @@ export async function saveBotUsername(db: Db, username: string | null): Promise<
     [JSON.stringify(username)],
   );
 }
+
+/** Automatic badges (Admin → Home): how many products and over how long. */
+export const AUTO_BADGES = { newDays: 14, newCount: 6, bestDays: 30, bestCount: 3, bestMinOrders: 3 } as const;
+
+/**
+ * Products that earn an automatic badge right now, for products whose badge is
+ * left on "automatic" (null): Best seller for the most sold lately, New for the
+ * newest. Each can be switched off (badges.auto_best / badges.auto_new).
+ */
+export async function autoBadges(db: Db): Promise<Map<string, "new" | "best">> {
+  const s = await readSettings(db, ["badges.auto_new", "badges.auto_best"]);
+  const out = new Map<string, "new" | "best">();
+  if (s["badges.auto_best"] !== false) {
+    const best = await db.query<{ product_id: string }>(
+      `select product_id from app.orders
+        where status = 'delivered' and created_at > now() - make_interval(days => $1)
+        group by product_id having count(*) >= $2
+        order by count(*) desc, max(created_at) desc limit $3`,
+      [AUTO_BADGES.bestDays, AUTO_BADGES.bestMinOrders, AUTO_BADGES.bestCount],
+    );
+    for (const b of best) out.set(b.product_id, "best");
+  }
+  if (s["badges.auto_new"] !== false) {
+    const fresh = await db.query<{ id: string }>(
+      `select id from app.products where active and created_at > now() - make_interval(days => $1)
+        order by created_at desc, sort, name_en limit $2`,
+      [AUTO_BADGES.newDays, AUTO_BADGES.newCount],
+    );
+    for (const f of fresh) if (!out.has(f.id)) out.set(f.id, "new");
+  }
+  return out;
+}
+
+/** The badge a product shows: the owner's, none, or the automatic one it earned. */
+export function effectiveBadge(badge: string | null, auto: Map<string, string>, productId: string): string | null {
+  if (badge === "none") return null;
+  return badge ?? auto.get(productId) ?? null;
+}

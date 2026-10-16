@@ -13,8 +13,11 @@ import { ApiError, json } from "./http";
 import { effectiveEnv } from "./keys";
 import { checkSupplierId } from "./supplier-catalogue";
 
-/** Payment providers with an account to show (the others have none: Stars, a bare address). */
-const PAYMENTS: { id: PaymentMethod; name: string; key: string }[] = [{ id: "sam", name: "ShamCash (SAM)", key: "SAM_API_KEY" }];
+/** Payment providers with an account to show (Stars has none to read). */
+const PAYMENTS: { id: PaymentMethod; name: string; key: string }[] = [
+  { id: "sam", name: "ShamCash (SAM)", key: "SAM_API_KEY" },
+  { id: "bep20", name: "USDT (BEP20)", key: "BEP20_ADDRESS" },
+];
 
 /** A supplier's key name (G2BULK_API_KEY...): an adapter may exist without one (5SIM's public prices). */
 const supplierKey = (id: string) => `${id.toUpperCase()}_API_KEY`;

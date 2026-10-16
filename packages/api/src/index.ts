@@ -16,6 +16,7 @@ import * as orders from "./orders";
 import * as adminOrders from "./admin-orders";
 import * as names from "./names";
 import * as accounts from "./accounts";
+import * as profit from "./profit";
 import * as payments from "./payments";
 import * as promo from "./promo";
 import * as images from "./images";
@@ -105,6 +106,7 @@ const router = new Router()
   .on("GET", "/api/admin/keys", keys.listKeys)
   .on("PUT", "/api/admin/keys/:name", keys.putKey)
   .on("GET", "/api/admin/export/:kind", reports.exportCsv)
+  .on("GET", "/api/admin/reports/profit", profit.profitReport)
   .on("GET", "/api/admin/broadcasts", broadcast.listBroadcasts)
   .on("GET", "/api/admin/broadcasts/audience", broadcast.broadcastAudience)
   .on("POST", "/api/admin/broadcasts/test", broadcast.testBroadcast)

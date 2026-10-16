@@ -6,7 +6,7 @@ import { matchesQuery, type AfterField, type InputField } from "@store/core";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
 import { liveBanners } from "./home";
-import { showcaseSettings } from "./settings";
+import { autoBadges, effectiveBadge, showcaseSettings } from "./settings";
 import { ApiError, json } from "./http";
 
 interface ProductRow {
@@ -43,6 +43,7 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
       group by p.id, c.slug
       order by p.featured desc, p.sort, p.name_en`,
   );
+  const auto = await autoBadges(db);
   const q = ctx.url.searchParams.get("q")?.slice(0, 80) ?? "";
   const cat = ctx.url.searchParams.get("category") ?? "";
   const products = rows
@@ -63,8 +64,8 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
       searchTerms: r.search_terms,
       // Delivered by the team, not instantly.
       byHand: r.delivery !== "auto",
-      // The badge the owner chose for the card (none by default).
-      badge: r.badge,
+      // The owner's badge, or the automatic one (New, Best seller) when left on automatic.
+      badge: effectiveBadge(r.badge, auto, r.id),
     }));
   const home = !q && !cat;
   const banners = home ? await liveBanners(db) : [];
@@ -145,13 +146,13 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
   if (!p) throw new ApiError("not_found");
   const offers = await ctx.svc.db.query<{
     id: string; name_ar: string; name_en: string; price_cents: string | number; input_fields: InputField[]; max_quantity: number;
-    warranty_ar: string | null; warranty_en: string | null; success_pct: string | number | null;
+    warranty_ar: string | null; warranty_en: string | null; success_pct: string | number | null; pinned: boolean;
   }>(
-    `select o.id, o.name_ar, o.name_en, o.price_cents, o.input_fields, o.max_quantity, o.warranty_ar, o.warranty_en, o.success_pct
+    `select o.id, o.name_ar, o.name_en, o.price_cents, o.input_fields, o.max_quantity, o.warranty_ar, o.warranty_en, o.success_pct, o.pinned
        from app.offers o where o.product_id = $1 and o.active and o.paused_reason is null
         and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))
       -- Virtual numbers: the countries whose numbers get their SMS most often first.
-      order by case when $2 = 'sms' then -coalesce(o.success_pct, -1) end, o.sort, o.price_cents`,
+      order by o.pinned desc, case when $2 = 'sms' then -coalesce(o.success_pct, -1) end, o.sort, o.price_cents`,
     [p.id, p.kind],
   );
   if (!offers.length) throw new ApiError("not_found");
@@ -162,13 +163,14 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
       instructionsAr: p.instructions_ar, instructionsEn: p.instructions_en, warrantyAr: p.warranty_ar, warrantyEn: p.warranty_en,
       // Delivered by a person (not instantly), and what the customer is asked after paying.
       byHand: p.delivery !== "auto",
-      badge: p.badge,
+      badge: effectiveBadge(p.badge, p.badge === null ? await autoBadges(ctx.svc.db) : new Map(), p.id),
       afterFields: (p.after_fields ?? []).map((f) => ({ key: f.key, type: f.type, labelEn: f.labelEn, labelAr: f.labelAr, required: f.required })),
     },
     offers: offers.map((o) => ({
       id: o.id, nameAr: o.name_ar, nameEn: o.name_en, priceCents: n(o.price_cents),
       fields: o.input_fields, maxQuantity: o.max_quantity, warrantyAr: o.warranty_ar, warrantyEn: o.warranty_en,
       successPct: o.success_pct === null ? null : Number(o.success_pct),
+      pinned: o.pinned,
     })),
   });
 }

@@ -32,6 +32,9 @@ export interface DaySummary {
   topupsCents: number;
   topups: number;
   newUsers: number;
+  /** Sales the owner made in person (paid by hand), within salesCents. */
+  inPersonCents: number;
+  inPersonOrders: number;
   failedOrders: number;
   refundedOrders: number;
   openOrders: number;
@@ -52,6 +55,8 @@ export async function daySummary(svc: Pick<Services, "db">, date: string, timeZo
        (select coalesce(sum(amount_cents), 0) from app.ledger, bounds where kind = 'topup' and created_at >= a and created_at < b) as topups_cents,
        (select count(*) from app.ledger, bounds where kind = 'topup' and created_at >= a and created_at < b) as topups,
        (select count(*) from app.users, bounds where created_at >= a and created_at < b) as new_users,
+       (select coalesce(sum(total_cents), 0) from app.orders, bounds where status = 'delivered' and paid_with = 'in_person' and created_at >= a and created_at < b) as in_person,
+       (select count(*) from app.orders, bounds where status = 'delivered' and paid_with = 'in_person' and created_at >= a and created_at < b) as in_person_orders,
        (select count(*) from app.orders, bounds where status = 'failed' and created_at >= a and created_at < b) as failed,
        (select count(*) from app.orders, bounds where status = 'refunded' and created_at >= a and created_at < b) as refunded,
        (select count(*) from app.orders where status in ('paid', 'processing')) as open_orders,
@@ -66,6 +71,7 @@ export async function daySummary(svc: Pick<Services, "db">, date: string, timeZo
     date,
     salesCents: n(g.sales), orders: n(g.orders), profitCents: n(g.margin) - rewards, rewardsCents: rewards,
     topupsCents: n(g.topups_cents), topups: n(g.topups), newUsers: n(g.new_users),
+    inPersonCents: n(g.in_person), inPersonOrders: n(g.in_person_orders),
     failedOrders: n(g.failed), refundedOrders: n(g.refunded), openOrders: n(g.open_orders), toReview: n(g.to_review),
     lowSuppliers: Array.isArray(g.low) ? (g.low as string[]) : [],
   };
@@ -80,6 +86,7 @@ export function summaryText(s: DaySummary, locale: "ar" | "en"): string {
         `المبيعات: ${formatUsd(s.salesCents)} (${s.orders} طلب)`,
         `الربح: ${formatUsd(s.profitCents)}${s.rewardsCents ? ` (بعد ${formatUsd(s.rewardsCents)} مكافآت دعوة)` : ""}`,
         `الشحنات: ${formatUsd(s.topupsCents)} (${s.topups})`,
+        ...(s.inPersonOrders ? [`مبيعات مباشرة (نقداً معك): ${formatUsd(s.inPersonCents)} (${s.inPersonOrders})`] : []),
         `عملاء جدد: ${s.newUsers}`,
       ]
     : [
@@ -87,6 +94,7 @@ export function summaryText(s: DaySummary, locale: "ar" | "en"): string {
         `Sales: ${formatUsd(s.salesCents)} (${s.orders} orders)`,
         `Profit: ${formatUsd(s.profitCents)}${s.rewardsCents ? ` (after ${formatUsd(s.rewardsCents)} invite rewards)` : ""}`,
         `Top-ups: ${formatUsd(s.topupsCents)} (${s.topups})`,
+        ...(s.inPersonOrders ? [`In person (cash with you): ${formatUsd(s.inPersonCents)} (${s.inPersonOrders})`] : []),
         `New customers: ${s.newUsers}`,
       ];
   const attention: string[] = [];

@@ -91,15 +91,17 @@ describe("sales made in person", () => {
 });
 
 describe("product badges", () => {
-  it("shows only the badge the owner chose", async () => {
+  it("shows the badge the owner chose, none, or the automatic one", async () => {
     const card = async () => (await h.call("GET", "/api/catalog")).data.products.find((p: { slug: string }) => p.slug === slug);
-    expect((await card()).badge).toBeNull();
     const id = (await db.query<{ id: string }>(`select id from app.products where slug = $1`, [slug]))[0]!.id;
+    expect((await h.call("PATCH", `/api/admin/products/${id}`, { token: owner, body: { badge: "none" } })).status).toBe(200);
+    expect((await card()).badge).toBeNull();
     expect((await h.call("PATCH", `/api/admin/products/${id}`, { token: owner, body: { badge: "hot" } })).status).toBe(200);
     expect((await card()).badge).toBe("hot");
     expect((await h.call("PATCH", `/api/admin/products/${id}`, { token: owner, body: { badge: "free" } })).status).toBe(400);
+    // Back to automatic: a product this new is one of the newest (other test files may add newer ones).
     await h.call("PATCH", `/api/admin/products/${id}`, { token: owner, body: { badge: null } });
-    expect((await card()).badge).toBeNull();
+    expect(["new", "best", null]).toContain((await card()).badge);
   });
 });
 

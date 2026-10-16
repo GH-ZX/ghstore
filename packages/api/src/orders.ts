@@ -14,9 +14,12 @@ import { fulfilOrder, validateInput } from "./fulfilment";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { alertNewOrder, alertStaff } from "./notify";
 import { couponCode } from "./promo";
+import { readSettings } from "./settings";
 import { store } from "@store/config";
 
 const CHANNELS = new Set(["web", "miniapp", "bot"]);
+/** "Try another number" in a row, unless Admin → Settings says otherwise. */
+const DEFAULT_MAX_RETRIES = 5;
 
 export async function placeOrder(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
@@ -240,6 +243,16 @@ export async function closeNumber(ctx: Ctx): Promise<Response> {
     await call(db, `select * from app.refund_order($1, $2)`, [id, reason]);
   });
   if (body.again !== true) return json({ closed: true });
+  // At most `numbers.max_retries` numbers of the same package in a row (half an hour), so a
+  // country that delivers nothing does not burn through the wallet: then try another country.
+  const limit = await readSettings(ctx.svc.db, ["numbers.max_retries"]);
+  const max = typeof limit["numbers.max_retries"] === "number" ? (limit["numbers.max_retries"] as number) : DEFAULT_MAX_RETRIES;
+  const tries = await one<{ n: string | number }>(
+    ctx.svc.db,
+    `select count(*) as n from app.orders where user_id = $1 and offer_id = $2 and idempotency_key like 'again-%' and created_at > now() - interval '30 minutes'`,
+    [user.id, o.offer_id],
+  );
+  if (n(tries?.n) >= max) return json({ closed: true, againLimit: max });
   // Another number of the same package, paid from the refund just made.
   try {
     const channel = user.channel === "miniapp" ? "miniapp" : "web";

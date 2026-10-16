@@ -17,7 +17,7 @@ const SUPPLIER_ID = /^[a-z0-9_]{2,32}$/;
 const KINDS = ["id", "code", "account", "link", "sms"] as const;
 const MODES: MarkupMode[] = ["percent", "fixed", "manual"];
 /** The badges a product's card can carry (none by default). */
-const BADGES = ["instant", "new", "hot", "best", "sale"] as const;
+const BADGES = ["none", "instant", "new", "hot", "best", "sale"] as const;
 /** auto: the supplier or the stock delivers; manual: a person does; review: the supplier does, a person releases it. */
 const DELIVERY = ["auto", "manual", "review"] as const;
 
@@ -211,7 +211,7 @@ export async function getCatalog(ctx: Ctx): Promise<Response> {
   const offers = await db.query<Record<string, unknown> & { cost_cents: unknown; price_cents: unknown }>(
     `select o.id, o.product_id, o.name_ar, o.name_en, o.sort, o.supplier_id, o.supplier_ref, o.cost_cents, o.price_cents,
             o.markup_mode, o.markup_value, o.round_to_cents, o.min_margin_pct, o.input_fields, o.max_quantity, o.active,
-            o.paused_reason, o.cost_checked_at, o.remind_after_days, o.warranty_ar, o.warranty_en, o.success_pct,
+            o.paused_reason, o.cost_checked_at, o.remind_after_days, o.warranty_ar, o.warranty_en, o.success_pct, o.pinned,
             (select count(*) from app.stock_items s where s.offer_id = o.id and s.status = 'available') as stock_available
        from app.offers o order by o.sort, o.price_cents`,
   );
@@ -385,6 +385,9 @@ export async function updateOffer(ctx: Ctx): Promise<Response> {
   if (body.remindAfterDays !== undefined) changes.remind_after_days = body.remindAfterDays === null ? null : int(body, "remindAfterDays", 1, 365);
   if (body.inputFields !== undefined) changes.input_fields = parseInputFields(body.inputFields);
   Object.assign(changes, warrantyChanges(body));
+  // Listed first in its product (virtual numbers: the owner's favourite countries).
+  const pinned = bool(body, "pinned");
+  if (pinned !== undefined) changes.pinned = pinned;
   // Clearing a system pause is an explicit decision; the next sync pauses again if still needed.
   if (bool(body, "clearPause")) changes.paused_reason = null;
 

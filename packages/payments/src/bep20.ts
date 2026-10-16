@@ -19,6 +19,10 @@
  *   BEP20_MAX_AGE_HOURS      optional  Default 24. When no `notBefore` is given, transfers
  *                                      older than this are refused, so old public transfers
  *                                      to the store address cannot be claimed.
+ *   BSC_LOGS_RPC_URL         optional  An RPC that answers eth_getLogs (the default
+ *                                      dataseed refuses it), for recentDeposits and the
+ *                                      account's latest transfers. Default
+ *                                      "https://bsc-rpc.publicnode.com" (last ~5000 blocks).
  *
  * A transaction hash is public and does not identify who paid. The core must
  * block reused hashes (PaymentEvent.txHash is the lower-cased hash) and should
@@ -27,7 +31,9 @@
  */
 import {
   AdapterError,
+  type AccountInfo,
   type AdapterContext,
+  type Deposit,
   type CreatePaymentInput,
   type CreatedPayment,
   type PaymentAdapter,
@@ -43,6 +49,9 @@ export const BSC_DEFAULT_RPC_URL = "https://bsc-dataseed-public.bnbchain.org";
 /** keccak256("Transfer(address,address,uint256)") */
 export const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 export const BEP20_NETWORK_LABEL = "BSC (BEP20)";
+export const BSC_LOGS_RPC_URL = "https://bsc-rpc.publicnode.com";
+/** Blocks one eth_getLogs may span on the public logs RPC (it answers recent blocks only). */
+const LOGS_SPAN = 4500;
 
 const TX_HASH = /^0x[0-9a-f]{64}$/i;
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
@@ -162,6 +171,77 @@ function readSettings(ctx: AdapterContext) {
     minConfirmations: readInteger(ctx, ID, "BEP20_MIN_CONFIRMATIONS", 20, 1, 10_000),
     chainId: readInteger(ctx, ID, "BSC_CHAIN_ID", 56, 1, 2 ** 31),
     maxAgeHours: readInteger(ctx, ID, "BEP20_MAX_AGE_HOURS", 24, 1, 24 * 365),
+    logsRpcUrl: readConfig(ctx, "BSC_LOGS_RPC_URL") ?? BSC_LOGS_RPC_URL,
+  };
+}
+
+/**
+ * Confirmed Transfer logs of the token to the store address, after `sinceBlock`
+ * (at most LOGS_SPAN blocks back from the confirmed head).
+ */
+export async function recentDeposits(ctx: AdapterContext, sinceBlock?: number): Promise<{ toBlock: number; deposits: Deposit[] }> {
+  const s = readSettings(ctx);
+  const head = await rpc(ctx, s.logsRpcUrl, "eth_blockNumber", []);
+  if (typeof head !== "string" || !QUANTITY.test(head)) throw new AdapterError(ID, "RPC eth_blockNumber returned an unreadable value", true);
+  // Only blocks with enough confirmations: whatever is found is already final.
+  const toBlock = Number(BigInt(head)) - (s.minConfirmations - 1);
+  const fromBlock = Math.max(sinceBlock !== undefined ? sinceBlock + 1 : toBlock - LOGS_SPAN, toBlock - LOGS_SPAN);
+  if (fromBlock > toBlock) return { toBlock: Math.max(toBlock, sinceBlock ?? toBlock), deposits: [] };
+  const logs = await rpc(ctx, s.logsRpcUrl, "eth_getLogs", [{
+    fromBlock: `0x${fromBlock.toString(16)}`,
+    toBlock: `0x${toBlock.toString(16)}`,
+    address: s.token,
+    topics: [TRANSFER_TOPIC, null, addressTopic(s.address)],
+  }]);
+  const deposits: Deposit[] = [];
+  const unit = 10n ** BigInt(Math.max(0, s.decimals - 2));
+  for (const log of Array.isArray(logs) ? logs : []) {
+    if (!isRecord(log) || log.removed === true) continue;
+    const topics = Array.isArray(log.topics) ? log.topics : [];
+    const hash = typeof log.transactionHash === "string" ? log.transactionHash.toLowerCase() : "";
+    if (!TX_HASH.test(hash) || typeof log.data !== "string" || !WORD.test(log.data) || typeof log.blockNumber !== "string" || !QUANTITY.test(log.blockNumber)) continue;
+    if (typeof log.address !== "string" || log.address.toLowerCase() !== s.token) continue;
+    const units = BigInt(log.data);
+    const cents = Number(unitsToCents(units, s.decimals));
+    if (cents <= 0 || !Number.isSafeInteger(cents)) continue;
+    const from = typeof topics[1] === "string" && WORD.test(topics[1]) ? `0x${topics[1].slice(-40).toLowerCase()}` : "";
+    deposits.push({ txHash: hash, cents, exact: s.decimals >= 2 ? units % unit === 0n : true, blockNumber: Number(BigInt(log.blockNumber)), from });
+  }
+  return { toBlock, deposits };
+}
+
+/** The store address's USDT and BNB (gas) balances, and its latest incoming USDT. */
+async function bep20AccountInfo(ctx: AdapterContext): Promise<AccountInfo> {
+  const s = readSettings(ctx);
+  const balanceOf = `0x70a08231${s.address.slice(2).padStart(64, "0")}`;
+  const [usdt, bnb] = await Promise.all([
+    rpc(ctx, s.rpcUrl, "eth_call", [{ to: s.token, data: balanceOf }, "latest"]),
+    rpc(ctx, s.rpcUrl, "eth_getBalance", [s.address, "latest"]),
+  ]);
+  const amount = (raw: unknown, decimals: number) =>
+    typeof raw === "string" && QUANTITY.test(raw) ? Number(BigInt(raw) / 10n ** BigInt(Math.max(0, decimals - 6))) / 1e6 : null;
+  const balances: AccountInfo["balances"] = [];
+  const u = amount(usdt, s.decimals);
+  const b = amount(bnb, 18);
+  if (u !== null) balances.push({ currency: "USDT", amount: u });
+  if (b !== null) balances.push({ currency: "BNB", amount: b });
+  const history: AccountInfo["history"] = [];
+  try {
+    const { deposits } = await recentDeposits(ctx);
+    for (const d of deposits.slice(-15).reverse()) {
+      history.push({ at: null, amount: d.cents / 100, currency: "USDT", text: `${d.from.slice(0, 6)}…${d.from.slice(-4)} · block ${d.blockNumber}`, direction: "in" });
+    }
+  } catch {
+    // The logs RPC is optional: balances alone are still useful.
+  }
+  return {
+    fields: [
+      { label: "Address", value: s.displayAddress },
+      { label: "Network", value: BEP20_NETWORK_LABEL },
+      { label: "Confirmations needed", value: String(s.minConfirmations) },
+    ],
+    balances,
+    history,
   };
 }
 
@@ -329,5 +409,7 @@ export function createBep20(ctx: AdapterContext): Bep20Adapter {
     createPayment,
     checkPayment,
     verifyTransfer: (txHash, expectedCents, options) => verifyTransfer(ctx, txHash, expectedCents, options),
+    recentDeposits: (sinceBlock) => recentDeposits(ctx, sinceBlock),
+    accountInfo: () => bep20AccountInfo(ctx),
   };
 }
