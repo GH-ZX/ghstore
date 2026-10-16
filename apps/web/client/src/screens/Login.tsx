@@ -36,9 +36,38 @@ function safeNext(raw: string | null): string {
   return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
 }
 
+type LinkKind = "telegram" | "supabase";
+const stateKey = (kind: LinkKind) => `gh.link.${kind}`;
+
+/**
+ * Profile → Connect: ask the store for a one-time link token, kept in this tab
+ * only. The link is sent with it when the person comes back from Telegram or
+ * Google, so a link someone else crafted (without the token) does nothing.
+ */
+export async function startLink(kind: LinkKind): Promise<string> {
+  const r = await api<{ state: string }>("/api/me/link/start", { body: { provider: kind } });
+  try {
+    sessionStorage.setItem(stateKey(kind), r.state);
+  } catch {
+    /* storage unavailable: this tab can still use the returned token */
+  }
+  return r.state;
+}
+
+/** The token from startLink, used once. */
+function takeLinkState(kind: LinkKind): string | null {
+  try {
+    const s = sessionStorage.getItem(stateKey(kind));
+    sessionStorage.removeItem(stateKey(kind));
+    return s;
+  } catch {
+    return null;
+  }
+}
+
 /** Profile → link a website login: swap a Supabase access token for a link on the signed-in account. */
-export async function linkWebLogin(accessToken: string): Promise<void> {
-  const r = await api<{ switched: boolean; token?: string }>("/api/me/link/web", { body: { accessToken } });
+export async function linkWebLogin(accessToken: string, state: string): Promise<void> {
+  const r = await api<{ switched: boolean; token?: string }>("/api/me/link/web", { body: { accessToken, state } });
   // The login's own account had the history: the store moved us into it.
   if (r.token) setToken(r.token);
   await refreshMe();
@@ -132,14 +161,19 @@ export function Login() {
   const query = useQuery();
   const next = safeNext(query.get("next"));
   const link = query.get("link") === "1";
+  const only = query.get("with") === "telegram" ? "telegram" : query.get("with") === "supabase" ? "supabase" : null;
   const [busy, setBusy] = useState(false);
+  // A Telegram login waiting for "Link" to be confirmed (link mode).
+  const [pending, setPending] = useState<{ fields: Record<string, string>; state: string } | null>(null);
   const widget = useRef<HTMLDivElement>(null);
   const bot = config?.telegram?.bot ?? store.telegramBot;
   const sb = config?.supabase ?? null;
   const linking = link && !!me;
   // When linking, offer only the kinds of login the account does not have yet.
-  const methods = (config?.login ?? ["telegram"]).filter((m) => !linking || (m === "telegram" ? !me!.user.hasTelegram : !me!.user.email));
-  const back = link ? `/login?link=1&next=${encodeURIComponent(next)}` : `/login?next=${encodeURIComponent(next)}`;
+  const methods = (config?.login ?? ["telegram"]).filter(
+    (m) => !linking || ((m === "telegram" ? !me!.user.hasTelegram : !me!.user.email) && (!only || (only === "telegram") === (m === "telegram"))),
+  );
+  const back = link ? `/login?link=1${only ? `&with=${only}` : ""}&next=${encodeURIComponent(next)}` : `/login?next=${encodeURIComponent(next)}`;
 
   useEffect(() => {
     if (me && !link) navigate(next, { replace: true });
@@ -154,7 +188,12 @@ export function Login() {
 
   async function finishWeb(accessToken: string) {
     if (link) {
-      await linkWebLogin(accessToken);
+      const state = takeLinkState("supabase");
+      if (!state) {
+        toast(t("linkExpired"), true);
+        return;
+      }
+      await linkWebLogin(accessToken, state);
       done();
       return;
     }
@@ -188,8 +227,17 @@ export function Login() {
       if (v) fields[k] = v;
     }
     history.replaceState(null, "", back);
+    if (link) {
+      // Only a link this tab started, and only after the person confirms it.
+      const state = takeLinkState("telegram");
+      if (state) setPending({ fields, state });
+      else toast(t("linkExpired"), true);
+      return;
+    }
     setBusy(true);
-    (link ? api("/api/me/link/telegram", { body: fields }).then(() => refreshMe()).then(done) : api("/api/auth/telegram-widget", { body: fields }).then(() => refreshMe()).then(() => navigate(next, { replace: true })))
+    api("/api/auth/telegram-widget", { body: fields })
+      .then(() => refreshMe())
+      .then(() => navigate(next, { replace: true }))
       .catch((e) => toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true))
       .finally(() => setBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -216,7 +264,44 @@ export function Login() {
     location.href = `${sb.url}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirect)}`;
   }
 
+  async function confirmTelegram() {
+    if (!pending) return;
+    setBusy(true);
+    try {
+      const r = await api<{ token?: string }>("/api/me/link/telegram", { body: { ...pending.fields, state: pending.state } });
+      if (r.token) setToken(r.token);
+      await refreshMe();
+      done();
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    } finally {
+      setPending(null);
+      setBusy(false);
+    }
+  }
+
   const hasWeb = methods.includes("email") || methods.includes("google");
+  if (pending) {
+    const who = pending.fields.username ? `@${pending.fields.username}` : [pending.fields.first_name, pending.fields.last_name].filter(Boolean).join(" ");
+    return (
+      <div className="login">
+        <div className="card login__card screen">
+          <div className="login__brand">
+            <Logo height={40} />
+            <h1>{t("linkTitle")}</h1>
+            <p>{t("linkConfirm", { name: who || "Telegram" })}</p>
+          </div>
+          <button type="button" className="btn btn--block press" disabled={busy} onClick={confirmTelegram}>
+            {busy ? <Spinner small /> : t("linkConfirmBtn")}
+          </button>
+          <button type="button" className="btn btn--block btn--ghost press" disabled={busy} onClick={() => { setPending(null); navigate(next, { replace: true }); }}>
+            {t("cancel")}
+          </button>
+        </div>
+        <Toast />
+      </div>
+    );
+  }
   return (
     <div className="login">
       <div className="card login__card screen">

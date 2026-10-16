@@ -1,7 +1,7 @@
 /** Profile: who you are, totals, preferences, ways to sign in, support, admin link and sign-out. */
 import { store } from "@store/config";
 import { useState } from "react";
-import { api, ApiFail } from "../lib/api";
+import { api, ApiFail, setToken } from "../lib/api";
 import { errorText } from "../lib/i18n";
 import { copyText, usd } from "../lib/format";
 import { navigate } from "../lib/router";
@@ -12,7 +12,7 @@ import { useApi } from "../lib/useApi";
 import { ChevronIcon, GiftIcon, WalletIcon } from "../ui/icons";
 import { Seg, Sheet, Switch } from "../ui/kit";
 import { AdminLink, Shell } from "../ui/Shell";
-import { EmailCode, linkWebLogin, RequireUser } from "./Login";
+import { EmailCode, linkWebLogin, RequireUser, startLink } from "./Login";
 
 export function Profile() {
   const { t } = useT();
@@ -257,6 +257,7 @@ function LoginsCard() {
   const { me, miniApp, config } = useApp();
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [linkState, setLinkState] = useState("");
   if (!me) return null;
   const u = me.user;
   const methods = config?.login ?? ["telegram"];
@@ -266,14 +267,30 @@ function LoginsCard() {
   // Nothing to show when only Telegram sign-in is on and this is a Telegram account.
   if (!u.email && !canAddWeb && u.hasTelegram && !canAddTelegram) return null;
 
-  function addOnWebsite() {
-    navigate(`/login?link=1&next=${encodeURIComponent("/profile")}`);
+  async function addOnWebsite(kind: "telegram" | "supabase") {
+    try {
+      await startLink(kind);
+      navigate(`/login?link=1&with=${kind}&next=${encodeURIComponent("/profile")}`);
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    }
+  }
+
+  async function addEmailHere() {
+    try {
+      setLinkState(await startLink("supabase"));
+      setAdding(true);
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    }
   }
 
   async function remove(provider: "telegram" | "supabase") {
     setBusy(true);
     try {
-      await api("/api/me/unlink", { body: { provider } });
+      const r = await api<{ token?: string }>("/api/me/unlink", { body: { provider } });
+      // Removing a login signs out every other session; this one carries on with a fresh token.
+      if (r.token) setToken(r.token);
       await refreshMe();
       toast(t("loginRemoved"));
     } catch (e) {
@@ -301,7 +318,7 @@ function LoginsCard() {
             </button>
           )
         ) : canAddTelegram ? (
-          <button type="button" className="btn btn--xs press" onClick={addOnWebsite}>
+          <button type="button" className="btn btn--xs press" onClick={() => addOnWebsite("telegram")}>
             {t("connect")}
           </button>
         ) : null}
@@ -323,7 +340,7 @@ function LoginsCard() {
               </button>
             )
           ) : (
-            <button type="button" className="btn btn--xs press" onClick={() => (miniApp ? setAdding(true) : addOnWebsite())}>
+            <button type="button" className="btn btn--xs press" onClick={() => (miniApp ? addEmailHere() : addOnWebsite("supabase"))}>
               {t("connect")}
             </button>
           )}
@@ -337,7 +354,7 @@ function LoginsCard() {
           <EmailCode
             onToken={async (token) => {
               try {
-                await linkWebLogin(token);
+                await linkWebLogin(token, linkState);
                 setAdding(false);
                 toast(t("loginLinked"));
               } catch (e) {

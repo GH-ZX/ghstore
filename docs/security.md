@@ -48,9 +48,16 @@ What protects money, codes and accounts, and what the owner must do.
   wallets, roles, catalogue, keys, broadcasts). Every admin action is written to
   `app.audit_log`.
 - Linking logins: a login is attached only after Telegram or Supabase Auth has
-  verified it. If it already belongs to another account, the logins of an
-  unused account (no ledger, orders or payments) move over and it is signed
-  out; two accounts with history are never merged automatically.
+  verified it, and only with a one-time token the same session asked for
+  (`/api/me/link/start`, 10 minutes, stored hashed), so a crafted link carrying
+  someone else's login does nothing; Telegram links are also confirmed on
+  screen and must be fresh. If the login already belongs to another account,
+  the logins of an unused, active account (no ledger, orders or payments) move
+  over and it is signed out; blocked accounts and two accounts with history
+  are never merged. Removing a login signs out every other session.
+- The website sign-in switches (Admin → Settings) are enforced by the API, not
+  only hidden on the page: a Google or email token is refused while that
+  method is off.
 - Email receipts never contain delivered codes, and every value in them is
   HTML-escaped. Broadcasts are plain text (no Telegram formatting).
 - Owners come only from `OWNER_TELEGRAM_IDS` or another owner.

@@ -8,7 +8,11 @@
  * - Linking: a signed-in customer adds the other kind of login (Telegram, or
  *   email/Google), so every door opens the same wallet.
  */
-import { readSessionToken, SESSION_TTL_SECONDS, signSession, verifyInitData, verifyLoginWidget, verifySession, type Channel, type TelegramUser } from "@store/core";
+import {
+  fromBase64Url, fromUtf8, randomToken, readSessionToken, SESSION_TTL_SECONDS, signSession, toHex, utf8, verifyInitData, verifyLoginWidget,
+  verifySession, type Channel, type TelegramUser,
+} from "@store/core";
+import { webLoginMethods, type LoginMethod } from "./config";
 import type { AuthedUser, Ctx } from "./context";
 import { call, must, n, one, type Db } from "./db";
 import { ApiError, clearCookie, json, readJson, setCookie, str } from "./http";
@@ -82,15 +86,44 @@ export async function telegramWidgetLogin(ctx: Ctx): Promise<Response> {
   );
 }
 
-/** Ask Supabase Auth who an access token belongs to. Never decode it ourselves without verifying. */
+/**
+ * How a Supabase access token was obtained: "email" (one-time code) or "google".
+ * Read from the token's `amr` claim, only after Supabase has confirmed the
+ * token; falls back to the account's providers when the claim is absent.
+ */
+function webMethod(accessToken: string, providers: string[]): LoginMethod | null {
+  try {
+    const claims = JSON.parse(fromUtf8(fromBase64Url(accessToken.split(".")[1] ?? ""))) as { amr?: { method?: string }[] };
+    const methods = (claims.amr ?? []).map((a) => a.method);
+    if (methods.includes("oauth")) return "google";
+    if (methods.some((m) => m === "otp" || m === "magiclink" || m === "email/signup")) return "email";
+  } catch {
+    // not a readable JWT: use the providers below
+  }
+  if (providers.includes("google") && !providers.includes("email")) return "google";
+  if (providers.includes("email") && !providers.includes("google")) return "email";
+  return null;
+}
+
+/** Ask Supabase Auth who an access token belongs to, and refuse sign-in methods the owner switched off. */
 async function supabaseUser(ctx: Ctx, accessToken: string): Promise<{ id: string; email: string | null; name: string }> {
   if (!ctx.env.SUPABASE_URL || !ctx.env.SUPABASE_PUBLISHABLE_KEY) throw new ApiError("not_allowed");
   const res = await ctx.svc.fetch(`${ctx.env.SUPABASE_URL}/auth/v1/user`, {
     headers: { apikey: ctx.env.SUPABASE_PUBLISHABLE_KEY, authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new ApiError("unauthorized");
-  const au = (await res.json()) as { id?: string; email?: string; user_metadata?: { full_name?: string; name?: string } };
+  const au = (await res.json()) as {
+    id?: string;
+    email?: string;
+    user_metadata?: { full_name?: string; name?: string };
+    app_metadata?: { provider?: string; providers?: string[] };
+  };
   if (!au.id) throw new ApiError("unauthorized");
+  const providers = [...(au.app_metadata?.providers ?? []), ...(au.app_metadata?.provider ? [au.app_metadata.provider] : [])];
+  const method = webMethod(accessToken, providers);
+  const enabled = await webLoginMethods(ctx);
+  // Unknown method: allowed only while both website methods are on.
+  if (method ? !enabled.includes(method) : !(enabled.includes("email") && enabled.includes("google"))) throw new ApiError("not_allowed", "login_method");
   return { id: au.id, email: au.email ?? null, name: au.user_metadata?.full_name ?? au.user_metadata?.name ?? "" };
 }
 
@@ -110,13 +143,44 @@ export async function webLogin(ctx: Ctx): Promise<Response> {
   );
 }
 
+const LINK_TTL_MINUTES = 10;
+const sha256Hex = async (s: string) => toHex(await crypto.subtle.digest("SHA-256", utf8(s)));
+
+/**
+ * Profile → Connect: start linking a login to this account. The one-time token
+ * returned must come back with the login itself, from the same session, within
+ * 10 minutes, so a crafted link carrying someone else's login does nothing.
+ */
+export async function startLink(ctx: Ctx): Promise<Response> {
+  const auth = await requireUser(ctx);
+  const body = await readJson(ctx.req);
+  const provider = body.provider === "telegram" ? "telegram" : body.provider === "supabase" ? "supabase" : null;
+  if (!provider) throw new ApiError("invalid_input", "provider");
+  const state = randomToken(32);
+  await ctx.svc.db.query(
+    `insert into app.link_requests (session_id, provider, token_hash, expires_at) values ($1, $2, $3, now() + make_interval(mins => $4::int))
+     on conflict (session_id, provider) do update set token_hash = excluded.token_hash, expires_at = excluded.expires_at`,
+    [auth.sessionId, provider, await sha256Hex(state), LINK_TTL_MINUTES],
+  );
+  return json({ state, expiresInSeconds: LINK_TTL_MINUTES * 60 });
+}
+
+/** Use up the token from startLink; refuse when it is missing, wrong, expired or from another session. */
+async function consumeLink(ctx: Ctx, sessionId: string, provider: "telegram" | "supabase", state: unknown): Promise<void> {
+  if (typeof state !== "string" || state.length < 16 || state.length > 128) throw new ApiError("forbidden", "link_state");
+  const used = await ctx.svc.db.query(
+    `delete from app.link_requests where session_id = $1 and provider = $2 and token_hash = $3 and expires_at > now() returning session_id`,
+    [sessionId, provider, await sha256Hex(state)],
+  );
+  if (!used.length) throw new ApiError("forbidden", "link_state");
+}
+
 /**
  * Attach a verified login to the signed-in customer (see app.link_identity).
  * When the login's own account was the one with history, the customer carries
  * on in that account: we answer with a fresh session for it.
  */
-async function linkIdentity(ctx: Ctx, provider: "telegram" | "supabase", subject: string, username: string | null, email: string | null): Promise<Response> {
-  const auth = await requireUser(ctx);
+async function linkIdentity(ctx: Ctx, auth: AuthedUser, provider: "telegram" | "supabase", subject: string, username: string | null, email: string | null): Promise<Response> {
   const rows = await call<{ user_id: string; merged: boolean }>(ctx.svc.db, `select user_id, merged from app.link_identity($1, $2, $3, $4, $5)`, [
     auth.id,
     provider,
@@ -141,17 +205,23 @@ async function linkIdentity(ctx: Ctx, provider: "telegram" | "supabase", subject
 
 /** Profile → add email or Google: the client signed in with Supabase Auth and sends its access token. */
 export async function linkWeb(ctx: Ctx): Promise<Response> {
+  const auth = await requireUser(ctx);
   const body = await readJson(ctx.req);
+  await consumeLink(ctx, auth.sessionId, "supabase", body.state);
   const au = await supabaseUser(ctx, str(body, "accessToken", { max: 4096 }));
-  return linkIdentity(ctx, "supabase", au.id, null, au.email);
+  return linkIdentity(ctx, auth, "supabase", au.id, null, au.email);
 }
 
 /** Website profile → connect Telegram: the Telegram Login Widget's signed fields. */
 export async function linkTelegram(ctx: Ctx): Promise<Response> {
+  const auth = await requireUser(ctx);
   const body = await readJson(ctx.req);
-  const verified = await verifyLoginWidget(body, ctx.env.TELEGRAM_BOT_TOKEN, { now: ctx.svc.now(), maxAgeSeconds: 3600 });
+  const { state, ...fields } = body;
+  await consumeLink(ctx, auth.sessionId, "telegram", state);
+  // A fresh Telegram confirmation only: linking is not something to replay later.
+  const verified = await verifyLoginWidget(fields, ctx.env.TELEGRAM_BOT_TOKEN, { now: ctx.svc.now(), maxAgeSeconds: LINK_TTL_MINUTES * 60 });
   if (!verified) throw new ApiError("unauthorized");
-  return linkIdentity(ctx, "telegram", String(verified.user.id), verified.user.username ?? null, null);
+  return linkIdentity(ctx, auth, "telegram", String(verified.user.id), verified.user.username ?? null, null);
 }
 
 /** Remove a login, as long as the customer keeps another way in. */
@@ -174,7 +244,14 @@ export async function unlink(ctx: Ctx): Promise<Response> {
     `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'user.unlink', 'user', $2, $3::text::jsonb)`,
     [auth.id, auth.id, JSON.stringify({ provider })],
   );
-  return me(ctx);
+  // A login is often removed because it was lost or taken over: sign out every
+  // other session, and carry on here with a fresh one.
+  await ctx.svc.db.query(`update app.users set sessions_revoked_at = now() where id = $1`, [auth.id]);
+  const { token, expiresAt } = await startSession(ctx, auth.id, auth.channel);
+  const fresh: Ctx = { ...ctx, req: new Request(ctx.req.url, { headers: { authorization: `Bearer ${token}` } }) };
+  const profile = (await (await me(fresh)).json()) as Record<string, unknown>;
+  if (auth.channel === "miniapp") return json({ ...profile, token, expiresAt: expiresAt.toISOString() });
+  return json(profile, { headers: { "set-cookie": setCookie(SESSION_COOKIE, token, SESSION_TTL_SECONDS[auth.channel]) } });
 }
 
 export async function logout(ctx: Ctx): Promise<Response> {
