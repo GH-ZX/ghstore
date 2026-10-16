@@ -83,6 +83,11 @@ async function sitemap(env: WorkerEnv, ctx: ExecutionContext): Promise<Response>
 export default {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    // www.<domain> is an alias of the store's address (the web app redirects static pages itself).
+    if (url.hostname.startsWith("www.")) {
+      url.hostname = url.hostname.slice(4);
+      return Response.redirect(url.toString(), 301);
+    }
     if (url.pathname.startsWith("/api/") || url.pathname === "/telegram/webhook") {
       const { svc, finish } = createServices(env);
       try {

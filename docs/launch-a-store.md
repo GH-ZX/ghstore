@@ -183,7 +183,8 @@ origin. Check `…/api/health` → `{"ok":true}`.
 Switch-over, when the test passes: set `PUBLIC_BASE_URL` back to
 `https://gh-store.me`, then in Cloudflare move the custom domain gh-store.me from
 the old `gh-store` Worker to `ghstore` (or add `routes` with `custom_domain: true`
-in `wrangler.jsonc`). That is the moment customers see the new store.
+in `wrangler.jsonc`), and www.gh-store.me with it: the store sends www visitors to
+gh-store.me itself. That is the moment customers see the new store.
 
 ## 9. Telegram
 

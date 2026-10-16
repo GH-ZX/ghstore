@@ -11,6 +11,16 @@ import { loadTelegram } from "./lib/telegram";
 import type { PublicConfig } from "./lib/types";
 import { App } from "./App";
 
+/**
+ * www.<domain> is only an alias: send visitors to the store's own address, where
+ * sign-in and orders work (the API accepts requests from that one origin).
+ */
+function redirectFromWww(): boolean {
+  if (!location.hostname.startsWith("www.")) return false;
+  location.replace(`${location.protocol}//${location.hostname.slice(4)}${location.pathname}${location.search}${location.hash}`);
+  return true;
+}
+
 async function start() {
   applyLang(getState().lang);
   const root = createRoot(document.getElementById("root")!);
@@ -73,4 +83,4 @@ async function start() {
   }
 }
 
-void start();
+if (!redirectFromWww()) void start();
