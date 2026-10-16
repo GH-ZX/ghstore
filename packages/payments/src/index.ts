@@ -48,6 +48,7 @@ export {
   unitsToCents,
   verifyTransfer,
   BEP20_NETWORK_LABEL,
+  BEP20_SEND_WINDOW_MS,
   BSC_DEFAULT_RPC_URL,
   BSC_USDT_CONTRACT,
   TRANSFER_TOPIC,

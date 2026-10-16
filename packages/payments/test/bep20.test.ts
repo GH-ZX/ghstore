@@ -162,6 +162,15 @@ describe("bep20: checkPayment with the payment's expected amount and time", () =
     const withinGrace = await createBep20(chain({}).ctx).checkPayment(TX, { amountCents: 1234, createdAt: madeAt(-60) });
     expect(withinGrace.status).toBe("paid");
   });
+
+  it("refuses a transfer mined after the 15-minute send window (beyond the same grace)", async () => {
+    const late = await createBep20(chain({}).ctx).checkPayment(TX, { amountCents: 1234, createdAt: madeAt(20 * 60) });
+    expect(late.status).toBe("failed");
+    const lastMinute = await createBep20(chain({}).ctx).checkPayment(TX, { amountCents: 1234, createdAt: madeAt(16 * 60) });
+    expect(lastMinute.status).toBe("paid");
+    const reason = await verifyTransfer(chain({}).ctx, TX, 1234, { notAfter: new Date((MINED_AT - 1) * 1000) });
+    expect(reason).toMatchObject({ status: "failed", reason: "too_late" });
+  });
 });
 
 describe("bep20: verifyTransfer rejects", () => {

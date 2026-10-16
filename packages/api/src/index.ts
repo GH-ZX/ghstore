@@ -75,6 +75,7 @@ const router = new Router()
   .on("POST", "/api/topups", payments.createTopup)
   .on("GET", "/api/topups/:id", payments.getTopup)
   .on("POST", "/api/topups/:id/tx", payments.submitTxHash)
+  .on("POST", "/api/topups/:id/cancel", payments.cancelTopup)
   .on("POST", "/api/webhooks/payments/:method", payments.paymentWebhook)
   // admin
   .on("GET", "/api/admin/overview", admin.overview)

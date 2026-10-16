@@ -8,7 +8,7 @@ import { n } from "./db";
 import { fulfilOrder } from "./fulfilment";
 import { alertOwners, alertStaff, sendOutbox } from "./notify";
 import { queueDailySummary } from "./reports";
-import { detectUsdtDeposits, settlePayment } from "./payments";
+import { CLOSED_NOTES, detectUsdtDeposits, settlePayment, TOPUP_CLOSE_AFTER, USDT_CLOSE_AFTER } from "./payments";
 import { copyLinkedImages } from "./images";
 import { refreshDueCatalogues } from "./supplier-catalogue";
 import { syncDueSuppliers } from "./sync";
@@ -88,10 +88,12 @@ export async function recheckPendingPayments(svc: Services, limit = 20): Promise
     `select id from app.payments
       where created_at > now() - interval '2 days'
         and ((status = 'pending' and method in ('sam','nowpayments') and created_at < now() - interval '1 minute')
+          -- closed by the store (cancelled, window ran out): a late payment is still credited
+          or (status = 'expired' and method in ('sam','nowpayments') and note = any($2::text[]))
           -- a USDT hash submitted before it had enough confirmations: check the chain again
           or (status = 'review' and method = 'bep20' and tx_hash is not null and note is null))
       order by updated_at limit $1`,
-    [limit],
+    [limit, CLOSED_NOTES],
   );
   for (const r of rows) {
     if (room(svc) < 3) break;
@@ -99,6 +101,13 @@ export async function recheckPendingPayments(svc: Services, limit = 20): Promise
     await svc.db.query(`update app.payments set updated_at = now() where id = $1`, [r.id]);
   }
   await svc.db.query(`update app.payments set status = 'expired' where status in ('created','pending') and created_at < now() - interval '2 days'`);
+  await svc.db.query(
+    `update app.payments set status = 'expired', note = $3
+      where status in ('created','pending')
+        and ((method = 'bep20' and tx_hash is null and created_at < now() - $1::interval)
+          or (method <> 'bep20' and created_at < now() - $2::interval))`,
+    [USDT_CLOSE_AFTER, TOPUP_CLOSE_AFTER, CLOSED_NOTES[1]],
+  );
 }
 
 export async function checkSupplierBalances(svc: Services): Promise<void> {

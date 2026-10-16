@@ -27,7 +27,8 @@ describe("request budget", () => {
     const owner = await h.login(900001, "Owner");
     void owner;
     const ownerId = (await db.query<{ user_id: string }>(`select user_id from app.identities where provider = 'telegram' and subject = '900001'`))[0]!.user_id;
-    await db.query(`insert into app.outbox (user_id, template, data) values ($1, 'staff_alert', $2::text::jsonb)`, [ownerId, JSON.stringify({ text: `budget ${job}` })]);
+    // First in the queue, whatever other test files left pending (alerts fan out to every owner).
+    await db.query(`insert into app.outbox (user_id, template, data, priority) values ($1, 'staff_alert', $2::text::jsonb, -1)`, [ownerId, JSON.stringify({ text: `budget ${job}` })]);
     const pending = () => db.query(`select 1 from app.outbox where status = 'pending' and data->>'text' = $1`, [`budget ${job}`]);
     const { runScheduled } = await import("../src/jobs");
     h.telegramCalls = [];

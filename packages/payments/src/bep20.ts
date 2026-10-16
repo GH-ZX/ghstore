@@ -75,6 +75,7 @@ export type Bep20Reason =
   | "too_few_confirmations"
   | "not_canonical"
   | "too_old"
+  | "too_late"
   | "clock_skew"
   | "underpaid"
   | "amount_mismatch";
@@ -98,6 +99,8 @@ export interface Bep20Verification {
 export interface VerifyTransferOptions {
   /** Refuse transfers mined before this instant. Defaults to now minus BEP20_MAX_AGE_HOURS. */
   notBefore?: Date | string | number;
+  /** Refuse transfers mined after this instant (the request's send window closed). */
+  notAfter?: Date | string | number;
   /**
    * Require the received amount to equal `expectedCents` exactly. More than
    * expected becomes "review" (a person decides) instead of "paid".
@@ -107,6 +110,8 @@ export interface VerifyTransferOptions {
 
 /** Transfers mined this long before the payment request still count (clock differences). */
 export const NOT_BEFORE_GRACE_MS = 2 * 60_000;
+/** The customer sends within this long of the request; a transfer mined later does not count. */
+export const BEP20_SEND_WINDOW_MS = 15 * 60_000;
 
 interface Log {
   address?: unknown;
@@ -404,6 +409,7 @@ export async function verifyTransfer(
   const notBefore =
     options.notBefore !== undefined ? toMillis(options.notBefore) : now - settings.maxAgeHours * 3_600_000;
   if (minedAt < notBefore) return result("failed", "too_old", withTime);
+  if (options.notAfter !== undefined && minedAt > toMillis(options.notAfter)) return result("failed", "too_late", withTime);
   if (minedAt > now + FUTURE_SKEW_MS) return result("pending", "clock_skew", withTime);
 
   if (expectedCents !== undefined && receivedCents < expectedCents) return result("partial", "underpaid", withTime);
@@ -448,7 +454,11 @@ export function createBep20(ctx: AdapterContext): Bep20Adapter {
     if (!expected) return (await verifyTransfer(ctx, providerRef)).event;
     const created = expected.createdAt ? Date.parse(expected.createdAt) : NaN;
     const options: VerifyTransferOptions = { exact: true };
-    if (Number.isFinite(created)) options.notBefore = created - NOT_BEFORE_GRACE_MS;
+    if (Number.isFinite(created)) {
+      options.notBefore = created - NOT_BEFORE_GRACE_MS;
+      // Sent within the request's window (with the same grace for clock differences).
+      options.notAfter = created + BEP20_SEND_WINDOW_MS + NOT_BEFORE_GRACE_MS;
+    }
     return (await verifyTransfer(ctx, providerRef, expected.amountCents, options)).event;
   }
 

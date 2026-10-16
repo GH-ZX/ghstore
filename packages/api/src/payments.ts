@@ -6,7 +6,7 @@
  * through app.credit_payment, which is idempotent per payment.
  */
 import { AdapterError, type PaymentEvent, type PaymentMethod } from "@store/core";
-import { starsForCents } from "@store/payments";
+import { BEP20_SEND_WINDOW_MS, starsForCents } from "@store/payments";
 import { requireUser } from "./auth";
 import type { ApiEnv, Ctx, Services } from "./context";
 import { call, isUniqueViolation, n, one } from "./db";
@@ -77,7 +77,7 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
   if (n(open?.c) >= 5) throw new ApiError("rate_limited");
 
   const channel = user.channel === "miniapp" ? "miniapp" : "web";
-  let payment: { id: string; amount_cents: string | number } | undefined;
+  let payment: { id: string; amount_cents: string | number; created_at: string } | undefined;
   // Manual USDT gets a unique amount (requested + 1..99 cents) among open requests,
   // enforced by a unique index. A transfer is then matched by its exact amount and
   // time, so nobody can claim another customer's public transaction hash.
@@ -86,7 +86,7 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
     try {
       payment = await one(
         ctx.svc.db,
-        `insert into app.payments (user_id, method, amount_cents, channel) values ($1, $2, $3, $4) returning id, amount_cents`,
+        `insert into app.payments (user_id, method, amount_cents, channel) values ($1, $2, $3, $4) returning id, amount_cents, created_at`,
         [user.id, method, amount, channel],
       );
     } catch (err) {
@@ -108,7 +108,13 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
   await ctx.svc.db.query(`update app.payments set status = 'pending', provider_ref = $2, action = $3::text::jsonb where id = $1`, [
     payment.id, created.providerRef, JSON.stringify(action),
   ]);
-  return json({ paymentId: payment.id, amountCents: payAmount, action, expiresAt: created.expiresAt ?? null }, { status: 201 });
+  // Every top-up: pay within the window (the countdown on the customer's screen).
+  const sendBy = topupSendBy(payment.created_at);
+  // Seconds left as well: the customer's clock may be off, so the countdown starts from this.
+  return json(
+    { paymentId: payment.id, amountCents: payAmount, action, expiresAt: created.expiresAt ?? null, sendBy, secondsLeft: Math.round(TOPUP_WINDOW_MS / 1000) },
+    { status: 201 },
+  );
 }
 
 /** Manual BEP20: the customer pastes the transaction hash; we check the chain right away. */
@@ -122,13 +128,25 @@ export async function submitTxHash(ctx: Ctx): Promise<Response> {
   return json({ paymentId: id, status });
 }
 
+/** Every top-up is paid within this long of the request (the customer sees a countdown). */
+export const TOPUP_WINDOW_MS = BEP20_SEND_WINDOW_MS;
+/** Notes on top-ups the store closed (cancelled, or the window ran out): a late provider confirmation still credits them. */
+export const CLOSED_NOTES = ["cancelled by the customer", "send window closed"] as const;
+
+/** The end of a top-up's payment window. */
+function topupSendBy(createdAt: string | Date): string {
+  return new Date(new Date(createdAt).getTime() + TOPUP_WINDOW_MS).toISOString();
+}
+
 export async function getTopup(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
   const id = uuid(ctx.params.id);
-  const p = await one<{ id: string; method: string; amount_cents: string | number; status: string; action: unknown; credited_cents: string | number | null; created_at: string; tx_hash: string | null; note: string | null }>(
+  const p = await one<{ id: string; method: string; amount_cents: string | number; status: string; action: unknown; credited_cents: string | number | null; created_at: string; tx_hash: string | null; note: string | null; left_s: string | number }>(
     ctx.svc.db,
-    `select id, method, amount_cents, status, action, credited_cents, created_at, tx_hash, note from app.payments where id = $1 and user_id = $2`,
-    [id, user.id],
+    `select id, method, amount_cents, status, action, credited_cents, created_at, tx_hash, note,
+            greatest(0, ceil(extract(epoch from created_at - now()) + $3))::int as left_s
+       from app.payments where id = $1 and user_id = $2`,
+    [id, user.id, TOPUP_WINDOW_MS / 1000],
   );
   if (!p) throw new ApiError("not_found");
   // Manual USDT: where the customer is in the flow, so the app can resume it.
@@ -142,8 +160,36 @@ export async function getTopup(ctx: Ctx): Promise<Response> {
     id: p.id, method: p.method, amountCents: n(p.amount_cents), status: p.status, action: p.action,
     creditedCents: p.credited_cents === null ? null : n(p.credited_cents), createdAt: p.created_at,
     txHash: p.method === "bep20" ? p.tx_hash : null, stage,
+    sendBy: topupSendBy(p.created_at),
+    secondsLeft: ["created", "pending"].includes(p.status) ? n(p.left_s) : 0,
   });
 }
+
+/**
+ * POST /api/topups/:id/cancel — the customer drops a top-up they have not paid
+ * (USDT: no hash given yet). A USDT amount is free again for other requests;
+ * a provider that still confirms a payment for it later is credited anyway.
+ */
+export async function cancelTopup(ctx: Ctx): Promise<Response> {
+  const user = await requireUser(ctx);
+  const id = uuid(ctx.params.id);
+  const rows = await ctx.svc.db.query<{ id: string }>(
+    `update app.payments set status = 'expired', note = $3
+      where id = $1 and user_id = $2 and status in ('created', 'pending') and (method <> 'bep20' or tx_hash is null)
+      returning id`,
+    [id, user.id, CLOSED_NOTES[0]],
+  );
+  if (!rows.length) throw new ApiError("bad_state");
+  return json({ paymentId: id, status: "expired" });
+}
+
+/**
+ * When unpaid top-ups close. A USDT request with no transfer found gets half an
+ * hour after its 15 minutes to paste the hash of a transfer made in time; the
+ * others close just after their window (a late confirmation still credits them).
+ */
+export const USDT_CLOSE_AFTER = "45 minutes";
+export const TOPUP_CLOSE_AFTER = "17 minutes";
 
 export async function walletHistory(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
@@ -181,13 +227,15 @@ export async function walletHistory(ctx: Ctx): Promise<Response> {
  * provider itself says "paid". Returns the payment's status afterwards.
  */
 export async function settlePayment(svc: Services, paymentId: string): Promise<string> {
-  const p = await one<{ id: string; method: PaymentMethod; amount_cents: string | number; status: string; provider_ref: string | null; tx_hash: string | null; created_at: string }>(
+  const p = await one<{ id: string; method: PaymentMethod; amount_cents: string | number; status: string; provider_ref: string | null; tx_hash: string | null; created_at: string; note: string | null }>(
     svc.db,
-    `select id, method, amount_cents, status, provider_ref, tx_hash, created_at from app.payments where id = $1`,
+    `select id, method, amount_cents, status, provider_ref, tx_hash, created_at, note from app.payments where id = $1`,
     [paymentId],
   );
   if (!p) return "missing";
-  if (!["pending", "review", "created"].includes(p.status)) return p.status;
+  // A provider top-up the store closed (cancelled, window ran out) is still checked: money may have arrived.
+  const closedByUs = p.status === "expired" && p.method !== "bep20" && (CLOSED_NOTES as readonly string[]).includes(p.note ?? "");
+  if (!["pending", "review", "created"].includes(p.status) && !closedByUs) return p.status;
   const adapter = svc.payment(p.method);
   if (!adapter?.checkPayment) return p.status;
   const ref = p.method === "bep20" ? p.tx_hash : p.provider_ref;
@@ -203,6 +251,19 @@ export async function settlePayment(svc: Services, paymentId: string): Promise<s
   return applyEvent(svc, p.id, ev);
 }
 
+/**
+ * The provider confirmed a payment for a top-up the store had closed (the
+ * customer paid at the last moment, or after cancelling): the money arrived, so
+ * open it again to be credited. Manual USDT never comes here closed.
+ */
+async function reopenIfClosedByUs(svc: Services, paymentId: string): Promise<void> {
+  await svc.db.query(
+    `update app.payments set status = 'pending', note = 'paid after it closed'
+      where id = $1 and status = 'expired' and method <> 'bep20' and note = any($2::text[])`,
+    [paymentId, CLOSED_NOTES],
+  );
+}
+
 async function applyEvent(svc: Services, paymentId: string, ev: PaymentEvent): Promise<string> {
   switch (ev.status) {
     case "paid": {
@@ -210,6 +271,7 @@ async function applyEvent(svc: Services, paymentId: string, ev: PaymentEvent): P
         await svc.db.query(`update app.payments set status = 'review', note = 'paid without a usable amount' where id = $1 and status <> 'paid'`, [paymentId]);
         return "review";
       }
+      await reopenIfClosedByUs(svc, paymentId);
       await call(svc.db, `select * from app.credit_payment($1, $2, $3, $4)`, [paymentId, ev.amountCents, ev.providerRef ?? null, ev.txHash ?? null]);
       return "paid";
     }
@@ -269,6 +331,7 @@ export async function creditStarsPayment(
     await svc.db.query(`update app.payments set status = 'review', provider_ref = $2, note = 'stars amount or payer mismatch' where id = $1 and status <> 'paid'`, [p.id, input.chargeId]);
     return "review";
   }
+  await reopenIfClosedByUs(svc, p.id);
   await call(svc.db, `select * from app.credit_payment($1, $2, $3, null)`, [p.id, amount, input.chargeId]);
   return "paid";
 }

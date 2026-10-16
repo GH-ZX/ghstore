@@ -12,7 +12,7 @@ import { parsePreCheckoutQuery, parseSuccessfulPayment } from "@store/payments";
 import type { ApiEnv, Services } from "./context";
 import { n, one } from "./db";
 import { json } from "./http";
-import { creditStarsPayment, expectedStars } from "./payments";
+import { creditStarsPayment, expectedStars, TOPUP_WINDOW_MS } from "./payments";
 import { referralSettings } from "./promo";
 import { botUsername, channelUrl, starsPerUsd, supportContacts, type SupportContacts } from "./settings";
 
@@ -212,15 +212,17 @@ export async function handleUpdate(update: Update, env: ApiEnv, svc: Services): 
     const l = lang(update.pre_checkout_query?.from?.language_code);
     let ok = false;
     if (pre.currency === "XTR" && /^[0-9a-f-]{36}$/.test(pre.paymentId)) {
-      const p = await one<{ amount_cents: string | number; status: string; subject: string | null; stars: unknown }>(
+      const p = await one<{ amount_cents: string | number; status: string; subject: string | null; stars: unknown; created_at: string }>(
         svc.db,
-        `select pay.amount_cents, pay.status, i.subject, pay.action->'stars' as stars
+        `select pay.amount_cents, pay.status, i.subject, pay.action->'stars' as stars, pay.created_at
            from app.payments pay left join app.identities i on i.user_id = pay.user_id and i.provider = 'telegram'
           where pay.id = $1 and pay.method = 'stars'`,
         [pre.paymentId],
       );
       const expected = p ? expectedStars(p.stars, n(p.amount_cents), await starsPerUsd(svc.db)) : null;
-      ok = !!p && ["created", "pending"].includes(p.status) && p.subject === String(pre.fromId) &&
+      // Only while the top-up is open and inside its payment window (a closed one charges nothing).
+      const inWindow = !!p && svc.now().getTime() < new Date(p.created_at).getTime() + TOPUP_WINDOW_MS;
+      ok = !!p && inWindow && ["created", "pending"].includes(p.status) && p.subject === String(pre.fromId) &&
         expected !== null && pre.totalStars >= expected;
     }
     await svc.telegram("answerPreCheckoutQuery", ok
