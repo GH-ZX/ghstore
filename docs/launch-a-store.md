@@ -171,6 +171,12 @@ Either:
   while the repository has no `pnpm-lock.yaml`; the build command installs the
   pnpm workspace from the repository root instead. Every push to `main` deploys,
   so keep `main` green (CI runs on every push and pull request).
+
+  If a build stops at `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`, a dependency's
+  lowest allowed version is less than a day old: pnpm refuses packages younger
+  than 24 hours. Lower that dependency's floor in `package.json` to the previous
+  release. If pushes stop starting builds at all, check Settings → Builds: the
+  repository must show as connected, with `main` as the production branch.
 - **By hand**: `pnpm ship`.
 
 The Worker is named `ghstore`. **Do not rename it to `gh-store`**: that name
