@@ -147,3 +147,14 @@ export function effectiveBadge(badge: string | null, auto: Map<string, string>, 
   if (badge === "none") return null;
   return badge ?? auto.get(productId) ?? null;
 }
+
+/** Top-up limits when the owner has set none (Admin → Settings → Top-ups). */
+export const TOPUP_LIMITS = { minCents: 100, maxCents: 100_000 } as const;
+
+/** The smallest and largest top-up a customer may ask for (the largest never below the smallest). */
+export async function topupLimits(db: Db): Promise<{ minCents: number; maxCents: number }> {
+  const s = await readSettings(db, ["payments.min_topup_cents", "payments.max_topup_cents"]);
+  const int = (v: unknown, fallback: number) => (typeof v === "number" && Number.isInteger(v) && v > 0 ? v : fallback);
+  const minCents = int(s["payments.min_topup_cents"], TOPUP_LIMITS.minCents);
+  return { minCents, maxCents: Math.max(minCents, int(s["payments.max_topup_cents"], TOPUP_LIMITS.maxCents)) };
+}

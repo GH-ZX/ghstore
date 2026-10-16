@@ -5,8 +5,8 @@
  */
 import type { Ctx } from "./context";
 import { json } from "./http";
-import { availableMethods, MAX_TOPUP_CENTS, MIN_TOPUP_CENTS } from "./payments";
-import { botUsername, channelUrl, starsPerUsd, supportContacts } from "./settings";
+import { availableMethods } from "./payments";
+import { botUsername, channelUrl, starsPerUsd, supportContacts, topupLimits } from "./settings";
 
 const LOGIN_METHODS = ["telegram", "email", "google"] as const;
 export type LoginMethod = (typeof LOGIN_METHODS)[number];
@@ -43,8 +43,7 @@ export async function publicConfig(ctx: Ctx): Promise<Response> {
       sypPerUsd: typeof s["fx.syp_per_usd"] === "number" ? s["fx.syp_per_usd"] : null,
       payments: {
         methods: await availableMethods(ctx.env, ctx.svc),
-        minCents: MIN_TOPUP_CENTS,
-        maxCents: MAX_TOPUP_CENTS,
+        ...(await topupLimits(ctx.svc.db)),
         starsPerUsd: await starsPerUsd(ctx.svc.db),
       },
       // How customers reach the store (Admin → Settings → Support).

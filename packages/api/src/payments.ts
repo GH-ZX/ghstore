@@ -12,14 +12,12 @@ import type { ApiEnv, Ctx, Services } from "./context";
 import { call, isUniqueViolation, n, one } from "./db";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { effectiveEnv } from "./keys";
-import { starsPerUsd } from "./settings";
+import { starsPerUsd, topupLimits } from "./settings";
 
 const ALL_METHODS: PaymentMethod[] = ["sam", "nowpayments", "bep20", "stars"];
 /** Note on a manual USDT top-up whose submitted hash did not match; the customer may paste another. */
 const MISMATCH_NOTE = "transfer did not match";
 
-export const MIN_TOPUP_CENTS = 100;
-export const MAX_TOPUP_CENTS = 100_000;
 
 /**
  * The Worker settings a method cannot work without (see each adapter's header).
@@ -52,7 +50,7 @@ export async function availableMethods(env: ApiEnv, svc: Pick<Services, "db">): 
 }
 
 export async function listMethods(ctx: Ctx): Promise<Response> {
-  return json({ methods: await availableMethods(ctx.env, ctx.svc), minCents: MIN_TOPUP_CENTS, maxCents: MAX_TOPUP_CENTS });
+  return json({ methods: await availableMethods(ctx.env, ctx.svc), ...(await topupLimits(ctx.svc.db)) });
 }
 
 export async function createTopup(ctx: Ctx): Promise<Response> {
@@ -61,7 +59,9 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
   const method = str(body, "method", { max: 20 }) as PaymentMethod;
   if (!enabledMethods(await effectiveEnv(ctx.env, ctx.svc.db)).includes(method)) throw new ApiError("payment_method_unavailable");
   if (method === "stars" && user.channel !== "miniapp") throw new ApiError("payment_method_unavailable");
-  const amountCents = int(body, "amountCents", MIN_TOPUP_CENTS, MAX_TOPUP_CENTS);
+  // The owner's limits (Admin → Settings → Top-ups).
+  const limits = await topupLimits(ctx.svc.db);
+  const amountCents = int(body, "amountCents", limits.minCents, limits.maxCents);
   // Stars: the rate is the admin's setting (Admin → Settings); none set = Stars off.
   const rate = method === "stars" ? await starsPerUsd(ctx.svc.db) : null;
   if (method === "stars" && rate === null) throw new ApiError("payment_method_unavailable");

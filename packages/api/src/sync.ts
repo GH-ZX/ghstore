@@ -20,6 +20,7 @@
 import { onCostChange, type PriceRule, type SupplierProduct } from "@store/core";
 import type { Services } from "./context";
 import { n, one } from "./db";
+import { notifyBackInStock } from "./favorites";
 import { alertOwners } from "./notify";
 import { noteSupplierPrices } from "./supplier-catalogue";
 
@@ -85,6 +86,7 @@ async function saveReport(svc: Services, supplierId: string, report: SyncReport)
 }
 
 export async function syncSupplier(svc: Services, supplierId: string, opts: SyncOptions = {}): Promise<SyncReport> {
+  const resumedIds: string[] = [];
   const report: SyncReport = { supplier: supplierId, checked: 0, repriced: 0, paused: 0, resumed: 0, missing: 0, review: 0, complete: true };
   const adapter = svc.supplier(supplierId);
   if (!adapter) return report;
@@ -250,7 +252,10 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
           [o.id, oldCost, p.costCents, price],
         );
       }
-      if (resume) report.resumed++;
+      if (resume) {
+        report.resumed++;
+        resumedIds.push(o.id);
+      }
     } else {
       unchanged.push(o.id);
     }
@@ -278,6 +283,8 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
     [supplierId, report.complete],
   );
   await saveReport(svc, supplierId, report);
+  // Back on sale: one Telegram message to each customer who asked to be told.
+  await notifyBackInStock(svc, resumedIds);
   const alerting = settings.stock_alerts ? paused.length : paused.length - stockPaused;
   if (alerting > 0) {
     const review = report.review ? ` ${report.review} need your review: their cost jumped.` : "";

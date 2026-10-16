@@ -76,13 +76,27 @@ export async function listPayments(ctx: Ctx): Promise<Response> {
   await requireStaff(ctx, "monitor");
   const status = ctx.url.searchParams.get("status") ?? "review";
   if (!["created", "pending", "review", "paid", "partial", "failed", "expired", "rejected"].includes(status)) throw new ApiError("invalid_input", "status");
-  const rows = await ctx.svc.db.query<{ id: string; user_id: string; display_name: string; method: string; amount_cents: string | number; status: string; tx_hash: string | null; provider_ref: string | null; note: string | null; created_at: string }>(
-    `select p.id, p.user_id, u.display_name, p.method, p.amount_cents, p.status, p.tx_hash, p.provider_ref, p.note, p.created_at
+  const rows = await ctx.svc.db.query<{ id: string; user_id: string; display_name: string; method: string; amount_cents: string | number; status: string; tx_hash: string | null; provider_ref: string | null; note: string | null; created_at: string; send_amount: string | null; credited_cents: string | number | null }>(
+    `select p.id, p.user_id, u.display_name, p.method, p.amount_cents, p.status, p.tx_hash, p.provider_ref, p.note, p.created_at,
+            -- Manual USDT: the exact amount the customer was asked to send (e.g. 2.0137).
+            case when p.method = 'bep20' then p.action->>'amount' end as send_amount, p.credited_cents
        from app.payments p join app.users u on u.id = p.user_id
       where p.status = $1 order by p.created_at desc limit 100`,
     [status],
   );
-  return json({ payments: rows.map((r) => ({ ...r, amount_cents: undefined, amountCents: n(r.amount_cents) })) });
+  // How many in each list: everything open, the rest over the last 30 days.
+  const counts = await ctx.svc.db.query<{ status: string; c: string | number }>(
+    `select status, count(*) as c from app.payments
+      where status in ('review', 'pending', 'created') or created_at > now() - interval '30 days'
+      group by status`,
+  );
+  return json({
+    payments: rows.map((r) => ({
+      ...r, amount_cents: undefined, credited_cents: undefined, amountCents: n(r.amount_cents),
+      creditedCents: r.credited_cents === null ? null : n(r.credited_cents),
+    })),
+    counts: Object.fromEntries(counts.map((c) => [c.status, n(c.c)])),
+  });
 }
 
 /** Approve a top-up under review, crediting the amount the staff member confirms they received. */
@@ -177,6 +191,9 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "support.email": (v) => v === null || (typeof v === "string" && v.length <= 120 && EMAIL.test(v)),
   // Telegram Stars charged per US dollar of balance (null = Stars top-ups off).
   "payments.stars_per_usd": (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 1000),
+  // Top-up limits for customers, in cents: $0.10 to $1,000 smallest, up to $10,000 largest.
+  "payments.min_topup_cents": (v) => typeof v === "number" && Number.isInteger(v) && v >= 10 && v <= 100_000,
+  "payments.max_topup_cents": (v) => typeof v === "number" && Number.isInteger(v) && v >= 100 && v <= 1_000_000,
   "reports.daily_hour": (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 23,
   // The store's Telegram channel (null = none). The bot's own username is learned from Telegram, not typed.
   "telegram.channel_url": (v) => v === null || (typeof v === "string" && CHANNEL_URL.test(v)),

@@ -18,6 +18,7 @@ import * as names from "./names";
 import * as accounts from "./accounts";
 import * as profit from "./profit";
 import * as payments from "./payments";
+import * as favorites from "./favorites";
 import * as promo from "./promo";
 import * as images from "./images";
 import * as reports from "./reports";
@@ -76,6 +77,11 @@ const router = new Router()
   .on("GET", "/api/topups/:id", payments.getTopup)
   .on("POST", "/api/topups/:id/tx", payments.submitTxHash)
   .on("POST", "/api/topups/:id/cancel", payments.cancelTopup)
+  .on("GET", "/api/favorites", favorites.listFavorites)
+  .on("PUT", "/api/favorites/:productId", favorites.addFavorite)
+  .on("DELETE", "/api/favorites/:productId", favorites.removeFavorite)
+  .on("PUT", "/api/stock-alerts/:offerId", favorites.addStockAlert)
+  .on("DELETE", "/api/stock-alerts/:offerId", favorites.removeStockAlert)
   .on("POST", "/api/webhooks/payments/:method", payments.paymentWebhook)
   // admin
   .on("GET", "/api/admin/overview", admin.overview)

@@ -41,6 +41,10 @@ const TEMPLATES: Record<string, { ar: (d: Data) => string; en: (d: Data) => stri
     ar: (d) => `حان وقت التجديد؟ اشتريت ${String(d.name_ar ?? "")} (${String(d.offer_ar ?? "")}) قبل فترة.\nاطلبه مجدداً بضغطة واحدة.`,
     en: (d) => `Time to renew? You bought ${String(d.name_en ?? "")} (${String(d.offer_en ?? "")}) a while ago.\nGet it again in one tap.`,
   },
+  back_in_stock: {
+    ar: (d) => `عاد إلى المتجر ✅ ${String(d.name_ar ?? "")} (${String(d.offer_ar ?? "")}).\nاطلبه قبل أن ينفد مجدداً.`,
+    en: (d) => `Back in stock ✅ ${String(d.name_en ?? "")} (${String(d.offer_en ?? "")}).\nGet it before it runs out again.`,
+  },
   daily_summary: {
     ar: (d) => summaryText(d as unknown as DaySummary, "ar"),
     en: (d) => summaryText(d as unknown as DaySummary, "en"),
@@ -152,9 +156,11 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
     }
     try {
       // "Buy again" and product broadcasts open the product itself; everything else opens the store.
-      const slug = (r.template === "buy_again" || r.template === "broadcast") && typeof r.data?.slug === "string" && /^[a-z0-9-]{1,80}$/.test(r.data.slug) ? r.data.slug : null;
+      const slug = (r.template === "buy_again" || r.template === "broadcast" || r.template === "back_in_stock") && typeof r.data?.slug === "string" && /^[a-z0-9-]{1,80}$/.test(r.data.slug) ? r.data.slug : null;
       const label = slug
-        ? r.template === "buy_again" ? (locale === "en" ? "Buy again" : "اطلبه مجدداً") : locale === "en" ? "View" : "عرض المنتج"
+        ? r.template === "buy_again" ? (locale === "en" ? "Buy again" : "اطلبه مجدداً")
+          : r.template === "back_in_stock" ? (locale === "en" ? "Get it now" : "اطلبه الآن")
+          : locale === "en" ? "View" : "عرض المنتج"
         : isStaff ? (locale === "en" ? "Open admin" : "افتح الإدارة")
         : locale === "en" ? "Open store" : "افتح المتجر";
       const url = slug ? `${env.PUBLIC_BASE_URL}/tg?startapp=p_${slug}` : isStaff ? `${env.PUBLIC_BASE_URL}/tg?startapp=admin` : `${env.PUBLIC_BASE_URL}/tg`;

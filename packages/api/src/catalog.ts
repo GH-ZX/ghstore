@@ -7,6 +7,7 @@ import type { Ctx } from "./context";
 import { n, one } from "./db";
 import { liveBanners } from "./home";
 import { autoBadges, effectiveBadge, showcaseSettings } from "./settings";
+import { SOLD_OUT_SQL } from "./favorites";
 import { ApiError, json } from "./http";
 
 interface ProductRow {
@@ -146,13 +147,16 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
   if (!p) throw new ApiError("not_found");
   const offers = await ctx.svc.db.query<{
     id: string; name_ar: string; name_en: string; price_cents: string | number; input_fields: InputField[]; max_quantity: number;
-    warranty_ar: string | null; warranty_en: string | null; success_pct: string | number | null; pinned: boolean;
+    warranty_ar: string | null; warranty_en: string | null; success_pct: string | number | null; pinned: boolean; sold_out: boolean;
   }>(
-    `select o.id, o.name_ar, o.name_en, o.price_cents, o.input_fields, o.max_quantity, o.warranty_ar, o.warranty_en, o.success_pct, o.pinned
-       from app.offers o where o.product_id = $1 and o.active and o.paused_reason is null
+    `select o.id, o.name_ar, o.name_en, o.price_cents, o.input_fields, o.max_quantity, o.warranty_ar, o.warranty_en, o.success_pct, o.pinned,
+            ${SOLD_OUT_SQL} as sold_out
+       from app.offers o join app.products p on p.id = o.product_id
+      where o.product_id = $1 and o.active and (o.paused_reason is null or o.paused_reason = 'supplier_unavailable')
         and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))
+      -- Sold-out packages last (customers can ask to be told when they are back).
       -- Virtual numbers: the countries whose numbers get their SMS most often first.
-      order by o.pinned desc, case when $2 = 'sms' then -coalesce(o.success_pct, -1) end, o.sort, o.price_cents`,
+      order by ${SOLD_OUT_SQL}, o.pinned desc, case when $2 = 'sms' then -coalesce(o.success_pct, -1) end, o.sort, o.price_cents`,
     [p.id, p.kind],
   );
   if (!offers.length) throw new ApiError("not_found");
@@ -171,6 +175,7 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
       fields: o.input_fields, maxQuantity: o.max_quantity, warrantyAr: o.warranty_ar, warrantyEn: o.warranty_en,
       successPct: o.success_pct === null ? null : Number(o.success_pct),
       pinned: o.pinned,
+      soldOut: o.sold_out,
     })),
   });
 }

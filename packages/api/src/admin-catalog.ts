@@ -10,6 +10,7 @@ import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { call, must, n, one } from "./db";
 import { ApiError, int, json, optStr, readJson, str, uuid } from "./http";
+import { notifyBackInStock } from "./favorites";
 import { renameSavedItems } from "./names";
 
 const SLUG = /^[a-z0-9-]{1,80}$/;
@@ -408,6 +409,7 @@ export async function updateOffer(ctx: Ctx): Promise<Response> {
   }
   await updateRow(ctx, "offers", id, changes);
   await audit(ctx, staff.id, "offer.update", "offer", id, { fields: Object.keys(changes) });
+  if (changes.paused_reason === null || changes.active === true) await notifyBackInStock(ctx.svc, [id]);
   return json({ ok: true, priceCents: (changes.price_cents as number | undefined) ?? n(cur.price_cents) });
 }
 
@@ -431,6 +433,8 @@ export async function addStock(ctx: Ctx): Promise<Response> {
     [id, sealed.join("\n")],
   );
   await audit(ctx, staff.id, "stock.add", "offer", id, { count: clean.length });
+  // Codes again: tell whoever waited for this package.
+  await notifyBackInStock(ctx.svc, [id]);
   return json({ added: clean.length }, { status: 201 });
 }
 
