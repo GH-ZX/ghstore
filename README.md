@@ -30,6 +30,9 @@ someone else's store.
 | Scheduled jobs: fulfilment, payment re-checks, margin guard, balances, reminders, notifications | Done |
 | Brand: logo, icon, favicon, Telegram avatar, 4 themes × light/dark | Done |
 | Web app: website, Mini App (`/tg`), admin (`/admin`) | Done: React, Arabic/English, 4 themes × light/dark, checked end to end in a browser |
+| Staff roles: Owner, Support, Monitor (watch only) | Done, tested |
+| Email and Google sign-in, linked to Telegram (one wallet) | Done, tested |
+| Email receipts (Resend), Telegram broadcasts, job-failure alerts | Done, tested |
 
 ## How it fits together
 

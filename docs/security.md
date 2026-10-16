@@ -43,8 +43,16 @@ What protects money, codes and accounts, and what the owner must do.
   Unknown or revoked sessions fail closed.
 - Cookies are `HttpOnly; Secure; SameSite=Lax`. Requests that change something must
   come from the store's own origin or carry a bearer token (CSRF).
-- Roles: `customer`, `support` (top-up review, orders), `owner` (settings, wallets,
-  roles, catalogue). Every admin action is written to `app.audit_log`.
+- Roles: `customer`, `monitor` (looks at orders, top-ups and customers; changes
+  nothing), `support` (also top-up review, retries, refunds), `owner` (settings,
+  wallets, roles, catalogue, keys, broadcasts). Every admin action is written to
+  `app.audit_log`.
+- Linking logins: a login is attached only after Telegram or Supabase Auth has
+  verified it. If it already belongs to another account, the logins of an
+  unused account (no ledger, orders or payments) move over and it is signed
+  out; two accounts with history are never merged automatically.
+- Email receipts never contain delivered codes, and every value in them is
+  HTML-escaped. Broadcasts are plain text (no Telegram formatting).
 - Owners come only from `OWNER_TELEGRAM_IDS` or another owner.
 
 ## Delivered goods

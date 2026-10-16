@@ -67,11 +67,20 @@
 - Support contacts and the Telegram Stars price as admin settings; the import
   fills the contacts from the old site's published channels.
 
+## Done in milestone 5 (finishing v1)
+
+- Monitor staff role (watch only), alongside Support and Owner.
+- Email and Google sign-in on the website, switched in the admin, and linking
+  logins so the website, bot and Mini App share one account and wallet.
+- Email receipts through Resend (delivered, refunded, topped up; never codes).
+- Admin → Broadcast: one Telegram message to all customers or a product's
+  buyers, at a lower priority than receipts, with a test send and a stop button.
+- The owner is told when a background job keeps failing, and when it recovers.
+- A one-time script retires the old setup's tables into a private schema.
+
 ## After that
 
-- Link an email/Google login to a Telegram account (Telegram login already shares the wallet).
-- Syriatel Cash through SAM.
-- Notifications beyond Telegram (email receipts).
+- Syriatel Cash through SAM, if wanted later (not planned now).
 
 ## Open questions
 

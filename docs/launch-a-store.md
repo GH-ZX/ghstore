@@ -117,9 +117,12 @@ Put the id in `wrangler.jsonc` → `hyperdrive[0].id`.
 
 ## 6. Website login
 
-Choose the options in `wrangler.jsonc` → `vars.WEB_LOGIN_METHODS`
-(`telegram,email,google`; gh-store starts with `telegram` only, so nothing in
-Supabase Auth has to be set up for launch).
+`wrangler.jsonc` → `vars.WEB_LOGIN_METHODS` lists what the website may offer
+(`telegram,email,google`); **Admin → Settings → Website sign-in** switches email
+codes (on) and Google (off) without a deploy. Telegram is always on. Customers
+link the others to one account in Profile → Ways to sign in, so every door opens
+the same wallet; two accounts that both have history are never merged
+automatically.
 
 **Telegram (recommended: same account and wallet as the bot).** In @BotFather:
 `/setdomain` → your bot → `your-domain.com`. Nothing else to set.
@@ -130,6 +133,10 @@ Supabase Auth has to be set up for launch).
   OAuth client.
 - Emails → "Magic Link" template: put `{{ .Token }}` in the message, so the email
   carries the 6-digit code the website asks for.
+- Emails → SMTP settings: Supabase's built-in sender only reaches your own team's
+  addresses and a few emails an hour, so customers need your own SMTP. With
+  Resend (also used for receipts): host `smtp.resend.com`, port `465`, user
+  `resend`, password = a Resend API key, sender on your verified domain.
 - URL configuration: Site URL `https://your-domain.com`; add
   `https://your-domain.com/login` to the redirect URLs (Google comes back there).
 
@@ -276,9 +283,22 @@ Menu button: @BotFather → `/mybots` → your bot → Bot Settings → Menu But
      invoice keeps the price it was issued at. Empty switches Stars off.
    - **Invite rewards** start **on at 2% for 90 days**; change or switch them off
      here.
-5. Optional: **Admin → Coupons** for launch codes, and "Buy-again reminder after
-   (days)" on subscription packages in the catalogue (28 for a 1-month plan).
-6. Make a $1 test top-up with each method and a test order.
+   - **Email receipts**: verify your domain in [Resend](https://resend.com), put
+     the API key in **Keys → Email** and the sender (`GH Store <orders@your-domain>`)
+     here, then "Send me a test" (it goes to your linked email). Customers with a
+     linked email then get delivered, refunded and top-up receipts; codes stay in
+     the store.
+5. **Admin → Users**: give staff a role. **Monitor** sees orders, top-ups and
+   customers and gets order alerts, but changes nothing; **Support** also
+   approves top-ups, retries and refunds; **Owner** can do everything.
+6. Optional: **Admin → Coupons** for launch codes, **Admin → Broadcast** for a
+   Telegram message to every customer or a product's buyers (sent about 25 a
+   minute, after receipts), and "Buy-again reminder after (days)" on subscription
+   packages in the catalogue (28 for a 1-month plan).
+7. Make a $1 test top-up with each method and a test order.
+
+The owner hears on Telegram when a background job fails three times in a row,
+and again when it works.
 
 ## Moving from the old setup
 
@@ -286,3 +306,9 @@ Menu button: @BotFather → `/mybots` → your bot → Bot Settings → Menu But
   wallets at zero (decided).
 - After the webhook moves and a few days pass without problems, turn off the
   tunnels to the work server (admin.gh-store.me, factory.gh-store.me).
+- Retire the old tables: run `packages/db/import/retire-old-gh-store.sql` once in
+  the SQL editor. It drops the old settings tables (API keys in plain text),
+  stops the old sign-up trigger, and moves everything else into a private
+  `legacy` schema. Then delete the old Edge Functions (sam-webhook,
+  g2bulk-webhook, binance-webhook, telegram-webhook) and the old `gh-store`
+  Worker, and rotate every key the old setup used.
