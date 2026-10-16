@@ -71,7 +71,7 @@ function OrderList() {
               <span className="list-row__main">
                 <span className="list-row__title">{pick(lang, o.productAr, o.productEn)}</span>
                 <span className="list-row__meta">
-                  {pick(lang, o.packageAr, o.packageEn)} · <span className="num">#{o.number}</span> · {dateTime(o.createdAt, lang)}
+                  <bdi>{pick(lang, o.packageAr, o.packageEn)}</bdi> · <span className="num">#{o.number}</span> · {dateTime(o.createdAt, lang)}
                 </span>
               </span>
               <span className="list-row__end">
@@ -150,7 +150,7 @@ function OrderView({ id }: { id: string }) {
           {t("orderNo", { n: `#${o.number}` })} · {dateTime(o.createdAt, lang)}
         </span>
         <h1>{pick(lang, o.productAr, o.productEn)}</h1>
-        <span className="muted">{pick(lang, o.packageAr, o.packageEn)}</span>
+        <bdi className="muted">{pick(lang, o.packageAr, o.packageEn)}</bdi>
         <div className="row-between">
           <span className="num" style={{ fontSize: 22, fontWeight: 700 }}>
             {usd(o.totalCents)}

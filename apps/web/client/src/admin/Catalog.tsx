@@ -192,7 +192,7 @@ function ProductBlock({ p, offers, onEdit }: { p: Prod; offers: Off[]; onEdit: (
                 <tr key={o.id} style={{ opacity: o.active ? 1 : 0.55 }}>
                   <td>
                     {o.pinned && <span title={t("pinTop")}>📌 </span>}
-                    {pick(lang, o.name_ar, o.name_en)}
+                    <bdi>{pick(lang, o.name_ar, o.name_en)}</bdi>
                     {pick(lang, o.warranty_ar ?? "", o.warranty_en ?? "") && (
                       <span className="small muted"> · {pick(lang, o.warranty_ar ?? "", o.warranty_en ?? "")}</span>
                     )}

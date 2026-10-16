@@ -203,7 +203,7 @@ export function Names() {
                       <strong>{pick(lang, i.productAr, i.productEn)}</strong>
                     </td>
                     <td>
-                      {pick(lang, i.packageAr, i.packageEn)}
+                      <bdi>{pick(lang, i.packageAr, i.packageEn)}</bdi>
                       {i.warrantyEn && (
                         <span className="option__note">
                           <ShieldIcon size={11} /> {pick(lang, i.warrantyAr ?? "", i.warrantyEn)}

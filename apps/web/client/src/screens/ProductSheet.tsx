@@ -373,7 +373,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                 {data.offers.filter((o) => o.id === offer.id || !pq || matchesQuery(`${o.nameAr} ${o.nameEn}`, pq)).map((o) => (
                   <button key={o.id} type="button" role="radio" aria-checked={o.id === offer.id} className={o.soldOut ? "option option--soldout press" : "option press"} onClick={() => choose(o)}>
                     <span className="option__name">
-                      <span>{pick(lang, o.nameAr, o.nameEn)}</span>
+                      <bdi>{pick(lang, o.nameAr, o.nameEn)}</bdi>
                       {o.soldOut && <span className="option__soldout">{t("soldOut")}</span>}
                       {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "") && (
                         <span className="option__note">

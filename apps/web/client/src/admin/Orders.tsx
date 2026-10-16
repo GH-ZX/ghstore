@@ -90,7 +90,7 @@ export function AdminOrders({ canAct = true }: { canAct?: boolean }) {
                   <span className="num muted">#{String(o.number)}</span>
                 </span>
                 <span className="small muted">
-                  {pick(lang, o.offer_ar ?? "", o.offer_en ?? "")} · {o.display_name} · {dateTime(o.created_at, lang)}
+                  <bdi>{pick(lang, o.offer_ar ?? "", o.offer_en ?? "")}</bdi> · <bdi>{o.display_name}</bdi> · {dateTime(o.created_at, lang)}
                 </span>
                 <span className="row-between">
                   <span className={`badge ${o.hold === "info" ? "" : "badge--warn"}`}>{t(`hold_${o.hold ?? "owner"}`)}</span>
@@ -251,7 +251,7 @@ function OrderSheet({ id, onClose, onRefund }: { id: string; onClose: () => void
       {o && data && (
         <div className="stack">
           <div className="stack-sm">
-            <span className="muted">{pick(lang, o.packageAr, o.packageEn)}</span>
+            <bdi className="muted">{pick(lang, o.packageAr, o.packageEn)}</bdi>
             <div className="row-between">
               <span className="num" style={{ fontSize: 20, fontWeight: 700 }}>
                 {usd(o.totalCents)}
