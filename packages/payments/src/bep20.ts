@@ -21,8 +21,8 @@
  *                                      to the store address cannot be claimed.
  *   BSC_LOGS_RPC_URL         optional  An RPC that answers eth_getLogs (the default
  *                                      dataseed refuses it), for recentDeposits and the
- *                                      account's latest transfers. Default
- *                                      "https://bsc-rpc.publicnode.com" (last ~5000 blocks).
+ *                                      account's latest transfers. Tried first; the free
+ *                                      public ones (BSC_LOGS_RPC_URLS) follow in turn.
  *
  * A transaction hash is public and does not identify who paid. The core must
  * block reused hashes (PaymentEvent.txHash is the lower-cased hash) and should
@@ -49,9 +49,16 @@ export const BSC_DEFAULT_RPC_URL = "https://bsc-dataseed-public.bnbchain.org";
 /** keccak256("Transfer(address,address,uint256)") */
 export const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 export const BEP20_NETWORK_LABEL = "BSC (BEP20)";
-export const BSC_LOGS_RPC_URL = "https://bsc-rpc.publicnode.com";
-/** Blocks one eth_getLogs may span on the public logs RPC (it answers recent blocks only). */
-const LOGS_SPAN = 4500;
+/**
+ * Free public RPCs that answer eth_getLogs over recent blocks, tried in turn
+ * (each rate-limits busy shared addresses now and then). Their answers are only
+ * hints: every matching transfer is checked on BSC_RPC_URL before it counts.
+ */
+export const BSC_LOGS_RPC_URLS = ["https://bsc-rpc.publicnode.com", "https://rpc-bsc.48.club", "https://bsc.rpc.blxrbdn.com"];
+/** How far back the public log servers answer (~35 minutes of BSC blocks). */
+const LOGS_REACH = 4500;
+/** Blocks one scan reads; a scan that fell behind catches up over the next ones. */
+const LOGS_STEP = 1500;
 
 const TX_HASH = /^0x[0-9a-f]{64}$/i;
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
@@ -171,23 +178,54 @@ function readSettings(ctx: AdapterContext) {
     minConfirmations: readInteger(ctx, ID, "BEP20_MIN_CONFIRMATIONS", 20, 1, 10_000),
     chainId: readInteger(ctx, ID, "BSC_CHAIN_ID", 56, 1, 2 ** 31),
     maxAgeHours: readInteger(ctx, ID, "BEP20_MAX_AGE_HOURS", 24, 1, 24 * 365),
-    logsRpcUrl: readConfig(ctx, "BSC_LOGS_RPC_URL") ?? BSC_LOGS_RPC_URL,
+    logsRpcUrls: [...new Set([readConfig(ctx, "BSC_LOGS_RPC_URL"), ...BSC_LOGS_RPC_URLS].filter((u): u is string => !!u))],
   };
 }
 
+type Settings = ReturnType<typeof readSettings>;
+
+/** Runs `scan` on each log server in turn until one answers. */
+async function withLogServer<T>(s: Settings, scan: (url: string) => Promise<T>): Promise<T> {
+  let last: unknown = new AdapterError(ID, "no log server", true);
+  for (const url of s.logsRpcUrls) {
+    try {
+      return await scan(url);
+    } catch (err) {
+      if (!(err instanceof AdapterError && err.retryable)) throw err;
+      last = err;
+    }
+  }
+  throw last;
+}
+
+/** The last block with enough confirmations, as `url` sees it: whatever is found up to it is final. */
+async function confirmedHead(ctx: AdapterContext, s: Settings, url: string): Promise<number> {
+  const head = await rpc(ctx, url, "eth_blockNumber", []);
+  if (typeof head !== "string" || !QUANTITY.test(head)) throw new AdapterError(ID, "RPC eth_blockNumber returned an unreadable value", true);
+  return Number(BigInt(head)) - (s.minConfirmations - 1);
+}
+
 /**
- * Confirmed Transfer logs of the token to the store address, after `sinceBlock`
- * (at most LOGS_SPAN blocks back from the confirmed head).
+ * Confirmed Transfer logs of the token to the store address after `sinceBlock`,
+ * at most LOGS_STEP blocks at a time (`toBlock` is where the next scan starts)
+ * and never further back than the public servers answer.
  */
 export async function recentDeposits(ctx: AdapterContext, sinceBlock?: number): Promise<{ toBlock: number; deposits: Deposit[] }> {
   const s = readSettings(ctx);
-  const head = await rpc(ctx, s.logsRpcUrl, "eth_blockNumber", []);
-  if (typeof head !== "string" || !QUANTITY.test(head)) throw new AdapterError(ID, "RPC eth_blockNumber returned an unreadable value", true);
-  // Only blocks with enough confirmations: whatever is found is already final.
-  const toBlock = Number(BigInt(head)) - (s.minConfirmations - 1);
-  const fromBlock = Math.max(sinceBlock !== undefined ? sinceBlock + 1 : toBlock - LOGS_SPAN, toBlock - LOGS_SPAN);
-  if (fromBlock > toBlock) return { toBlock: Math.max(toBlock, sinceBlock ?? toBlock), deposits: [] };
-  const logs = await rpc(ctx, s.logsRpcUrl, "eth_getLogs", [{
+  return withLogServer(s, async (url) => {
+    const confirmed = await confirmedHead(ctx, s, url);
+    const oldest = confirmed - LOGS_REACH + 1;
+    const from = Math.max(sinceBlock !== undefined ? sinceBlock + 1 : oldest, oldest);
+    // A server lagging behind the last scan: nothing new, keep the place.
+    if (from > confirmed) return { toBlock: Math.max(confirmed, sinceBlock ?? confirmed), deposits: [] };
+    const to = Math.min(confirmed, from + LOGS_STEP - 1);
+    return { toBlock: to, deposits: await transfersIn(ctx, s, url, from, to) };
+  });
+}
+
+/** Incoming token transfers to the store address between two blocks (inclusive). */
+async function transfersIn(ctx: AdapterContext, s: Settings, url: string, fromBlock: number, toBlock: number): Promise<Deposit[]> {
+  const logs = await rpc(ctx, url, "eth_getLogs", [{
     fromBlock: `0x${fromBlock.toString(16)}`,
     toBlock: `0x${toBlock.toString(16)}`,
     address: s.token,
@@ -207,7 +245,7 @@ export async function recentDeposits(ctx: AdapterContext, sinceBlock?: number): 
     const from = typeof topics[1] === "string" && WORD.test(topics[1]) ? `0x${topics[1].slice(-40).toLowerCase()}` : "";
     deposits.push({ txHash: hash, cents, exact: s.decimals >= 2 ? units % unit === 0n : true, blockNumber: Number(BigInt(log.blockNumber)), from });
   }
-  return { toBlock, deposits };
+  return deposits;
 }
 
 /** The store address's USDT and BNB (gas) balances, and its latest incoming USDT. */
@@ -227,7 +265,11 @@ async function bep20AccountInfo(ctx: AdapterContext): Promise<AccountInfo> {
   if (b !== null) balances.push({ currency: "BNB", amount: b });
   const history: AccountInfo["history"] = [];
   try {
-    const { deposits } = await recentDeposits(ctx);
+    // The latest ~35 minutes, from whichever log server answers.
+    const deposits = await withLogServer(s, async (url) => {
+      const confirmed = await confirmedHead(ctx, s, url);
+      return transfersIn(ctx, s, url, confirmed - LOGS_REACH + 1, confirmed);
+    });
     for (const d of deposits.slice(-15).reverse()) {
       history.push({ at: null, amount: d.cents / 100, currency: "USDT", text: `${d.from.slice(0, 6)}…${d.from.slice(-4)} · block ${d.blockNumber}`, direction: "in" });
     }

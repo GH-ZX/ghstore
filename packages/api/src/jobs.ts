@@ -142,7 +142,7 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   if (messages > 0) await heartbeat(svc, "outbox", () => sendOutbox(svc, env, messages));
   if (minute % 2 === 0 && room(svc, 4) > 0) await heartbeat(svc, "payments", () => recheckPendingPayments(svc, 10));
   // USDT top-ups matched by their exact amount, without a pasted hash (only while one is open).
-  if (minute % 2 === 1 && room(svc, 4) >= 6) await heartbeat(svc, "usdt_deposits", () => detectUsdtDeposits(svc));
+  if (minute % 2 === 1 && room(svc, 4) >= 8) await heartbeat(svc, "usdt_deposits", () => detectUsdtDeposits(svc));
   if (minute % 10 === 5) await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
   if (minute % 15 === 7 && room(svc, 2) > 0) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
   // Price and stock checks, every minute for whichever suppliers are due (each has its own interval).

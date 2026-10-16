@@ -5,7 +5,7 @@
  * always ask the provider again (checkPayment) and credit what IT reports,
  * through app.credit_payment, which is idempotent per payment.
  */
-import type { PaymentEvent, PaymentMethod } from "@store/core";
+import { AdapterError, type PaymentEvent, type PaymentMethod } from "@store/core";
 import { starsForCents } from "@store/payments";
 import { requireUser } from "./auth";
 import type { ApiEnv, Ctx, Services } from "./context";
@@ -293,6 +293,18 @@ export async function paymentWebhook(ctx: Ctx): Promise<Response> {
 
 /** Where the USDT deposit scan stopped (app.settings, a block number). */
 const SCAN_KEY = "bep20.scan_block";
+/** Since when the scan's log server keeps refusing (app.settings, an ISO time), if it does. */
+const SCAN_FAILING_KEY = "bep20.scan_failing_since";
+/** Public log servers rate-limit now and then; only a scan failing this long is reported. */
+const SCAN_FAIL_REPORT_MS = 30 * 60_000;
+
+async function saveSetting(svc: Services, key: string, value: unknown): Promise<void> {
+  await svc.db.query(
+    `insert into app.settings (key, value, updated_at) values ($1, $2::text::jsonb, now())
+     on conflict (key) do update set value = excluded.value, updated_at = now()`,
+    [key, JSON.stringify(value)],
+  );
+}
 
 /**
  * Scheduled: credit USDT top-ups without the customer pasting the hash. Every
@@ -315,7 +327,25 @@ export async function detectUsdtDeposits(svc: Services): Promise<number> {
   if (!adapter?.recentDeposits || !adapter.checkPayment) return 0;
   const saved = await svc.db.query<{ value: unknown }>(`select value from app.settings where key = $1`, [SCAN_KEY]);
   const since = typeof saved[0]?.value === "number" ? (saved[0].value as number) : undefined;
-  const { toBlock, deposits } = await adapter.recentDeposits(since);
+  let scan: Awaited<ReturnType<NonNullable<typeof adapter.recentDeposits>>>;
+  try {
+    scan = await adapter.recentDeposits(since);
+  } catch (err) {
+    // A busy public log server (HTTP 429, a timeout): try again next run. The
+    // customer can still paste the hash; only half an hour of failures is
+    // reported (the job's error, then the owner's alert).
+    if (!(err instanceof AdapterError && err.retryable)) throw err;
+    const row = await svc.db.query<{ value: unknown }>(`select value from app.settings where key = $1`, [SCAN_FAILING_KEY]);
+    const failingSince = typeof row[0]?.value === "string" ? Date.parse(row[0].value as string) : Number.NaN;
+    if (Number.isNaN(failingSince)) {
+      await saveSetting(svc, SCAN_FAILING_KEY, svc.now().toISOString());
+      return 0;
+    }
+    if (svc.now().getTime() - failingSince < SCAN_FAIL_REPORT_MS) return 0;
+    throw err;
+  }
+  const { toBlock, deposits } = scan;
+  await svc.db.query(`delete from app.settings where key = $1`, [SCAN_FAILING_KEY]);
   let credited = 0;
   for (const d of deposits) {
     if (!d.exact) continue;
@@ -335,10 +365,6 @@ export async function detectUsdtDeposits(svc: Services): Promise<number> {
     }
     if ((await applyEvent(svc, match.id, ev)) === "paid") credited++;
   }
-  await svc.db.query(
-    `insert into app.settings (key, value, updated_at) values ($1, $2::text::jsonb, now())
-     on conflict (key) do update set value = excluded.value, updated_at = now()`,
-    [SCAN_KEY, JSON.stringify(toBlock)],
-  );
+  await saveSetting(svc, SCAN_KEY, toBlock);
   return credited;
 }

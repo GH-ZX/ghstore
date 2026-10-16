@@ -164,12 +164,16 @@ Anything that does not match exactly (underpaid, overpaid, wrong payer) goes to
 USDT request is open): every open request has its own amount (requested + 1 to
 99 cents, unique among open requests), so a confirmed USDT transfer of exactly
 that amount to the store address belongs to it. The job reads the address's
-recent USDT transfers (`eth_getLogs` on `BSC_LOGS_RPC_URL`, default
-`bsc-rpc.publicnode.com`, which answers the last ~5000 blocks ≈ 35 minutes;
-the default dataseed RPC refuses log queries), checks a matching transfer
-against that request on chain first, then attaches and credits it. Where it
-stopped is kept in `app.settings` (`bep20.scan_block`). A transfer that
-matches nothing is left alone: the customer can still paste its hash.
+recent USDT transfers with `eth_getLogs` (the dataseed RPC refuses log
+queries), at most 1500 blocks per run and never further back than ~35 minutes,
+from the first log server that answers: `BSC_LOGS_RPC_URL` if the owner set one
+(Admin → Settings → Keys), then the free publicnode, 48 Club and bloXroute
+servers. Their answers are only hints: a matching transfer is checked against
+that request on `BSC_RPC_URL` first, then attached and credited. Where it
+stopped is kept in `app.settings` (`bep20.scan_block`). Busy log servers are
+tried again quietly; only 30 minutes of failures is reported
+(`bep20.scan_failing_since`). A transfer that matches nothing is left alone:
+the customer can still paste its hash.
 
 ## Prices and the margin guard
 

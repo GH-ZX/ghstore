@@ -283,6 +283,32 @@ describe("BEP20 deposits and account (auto-matching, Admin → Settings → APIs
     expect((getLogs.body as { params: [{ fromBlock: string; toBlock: string }] }).params[0]).toMatchObject({ fromBlock: hex(BLOCK + 11), toBlock: hex(BLOCK + 81) });
   });
 
+  it("tries the next log server when one refuses, yours first, and reads a long gap in steps", async () => {
+    const asked: string[] = [];
+    const fake = fakeFetch([
+      [
+        () => true,
+        (call: RecordedCall) => {
+          asked.push(call.url);
+          if (call.url === LOGS || call.url.includes("publicnode")) return { status: 429, text: "Too Many Requests" };
+          const req = call.body as { method: string };
+          return { json: { jsonrpc: "2.0", id: 1, result: req.method === "eth_blockNumber" ? hex(BLOCK + 5000) : [] } };
+        },
+      ],
+    ]);
+    const adapter = createBep20(context(fake.fetch, { ...CONFIG, BSC_LOGS_RPC_URL: LOGS }));
+    // Far behind: start at the oldest block the servers answer, read 1500, continue next time.
+    const r = await adapter.recentDeposits!(BLOCK - 10_000);
+    const confirmed = BLOCK + 5000 - 19;
+    expect(r.toBlock).toBe(confirmed - 4500 + 1500);
+    expect(asked[0]).toBe(LOGS);
+    expect(asked.some((u) => u.includes("publicnode"))).toBe(true);
+    expect(new URL(asked.at(-1)!).hostname).toBe("rpc-bsc.48.club");
+    // Every server refusing is a retryable error (the job tries again next run).
+    const down = fakeFetch([[() => true, { status: 429, text: "busy" }]]);
+    await expect(createBep20(context(down.fetch, CONFIG)).recentDeposits!()).rejects.toMatchObject({ retryable: true });
+  });
+
   it("shows the address's USDT and BNB balances and its latest deposits", async () => {
     const fake = rpcFake({
       eth_call: () => hex(usdt(4210)),

@@ -32,6 +32,9 @@ export const STORE_KEYS: KeySpec[] = [
   { name: "NOWPAYMENTS_API_KEY", group: "payments", label: "NOWPayments API key", pattern: API_KEY },
   { name: "NOWPAYMENTS_IPN_SECRET", group: "payments", label: "NOWPayments IPN secret", pattern: API_KEY },
   { name: "BEP20_ADDRESS", group: "payments", label: "USDT (BEP20) receiving address", pattern: /^0x[0-9a-fA-F]{40}$/ },
+  // Finding USDT top-ups by amount reads the address's transfers (eth_getLogs). The free
+  // public server is used by default; a private one (its URL often holds a key) if it refuses.
+  { name: "BSC_LOGS_RPC_URL", group: "payments", label: "USDT (BEP20) log server URL (optional)", pattern: /^https:\/\/[\x21-\x7e]{8,500}$/ },
   { name: "G2BULK_API_KEY", group: "suppliers", label: "G2Bulk", pattern: API_KEY },
   { name: "BATSTORE_API_KEY", group: "suppliers", label: "BatStore", pattern: API_KEY },
   { name: "MAXSTORE_API_KEY", group: "suppliers", label: "MaxStore", pattern: API_KEY },

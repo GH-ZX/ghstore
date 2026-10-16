@@ -4,7 +4,7 @@
  * matched by their exact amount.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Deposit, PaymentAdapter, PaymentEvent, SupplierAdapter } from "@store/core";
+import { AdapterError, type Deposit, type PaymentAdapter, type PaymentEvent, type SupplierAdapter } from "@store/core";
 import { detectUsdtDeposits } from "../src/payments";
 import { daySummary, localNow, summaryText } from "../src/reports";
 import { connectTestDb, Harness } from "./helpers";
@@ -30,12 +30,15 @@ let deposits: Deposit[] = [];
 let scannedFrom: number | undefined;
 /** Transfers the chain check refuses for the request (sent before it was made). */
 const tooOld = new Set<string>();
+/** The log server is busy (HTTP 429) while set. */
+let busy = false;
 const usdt: PaymentAdapter = {
   id: "bep20",
   createPayment: async (input) => ({ providerRef: input.paymentId, action: { type: "address", network: "BSC (BEP20)", asset: "USDT", address: "0xabc", amount: "10.37" } }),
   checkPayment: async (ref, expected): Promise<PaymentEvent> =>
     tooOld.has(ref) ? { providerRef: ref, status: "failed", txHash: ref } : { providerRef: ref, status: "paid", txHash: ref, amountCents: expected?.amountCents ?? 0 },
   recentDeposits: async (since) => {
+    if (busy) throw new AdapterError("bep20", "RPC eth_getLogs answered HTTP 429", true);
     scannedFrom = since;
     return { toBlock: 5000, deposits };
   },
@@ -153,5 +156,17 @@ describe("USDT top-ups matched by their exact amount", () => {
     deposits = [];
     await detectUsdtDeposits(h.svc);
     expect(scannedFrom).toBe(5000);
+
+    // A busy public log server is tried again quietly; half an hour of it is reported.
+    busy = true;
+    try {
+      expect(await detectUsdtDeposits(h.svc)).toBe(0);
+      expect(await detectUsdtDeposits({ ...h.svc, now: () => new Date(Date.now() + 10 * 60_000) })).toBe(0);
+      await expect(detectUsdtDeposits({ ...h.svc, now: () => new Date(Date.now() + 31 * 60_000) })).rejects.toThrow(/429/);
+    } finally {
+      busy = false;
+    }
+    await detectUsdtDeposits(h.svc);
+    expect((await db.query(`select 1 from app.settings where key = 'bep20.scan_failing_since'`)).length).toBe(0);
   });
 });
