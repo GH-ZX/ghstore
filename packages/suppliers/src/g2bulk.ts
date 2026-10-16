@@ -21,6 +21,12 @@
  *   `callback_url` given at order time, retried once, authenticated by our
  *   `?token=` secret. It is treated as a wake-up: the order is re-read here.
  *
+ * - The catalogue is hundreds of games, each with its own catalogue, fields
+ *   and servers requests: far more than the 50 requests one Worker invocation
+ *   may make on the free plan. So the admin lists it a game at a time
+ *   (listGroups, then listProducts(group)), and the sync reads only the
+ *   catalogues of games the store sells (listProductsFor), a few per run.
+ *
  * externalId: "game:<code>:<catalogue name>" | "voucher:<product id>".
  * supplierOrderId: "g2b-game-<id>" | "g2b-vouch-<id>" (the refs the old bot stored).
  *
@@ -44,6 +50,7 @@ const ID = "g2bulk";
 const GAME = "g2b-game-";
 const VOUCHER = "g2b-vouch-";
 const STATUS_PAGES = 10;
+const VOUCHERS = "vouchers";
 
 function classify(status: unknown): "completed" | "failed" | "pending" {
   const s = typeof status === "string" ? status.trim().toLowerCase() : "";
@@ -140,6 +147,52 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
     });
   }
 
+  async function allGames(): Promise<Record<string, unknown>[]> {
+    const only = new Set(csv(ctx, "G2BULK_GAME_CODES"));
+    return arr(obj(await read("/games"))?.games)
+      .filter(isObj)
+      .filter((g) => !!str(g.code) && (only.size === 0 || only.has((str(g.code) ?? "").toLowerCase())));
+  }
+
+  /** Every voucher and gift card, in one request. */
+  async function vouchers(): Promise<SupplierProduct[]> {
+    return arr(obj(await read("/products"))?.products).filter(isObj).flatMap((p): SupplierProduct[] => {
+      const id = str(p.id);
+      const title = str(p.title);
+      const cost = usdToCents(p.unit_price);
+      if (!id || !title || cost === null) return [];
+      const stock = num(p.stock);
+      return [{
+        externalId: `voucher:${id}`,
+        name: title,
+        costCents: cost,
+        available: (stock ?? 0) > 0,
+        kind: "code",
+        meta: {
+          type: "voucher", categoryId: p.category_id ?? null, category: str(p.category_title) ?? null,
+          faceValue: p.face_value ?? null, stock, image: image(p.image_url), description: str(p.description) ?? null,
+        },
+      }];
+    });
+  }
+
+  /**
+   * Prices of one game's top-ups for the sync: just the catalogue (one request),
+   * without the input fields and servers an import needs. A game G2Bulk no
+   * longer lists (404) has nothing for sale; an outage aborts the sync.
+   */
+  async function prices(code: string): Promise<SupplierProduct[]> {
+    const r = await call(`/games/${enc(code)}/catalogue`);
+    if (r.status === 404) return [];
+    if (!r.ok) throw httpError(ID, r, secrets);
+    return arr(obj(r.json)?.catalogues).filter(isObj).flatMap((item): SupplierProduct[] => {
+      const name = str(item.name);
+      const cost = usdToCents(item.amount);
+      if (!name || cost === null) return [];
+      return [{ externalId: `game:${code}:${name}`, name, costCents: cost, available: true, kind: "id" }];
+    });
+  }
+
   function topUpResult(supplierOrderId: string, status: unknown, playerId: string | undefined, playerName: string | undefined, price: unknown): PurchaseResult {
     const state = classify(status);
     if (state === "failed") return failed("G2Bulk could not complete the top-up (refunded by G2Bulk)", false, supplierOrderId);
@@ -226,32 +279,42 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
     id: ID,
     name: "G2Bulk",
 
-    async listProducts() {
-      const only = new Set(csv(ctx, "G2BULK_GAME_CODES"));
-      const games = arr(obj(await read("/games"))?.games)
-        .filter(isObj)
-        .filter((g) => !!str(g.code) && (only.size === 0 || only.has((str(g.code) ?? "").toLowerCase())));
-      const topUps = (await mapLimit(games, 6, topUpProducts)).flat();
+    // The full catalogue is hundreds of games, each needing its own requests: far
+    // more than one Worker invocation may make. So the admin lists one group at a
+    // time (a game, or the vouchers), and the sync reads only the games the store sells.
+    async listGroups() {
+      const games = await allGames();
+      return [
+        { id: VOUCHERS, name: "Vouchers & gift cards" },
+        ...games.map((g) => ({ id: `game:${str(g.code)}`, name: str(g.name) ?? str(g.code) ?? "", image: image(g.image_url) })),
+      ];
+    },
 
-      const vouchers = arr(obj(await read("/products"))?.products).filter(isObj).flatMap((p): SupplierProduct[] => {
-        const id = str(p.id);
-        const title = str(p.title);
-        const cost = usdToCents(p.unit_price);
-        if (!id || !title || cost === null) return [];
-        const stock = num(p.stock);
-        return [{
-          externalId: `voucher:${id}`,
-          name: title,
-          costCents: cost,
-          available: (stock ?? 0) > 0,
-          kind: "code",
-          meta: {
-            type: "voucher", categoryId: p.category_id ?? null, category: str(p.category_title) ?? null,
-            faceValue: p.face_value ?? null, stock, image: image(p.image_url), description: str(p.description) ?? null,
-          },
-        }];
-      });
-      return [...topUps, ...vouchers];
+    async listProducts(group) {
+      if (group?.startsWith("game:")) {
+        const code = group.slice(5);
+        const game = (await allGames()).find((g) => str(g.code) === code);
+        return game ? topUpProducts(game) : [];
+      }
+      // No group: the vouchers (one request). Games are listed one at a time.
+      return vouchers();
+    },
+
+    async listProductsFor(externalIds) {
+      const codes = new Set<string>();
+      let wantVouchers = false;
+      for (const id of externalIds) {
+        const ref = parseExternalId(id);
+        if (ref?.type === "game") codes.add(ref.code);
+        else if (ref?.type === "voucher") wantVouchers = true;
+      }
+      const games = await mapLimit([...codes], 6, async (code) => prices(code));
+      return [...games.flat(), ...(wantVouchers ? await vouchers() : [])];
+    },
+
+    syncGroup(externalId) {
+      const ref = parseExternalId(externalId);
+      return ref?.type === "game" ? `game:${ref.code}` : VOUCHERS;
     },
 
     async getBalance() {

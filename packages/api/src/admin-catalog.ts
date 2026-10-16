@@ -193,7 +193,13 @@ export async function listSupplierProducts(ctx: Ctx): Promise<Response> {
   if (!SUPPLIER_ID.test(id)) throw new ApiError("not_found");
   const adapter = ctx.svc.supplier(id);
   if (!adapter) throw new ApiError("bad_state");
-  const items = await adapter.listProducts();
+  // Big catalogues (G2Bulk) are listed one group at a time: first the groups, then one group's items.
+  const group = new URL(ctx.req.url).searchParams.get("group");
+  if (group !== null && !/^[A-Za-z0-9:_.-]{1,80}$/.test(group)) throw new ApiError("invalid_input", "group");
+  if (adapter.listGroups && !group) {
+    return json({ supplier: id, groups: await adapter.listGroups(), items: [] });
+  }
+  const items = await adapter.listProducts(group ?? undefined);
   const linked = await ctx.svc.db.query<{ id: string; supplier_ref: string }>(`select id, supplier_ref from app.offers where supplier_id = $1`, [id]);
   const byRef = new Map(linked.map((l) => [l.supplier_ref, l.id]));
   return json({

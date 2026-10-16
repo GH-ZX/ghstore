@@ -9,8 +9,8 @@
  * - GET /products answers `{ success, products }` although the swagger shows a
  *   bare array; both are accepted. `api_test: true` (and id 2147483000) is
  *   BatStore's synthetic test product and is never listed.
- * - Sellable only with a positive `stock`; a missing count means unknown, which
- *   is treated as not sellable (BatStore's own rule, from live imports).
+ * - `stock` counts units of "stock" goods; it is null for activation goods,
+ *   which are always sellable. Stock goods sell only with a positive count.
  * - `delivery_type: "stock"` goods are delivered as-is in items[].account_data;
  *   "supplier_api" / "activation" goods are activated on an
  *   `activation_identifier` the buyer supplies (Telegram ID, email...).
@@ -27,7 +27,8 @@
  * externalId: BatStore product id. supplierOrderId: BatStore order id.
  *
  * Config: BATSTORE_API_KEY, BATSTORE_BASE_URL (default
- * https://ventetelegrambotrailway-production.up.railway.app),
+ * https://web-production-1c7b1.up.railway.app since BatStore moved in October
+ * 2026; also settable in Admin → Settings → Keys when it moves again),
  * BATSTORE_BASE_URL_SECONDARY (optional mirror), BATSTORE_WEBHOOK_SECRET
  * (falls back to SUPPLIER_WEBHOOK_SECRET).
  */
@@ -69,7 +70,7 @@ function productList(json: unknown): unknown[] {
 }
 
 export function createBatStore(ctx: AdapterContext): SupplierAdapter {
-  const base = baseUrl(ctx, "BATSTORE_BASE_URL", "https://ventetelegrambotrailway-production.up.railway.app");
+  const base = baseUrl(ctx, "BATSTORE_BASE_URL", "https://web-production-1c7b1.up.railway.app");
   const secondary = cfg(ctx, "BATSTORE_BASE_URL_SECONDARY")?.replace(/\/+$/, "");
   const key = cfg(ctx, "BATSTORE_API_KEY");
   const secrets = key ? [key] : [];
@@ -138,7 +139,8 @@ export function createBatStore(ctx: AdapterContext): SupplierAdapter {
           externalId: id,
           name: str(p.name) ?? `Product ${id}`,
           costCents: cost,
-          available: stock !== null && stock > 0,
+          // Activation goods have no stock count; stock goods need units left.
+          available: direct ? stock !== null && stock > 0 : stock === null || stock > 0,
           kind: direct ? "account" : "id",
           ...(direct ? {} : { fields: [ACTIVATION_FIELD] }),
           meta: {

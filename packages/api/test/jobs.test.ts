@@ -1,7 +1,7 @@
 /** Scheduled jobs tell the owner when one keeps failing, once, and again when it recovers. */
 import { afterAll, describe, expect, it } from "vitest";
-import { heartbeat, JOB_ALERT_AFTER } from "../src/jobs";
-import { connectTestDb, Harness } from "./helpers";
+import { heartbeat, JOB_ALERT_AFTER, room } from "../src/jobs";
+import { connectTestDb, env, Harness } from "./helpers";
 
 const conn = await connectTestDb();
 const db = conn.db;
@@ -21,6 +21,28 @@ async function alerts(): Promise<string[]> {
   );
   return [...new Set(rows.map((r) => r.text))];
 }
+
+describe("request budget", () => {
+  it("leaves work for the next run instead of going over the per-invocation limit", async () => {
+    const owner = await h.login(900001, "Owner");
+    void owner;
+    const ownerId = (await db.query<{ user_id: string }>(`select user_id from app.identities where provider = 'telegram' and subject = '900001'`))[0]!.user_id;
+    await db.query(`insert into app.outbox (user_id, template, data) values ($1, 'staff_alert', $2::text::jsonb)`, [ownerId, JSON.stringify({ text: `budget ${job}` })]);
+    const pending = () => db.query(`select 1 from app.outbox where status = 'pending' and data->>'text' = $1`, [`budget ${job}`]);
+    const { runScheduled } = await import("../src/jobs");
+    h.telegramCalls = [];
+    let left = 3; // nearly spent
+    const tight = { ...h.svc, budget: { left: () => left } };
+    await runScheduled(tight, env);
+    expect(h.telegramCalls).toEqual([]);
+    expect((await pending()).length).toBe(1);
+    left = 50;
+    await runScheduled({ ...h.svc, budget: { left: () => left } }, env);
+    expect((await pending()).length).toBe(0);
+    expect(room({ ...h.svc, budget: { left: () => 10 } }, 4)).toBe(6);
+    expect(room(h.svc)).toBe(Number.POSITIVE_INFINITY);
+  });
+});
 
 describe("job failure alerts", () => {
   it("alert the owner after repeated failures, only once, and when the job recovers", async () => {

@@ -35,28 +35,63 @@ export interface SyncReport {
   paused: number;
   resumed: number;
   missing: number;
+  /** False when only part of a big catalogue was checked this time (the rest goes next run). */
+  complete: boolean;
 }
 
-export async function syncSupplier(svc: Services, supplierId: string): Promise<SyncReport> {
-  const report: SyncReport = { supplier: supplierId, checked: 0, repriced: 0, paused: 0, resumed: 0, missing: 0 };
+export interface SyncOptions {
+  /**
+   * For suppliers priced per group (G2Bulk: one request per game), check at
+   * most this many groups now, the least recently checked first. Keeps one
+   * run inside the Worker's per-invocation request limit.
+   */
+  maxGroups?: number;
+}
+
+export async function syncSupplier(svc: Services, supplierId: string, opts: SyncOptions = {}): Promise<SyncReport> {
+  const report: SyncReport = { supplier: supplierId, checked: 0, repriced: 0, paused: 0, resumed: 0, missing: 0, complete: true };
   const adapter = svc.supplier(supplierId);
   if (!adapter) return report;
 
+  // `due`: not checked since the last complete pass (a pass may take several runs).
+  let offers = await svc.db.query<OfferRow & { due: boolean }>(
+    `select o.id, o.supplier_ref, o.cost_cents, o.price_cents, o.markup_mode, o.markup_value, o.round_to_cents, o.min_margin_pct, o.paused_reason,
+            (o.cost_checked_at is null or o.cost_checked_at <= coalesce(s.last_sync_at, '-infinity')) as due
+       from app.offers o join app.suppliers s on s.id = o.supplier_id
+      where o.supplier_id = $1 and o.active
+      order by o.cost_checked_at nulls first, o.id`,
+    [supplierId],
+  );
+  // Big catalogues: price only what the store sells, a few groups at a time,
+  // the groups not checked yet in this pass first.
+  const grouped = adapter.listProductsFor && adapter.syncGroup ? adapter : null;
+  if (grouped) {
+    const max = Math.max(1, Math.floor(opts.maxGroups ?? Number.POSITIVE_INFINITY));
+    const dueGroups: string[] = [];
+    for (const o of offers) {
+      const g = grouped.syncGroup!(o.supplier_ref);
+      if (o.due && !dueGroups.includes(g)) dueGroups.push(g);
+    }
+    const chosen = new Set(dueGroups.slice(0, max));
+    report.complete = dueGroups.length <= max;
+    offers = offers.filter((o) => chosen.has(grouped.syncGroup!(o.supplier_ref)));
+  }
+  if (offers.length === 0) {
+    await svc.db.query(`update app.suppliers set last_sync_at = now(), health = 'ok', last_error = null where id = $1`, [supplierId]);
+    return report;
+  }
+
   let products: SupplierProduct[];
   try {
-    products = await adapter.listProducts();
+    products = grouped ? await grouped.listProductsFor!(offers.map((o) => o.supplier_ref)) : await adapter.listProducts();
   } catch (err) {
     // A failed or partial catalogue must never be read as "everything was removed".
     const msg = err instanceof Error ? err.message.slice(0, 300) : "error";
     await svc.db.query(`update app.suppliers set health = 'degraded', last_error = $2 where id = $1`, [supplierId, msg]);
+    report.complete = false;
     return report;
   }
   const byRef = new Map(products.map((p) => [p.externalId, p]));
-  const offers = await svc.db.query<OfferRow>(
-    `select id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value, round_to_cents, min_margin_pct, paused_reason
-       from app.offers where supplier_id = $1 and active`,
-    [supplierId],
-  );
 
   const paused: string[] = [];
   // Packages whose cost and price did not change (nearly all of them on a normal
@@ -75,6 +110,8 @@ export async function syncSupplier(svc: Services, supplierId: string): Promise<S
         await svc.db.query(`update app.offers set paused_reason = 'supplier_unavailable', cost_checked_at = now() where id = $1`, [o.id]);
         report.paused++;
         paused.push(o.id);
+      } else {
+        unchanged.push(o.id); // still away: checked, nothing to change
       }
       continue;
     }
@@ -98,6 +135,8 @@ export async function syncSupplier(svc: Services, supplierId: string): Promise<S
         );
         report.paused++;
         paused.push(o.id);
+      } else {
+        unchanged.push(o.id);
       }
       continue;
     }
@@ -130,7 +169,11 @@ export async function syncSupplier(svc: Services, supplierId: string): Promise<S
       [unchanged.join(",")],
     );
   }
-  await svc.db.query(`update app.suppliers set last_sync_at = now(), health = 'ok', last_error = null where id = $1`, [supplierId]);
+  // A partial pass keeps the supplier due, so the next run checks the next groups.
+  await svc.db.query(
+    `update app.suppliers set last_sync_at = case when $2 then now() else last_sync_at end, health = 'ok', last_error = null where id = $1`,
+    [supplierId, report.complete],
+  );
   if (paused.length) {
     await alertOwners(svc, `${supplierId}: ${paused.length} package(s) paused (price or availability changed)`);
   }
@@ -142,13 +185,13 @@ export async function syncSupplier(svc: Services, supplierId: string): Promise<S
  * at most `max` per call. One per cron tick keeps each run light (the Workers
  * free plan allows 10 ms of CPU per invocation; a catalogue parse is the heavy part).
  */
-export async function syncDueSuppliers(svc: Services, minutes = 60, max = 1): Promise<SyncReport[]> {
+export async function syncDueSuppliers(svc: Services, minutes = 60, max = 1, opts: SyncOptions = {}): Promise<SyncReport[]> {
   const due = await svc.db.query<{ id: string }>(
     `select id from app.suppliers where enabled and (last_sync_at is null or last_sync_at < now() - make_interval(mins => $1::int))
       order by last_sync_at nulls first limit $2`,
     [minutes, max],
   );
   const reports: SyncReport[] = [];
-  for (const s of due) reports.push(await syncSupplier(svc, s.id));
+  for (const s of due) reports.push(await syncSupplier(svc, s.id, opts));
   return reports;
 }

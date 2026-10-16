@@ -63,7 +63,15 @@ export function createServices(env: WorkerEnv): RequestServices {
   const pending: Promise<unknown>[] = [];
   // Adapters get only string settings (secrets and vars), never bindings.
   const config = Object.fromEntries(Object.entries(env).filter(([, v]) => typeof v === "string")) as Record<string, string>;
-  const adapterCtx: AdapterContext = { fetch: (input, init) => fetch(input, init), config };
+  // Every outgoing request counts against the Worker's per-invocation limit
+  // (50 on the free plan). Jobs ask svc.budget before starting more work.
+  const limit = Number(env.SUBREQUEST_LIMIT) > 0 ? Number(env.SUBREQUEST_LIMIT) : 50;
+  let used = 0;
+  const counted: typeof fetch = (input, init) => {
+    used++;
+    return fetch(input, init);
+  };
+  const adapterCtx: AdapterContext = { fetch: counted, config };
   const suppliers = new Map<string, SupplierAdapter | null>();
   const payments = new Map<PaymentMethod, PaymentAdapter | null>();
 
@@ -104,14 +112,15 @@ export function createServices(env: WorkerEnv): RequestServices {
       return payments.get(method) ?? null;
     },
     now: () => new Date(),
-    fetch: (input, init) => fetch(input, init),
+    fetch: counted,
+    budget: { left: () => limit - used },
     waitUntil: (p) => {
       pending.push(p);
     },
     async telegram(method, payload, bot = "store") {
       // config holds the Worker's secrets plus the admin's keys (after ready()).
       const token = bot === "staff" && config.NOTIFY_BOT_TOKEN ? config.NOTIFY_BOT_TOKEN : env.TELEGRAM_BOT_TOKEN;
-      const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      const res = await counted(`https://api.telegram.org/bot${token}/${method}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),

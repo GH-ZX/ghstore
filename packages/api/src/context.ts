@@ -26,6 +26,8 @@ export interface ApiEnv {
   PAYMENT_METHODS?: string;
   /** Website sign-in options, comma separated: telegram,email,google (default telegram,email). */
   WEB_LOGIN_METHODS?: string;
+  /** Outgoing requests one invocation may make: 50 on the Workers free plan (default), 10000 on paid. */
+  SUBREQUEST_LIMIT?: string;
   /** Anything else (supplier and payment keys, bindings) — strings are passed to adapters as config. */
   [key: string]: unknown;
 }
@@ -46,6 +48,12 @@ export interface Services {
    * in Admin → Settings → Keys), otherwise the store bot.
    */
   telegram(method: string, payload: Record<string, unknown>, bot?: "store" | "staff"): Promise<unknown>;
+  /**
+   * Outgoing requests this invocation may still make (suppliers, payments,
+   * Telegram, email). Cloudflare's free plan allows 50 per invocation; the
+   * scheduled jobs share them. Absent means no limit (tests, local tools).
+   */
+  budget?: { left(): number };
 }
 
 export interface AuthedUser {

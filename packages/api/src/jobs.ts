@@ -11,6 +11,15 @@ import { queueDailySummary } from "./reports";
 import { settlePayment } from "./payments";
 import { syncDueSuppliers } from "./sync";
 
+/**
+ * How many more outgoing requests this run may make, keeping `reserve` back
+ * (Infinity without a budget). One scheduled run shares Cloudflare's limit
+ * (50 on the free plan) between all the jobs below.
+ */
+export function room(svc: Services, reserve = 0): number {
+  return svc.budget ? Math.max(0, svc.budget.left() - reserve) : Number.POSITIVE_INFINITY;
+}
+
 /** Failed runs in a row before the owner hears about it on Telegram. */
 export const JOB_ALERT_AFTER = 3;
 
@@ -83,6 +92,7 @@ export async function recheckPendingPayments(svc: Services, limit = 20): Promise
     [limit],
   );
   for (const r of rows) {
+    if (room(svc) < 3) break;
     await settlePayment(svc, r.id);
     await svc.db.query(`update app.payments set updated_at = now() where id = $1`, [r.id]);
   }
@@ -95,6 +105,7 @@ export async function checkSupplierBalances(svc: Services): Promise<void> {
       where enabled and (balance_checked_at is null or balance_checked_at < now() - interval '15 minutes')`,
   );
   for (const s of suppliers) {
+    if (room(svc) < 2) break; // the rest are checked next time
     const adapter = svc.supplier(s.id);
     if (!adapter) continue;
     try {
@@ -121,12 +132,17 @@ export async function checkSupplierBalances(svc: Services): Promise<void> {
  */
 export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   const minute = svc.now().getUTCMinutes();
-  await heartbeat(svc, "orders", () => processDueOrders(svc, env, 10));
-  await heartbeat(svc, "outbox", () => sendOutbox(svc, env));
-  if (minute % 2 === 0) await heartbeat(svc, "payments", () => recheckPendingPayments(svc, 10));
+  // Most urgent first: customers' orders (a few requests each), then their
+  // messages, then payments; the supplier sync gets whatever is left.
+  const orders = Math.min(10, Math.floor(room(svc, 8) / 3));
+  if (orders > 0) await heartbeat(svc, "orders", () => processDueOrders(svc, env, orders));
+  const messages = Math.min(25, room(svc, 6));
+  if (messages > 0) await heartbeat(svc, "outbox", () => sendOutbox(svc, env, messages));
+  if (minute % 2 === 0 && room(svc, 4) > 0) await heartbeat(svc, "payments", () => recheckPendingPayments(svc, 10));
   if (minute % 10 === 5) await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
-  if (minute % 15 === 7) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
-  if (minute % 5 === 3) await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 60, 1));
+  if (minute % 15 === 7 && room(svc, 2) > 0) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
+  const groups = room(svc, 2);
+  if (minute % 5 === 3 && groups >= 3) await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 60, 1, { maxGroups: groups }));
   if (minute % 30 === 11) await heartbeat(svc, "buy_again", () => queueBuyAgain(svc));
   // Checked six times an hour, so one missed tick never skips a day; it is sent once.
   if (minute % 10 === 9) await heartbeat(svc, "daily_summary", () => queueDailySummary(svc));

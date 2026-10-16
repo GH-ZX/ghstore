@@ -33,12 +33,14 @@ describe("batstore listProducts", () => {
       ["16", 60, true, "account"],
       ["17", 1200, true, "id"],
       ["18", 200, false, "account"],
-      ["19", 200, false, "id"],
+      ["19", 200, true, "id"], // activation goods have no stock count and stay sellable
     ]);
     expect(list[0]?.fields).toBeUndefined();
     expect(list[1]?.fields?.[0]).toMatchObject({ key: "activation_identifier", required: true });
     expect(list[0]?.meta).toMatchObject({ descriptionAr: "وصف عربي", warrantyDays: 30, standardPriceCents: 120, tiers: [{ minQty: 5, maxQty: 9, costCents: 55 }] });
     expect(calls[0]?.headers["x-reseller-key"]).toBe(KEY);
+    // BatStore's current host (it moved in October 2026).
+    expect(calls[0]?.url).toBe("https://web-production-1c7b1.up.railway.app/api/reseller/products");
   });
 
   it("accepts a bare array and survives a failing Arabic call", async () => {

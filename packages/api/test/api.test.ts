@@ -533,6 +533,54 @@ describe("supplier sync and margin guard", () => {
     expect(Number(rows.find((r) => r.id === ids[7])!.price_cents)).toBe(230);
     expect(rows.filter((r) => Number(r.price_cents) === 115)).toHaveLength(39);
   });
+
+  it("prices a big catalogue a few groups per run, least recently checked first", async () => {
+    const supplier = `g_${run}`;
+    await db.query(`insert into app.suppliers (id, name, enabled) values ($1, 'Grouped', true)`, [supplier]);
+    const groups = ["a", "b", "c", "d", "e"];
+    for (const g of groups) {
+      for (let i = 0; i < 3; i++) {
+        await db.query(
+          `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value)
+           values ($1, 'x', 'x', $2, $3, 100, 115, 'percent', 15)`,
+          [productId, supplier, `${g}:${i}`],
+        );
+      }
+    }
+    const asked: string[][] = [];
+    h.suppliers.set(supplier, {
+      ...fakeSupplier,
+      id: supplier,
+      listProducts: async () => {
+        throw new Error("the whole catalogue must not be read");
+      },
+      listProductsFor: async (ids) => {
+        asked.push([...new Set(ids.map((id) => id.split(":")[0]!))].sort());
+        // Group "e" is gone from the supplier.
+        return ids.filter((id) => !id.startsWith("e:")).map((id) => ({ externalId: id, name: id, costCents: 100, available: true, kind: "code" as const }));
+      },
+      syncGroup: (id) => id.split(":")[0]!,
+    });
+    const lastSync = async () => (await db.query<{ at: string | null }>(`select last_sync_at as at from app.suppliers where id = $1`, [supplier]))[0]!.at;
+
+    const first = await syncSupplier(h.svc, supplier, { maxGroups: 2 });
+    expect(first).toMatchObject({ checked: 6, complete: false });
+    expect(await lastSync()).toBeNull(); // still due: the next run carries on
+    const second = await syncSupplier(h.svc, supplier, { maxGroups: 2 });
+    expect(second).toMatchObject({ checked: 6, complete: false });
+    const third = await syncSupplier(h.svc, supplier, { maxGroups: 2 });
+    expect(third).toMatchObject({ checked: 3, complete: true, missing: 3, paused: 3 });
+    expect(await lastSync()).not.toBeNull();
+    // Every group was asked for exactly once, and never more than two at a time.
+    expect(asked.flat().sort()).toEqual(groups);
+    expect(asked.every((a) => a.length <= 2)).toBe(true);
+
+    // Next pass, all at once: the gone packages stay paused but count as checked.
+    const again = await syncSupplier(h.svc, supplier);
+    expect(again).toMatchObject({ checked: 15, missing: 3, paused: 0, complete: true });
+    const unchecked = await db.query(`select 1 from app.offers where supplier_id = $1 and cost_checked_at is null`, [supplier]);
+    expect(unchecked.length).toBe(0);
+  });
 });
 
 describe("suppliers switched off", () => {

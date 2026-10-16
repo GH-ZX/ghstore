@@ -12,6 +12,7 @@ import { call, n, one } from "./db";
 import { fulfilOrder } from "./fulfilment";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { settlePayment } from "./payments";
+import { room } from "./jobs";
 import { syncSupplier } from "./sync";
 
 async function audit(ctx: Ctx, actor: string, action: string, targetType: string, targetId: string, data: Record<string, unknown> = {}) {
@@ -227,7 +228,8 @@ export async function runSupplierSync(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx, "owner");
   const id = ctx.params.id ?? "";
   if (!/^[a-z0-9_]{2,32}$/.test(id)) throw new ApiError("not_found");
-  const report = await syncSupplier(ctx.svc, id);
+  // A big catalogue is checked as far as this request's budget allows; the cron does the rest.
+  const report = await syncSupplier(ctx.svc, id, { maxGroups: room(ctx.svc, 3) });
   await audit(ctx, staff.id, "supplier.sync", "supplier", id, { ...report });
   return json(report);
 }

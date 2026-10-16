@@ -42,30 +42,51 @@ const catalogueRoutes = {
   }),
 };
 
-describe("g2bulk listProducts", () => {
-  it("maps top-up denominations and vouchers to cents with input fields", async () => {
+describe("g2bulk catalogue", () => {
+  it("lists games and the vouchers as groups, from one request", async () => {
     const { ctx, calls } = context(catalogueRoutes, config);
-    const products = await createG2Bulk(ctx).listProducts();
+    const groups = await createG2Bulk(ctx).listGroups!();
+    expect(groups).toEqual([
+      { id: "vouchers", name: "Vouchers & gift cards" },
+      { id: "game:pubgm", name: "PUBG Mobile", image: "https://api.g2bulk.com/images/pubgm.png" },
+      { id: "game:mlbb", name: "Mobile Legends", image: "https://cdn.example/mlbb.png" },
+    ]);
+    expect(calls.map((c) => c.path)).toEqual(["/v1/games"]);
+  });
 
-    expect(products.map((p) => [p.externalId, p.costCents, p.available, p.kind])).toEqual([
+  it("maps one game's denominations to cents with input fields", async () => {
+    const { ctx, calls } = context(catalogueRoutes, config);
+    const g2b = createG2Bulk(ctx);
+    const pubgm = await g2b.listProducts("game:pubgm");
+    expect(pubgm.map((p) => [p.externalId, p.costCents, p.available, p.kind])).toEqual([
       ["game:pubgm:60 UC", 88, true, "id"],
       ["game:pubgm:120 UC", 175, true, "id"],
-      ["game:mlbb:86 Diamonds", 113, true, "id"],
+    ]);
+    expect(pubgm[0]!.name).toBe("PUBG Mobile — 60 UC");
+    expect(pubgm[0]!.fields).toEqual([{ key: "player_id", labelEn: "Player ID", labelAr: "معرّف اللاعب (ID)", required: true }]);
+    expect(pubgm[0]!.meta?.image).toBe("https://api.g2bulk.com/images/pubgm.png");
+    // Servers are only asked for games whose fields need one.
+    expect(calls.some((c) => c.path === "/v1/games/servers")).toBe(false);
+
+    const [mlbb] = await g2b.listProducts("game:mlbb");
+    expect(mlbb!.fields?.map((f) => f.key)).toEqual(["player_id", "server_id"]);
+    expect(mlbb!.meta?.servers).toEqual({ "SouthEast Asia": "sea", Europe: "eu" });
+    expect(mlbb!.fields?.[1]?.options).toBeUndefined(); // a zone id stays typed
+    expect(calls.filter((c) => c.path === "/v1/games/servers").map((c) => c.body)).toEqual([{ game: "mlbb" }]);
+    // Only that game was read; public routes carry no key.
+    expect(calls.some((c) => c.path.includes("/products"))).toBe(false);
+    expect(calls.every((c) => c.headers["x-api-key"] === undefined)).toBe(true);
+    expect(await g2b.listProducts("game:nope")).toEqual([]);
+  });
+
+  it("lists the vouchers when no game is given", async () => {
+    const { ctx, calls } = context(catalogueRoutes, config);
+    const vouchers = await createG2Bulk(ctx).listProducts();
+    expect(vouchers.map((p) => [p.externalId, p.costCents, p.available, p.kind])).toEqual([
       ["voucher:1", 84, true, "code"],
       ["voucher:2", 1811, false, "code"],
     ]);
-    const pubg = products[0]!;
-    expect(pubg.name).toBe("PUBG Mobile — 60 UC");
-    expect(pubg.fields).toEqual([{ key: "player_id", labelEn: "Player ID", labelAr: "معرّف اللاعب (ID)", required: true }]);
-    expect(pubg.meta?.image).toBe("https://api.g2bulk.com/images/pubgm.png");
-    const mlbb = products[2]!;
-    expect(mlbb.fields?.map((f) => f.key)).toEqual(["player_id", "server_id"]);
-    expect(mlbb.meta?.servers).toEqual({ "SouthEast Asia": "sea", Europe: "eu" });
-    expect(mlbb.fields?.[1]?.options).toBeUndefined(); // a zone id stays typed
-    expect(mlbb.meta?.image).toBe("https://cdn.example/mlbb.png");
-    // Servers are only asked for games whose fields need one; public routes carry no key.
-    expect(calls.filter((c) => c.path === "/v1/games/servers").map((c) => c.body)).toEqual([{ game: "mlbb" }]);
-    expect(calls.every((c) => c.headers["x-api-key"] === undefined)).toBe(true);
+    expect(calls.map((c) => c.path)).toEqual(["/v1/products"]);
   });
 
   it("turns a server list into choices for games with a server field", async () => {
@@ -74,9 +95,8 @@ describe("g2bulk listProducts", () => {
       "GET /v1/games/genshin/catalogue": json({ success: true, catalogues: [{ id: 1, name: "60 Crystals", amount: 0.9 }] }),
       "POST /v1/games/fields": json({ code: "200", info: { fields: ["userid", "serverid"] } }),
       "POST /v1/games/servers": json({ code: "200", servers: { America: "os_usa", Asia: "os_asia" } }),
-      "GET /v1/products": json({ success: true, products: [] }),
     }, config);
-    const [genshin] = await createG2Bulk(ctx).listProducts();
+    const [genshin] = await createG2Bulk(ctx).listProducts("game:genshin");
     expect(genshin?.fields?.[1]).toEqual({
       key: "server_id", labelEn: "Server", labelAr: "السيرفر", required: true,
       options: [{ value: "os_usa", labelEn: "America", labelAr: "America" }, { value: "os_asia", labelEn: "Asia", labelAr: "Asia" }],
@@ -84,18 +104,32 @@ describe("g2bulk listProducts", () => {
   });
 
   it("honours G2BULK_GAME_CODES", async () => {
-    const { ctx, calls } = context(catalogueRoutes, { ...config, G2BULK_GAME_CODES: "MLBB" });
-    const products = await createG2Bulk(ctx).listProducts();
-    expect(products.filter((p) => p.kind === "id").map((p) => p.externalId)).toEqual(["game:mlbb:86 Diamonds"]);
-    expect(calls.some((c) => c.path.includes("pubgm"))).toBe(false);
+    const { ctx } = context(catalogueRoutes, { ...config, G2BULK_GAME_CODES: "MLBB" });
+    const groups = await createG2Bulk(ctx).listGroups!();
+    expect(groups.map((g) => g.id)).toEqual(["vouchers", "game:mlbb"]);
   });
 
-  it("fails the whole sync (retryable) rather than return a partial catalogue", async () => {
+  it("prices only what the store sells for the sync: one request per game, plus one for vouchers", async () => {
+    const { ctx, calls } = context({ ...catalogueRoutes, "GET /v1/games/gone/catalogue": json({ success: false }, 404) }, config);
+    const g2b = createG2Bulk(ctx);
+    const ids = ["game:pubgm:60 UC", "game:pubgm:120 UC", "game:gone:1 Gem", "voucher:2"];
+    const products = await g2b.listProductsFor!(ids);
+    expect(products.map((p) => [p.externalId, p.costCents, p.available])).toEqual([
+      ["game:pubgm:60 UC", 88, true],
+      ["game:pubgm:120 UC", 175, true],
+      ["voucher:1", 84, true],
+      ["voucher:2", 1811, false],
+    ]);
+    expect(calls.map((c) => c.path).sort()).toEqual(["/v1/games/gone/catalogue", "/v1/games/pubgm/catalogue", "/v1/products"]);
+    expect(ids.map((id) => g2b.syncGroup!(id))).toEqual(["game:pubgm", "game:pubgm", "game:gone", "vouchers"]);
+  });
+
+  it("fails the sync (retryable) rather than read an outage as products removed", async () => {
     const { ctx } = context(
       { ...catalogueRoutes, "GET /v1/games/pubgm/catalogue": [json({}, 502), json({}, 503)] },
       config,
     );
-    await expect(createG2Bulk(ctx).listProducts()).rejects.toMatchObject({ name: "AdapterError", retryable: true });
+    await expect(createG2Bulk(ctx).listProductsFor!(["game:pubgm:60 UC"])).rejects.toMatchObject({ name: "AdapterError", retryable: true });
   });
 });
 

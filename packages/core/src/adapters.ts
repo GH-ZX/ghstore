@@ -79,11 +79,35 @@ export interface AdapterContext {
   now?: () => Date;
 }
 
+/** A slice of a large supplier catalogue (a game, a category) that can be listed on its own. */
+export interface SupplierGroup {
+  id: string;
+  name: string;
+  image?: string | null;
+}
+
 export interface SupplierAdapter {
   /** Stable id used in the database, e.g. "g2bulk". */
   readonly id: string;
   readonly name: string;
-  listProducts(): Promise<SupplierProduct[]>;
+  /**
+   * The catalogue, or one group of it. Suppliers with listGroups() are too big to
+   * list at once (one request per game): the admin lists a group at a time.
+   */
+  listProducts(group?: string): Promise<SupplierProduct[]>;
+  /** The groups of a catalogue too large to list in one go (see listProducts). */
+  listGroups?(): Promise<SupplierGroup[]>;
+  /**
+   * Current cost and availability of these products only. Anything not returned
+   * is no longer sold. Lets the sync check what the store sells without reading
+   * the whole catalogue.
+   */
+  listProductsFor?(externalIds: string[]): Promise<SupplierProduct[]>;
+  /**
+   * Which request a product's price comes from in listProductsFor (one request
+   * per group), so the sync can spread a big catalogue over several runs.
+   */
+  syncGroup?(externalId: string): string;
   getBalance(): Promise<SupplierBalance | null>;
   purchase(req: PurchaseRequest): Promise<PurchaseResult>;
   /** Re-check an order the supplier reported as pending. */

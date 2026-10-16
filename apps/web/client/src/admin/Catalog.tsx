@@ -616,8 +616,15 @@ interface SupplierItem {
 
 function ImportSheet({ supplier, products, onClose, onPick, onNewProduct }: { supplier: Sup; products: Prod[]; onClose: () => void; onPick: (p: Prod, preset: Partial<OfferDraft>) => void; onNewProduct: () => void }) {
   const { t, lang } = useT();
-  const { data, error, reload } = useApi<{ items: SupplierItem[] }>(`/api/admin/suppliers/${supplier.id}/products`);
+  // Big catalogues (G2Bulk) come in groups: pick a game, then its packages load.
+  const [group, setGroup] = useState("");
+  const base = `/api/admin/suppliers/${supplier.id}/products`;
+  const top = useApi<{ items: SupplierItem[]; groups?: { id: string; name: string }[] }>(base);
+  const groups = top.data?.groups ?? null;
+  const inGroup = useApi<{ items: SupplierItem[] }>(groups && group ? `${base}?group=${encodeURIComponent(group)}` : null);
+  const { data, error, reload } = groups ? (group ? inGroup : { data: undefined, error: null, reload: () => {} }) : top;
   const [q, setQ] = useState("");
+  const [gq, setGq] = useState("");
   const [target, setTarget] = useState(products[0]?.id ?? "");
   const items = (data?.items ?? []).filter((i) => !q || matchesQuery(`${i.name} ${i.externalId}`, q)).slice(0, 200);
   const product = products.find((p) => p.id === target);
@@ -641,9 +648,26 @@ function ImportSheet({ supplier, products, onClose, onPick, onNewProduct }: { su
           </select>
         </label>
       )}
-      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchLabel")} />
+      {groups && (
+        <>
+          <input className="input" value={gq} onChange={(e) => setGq(e.target.value)} placeholder={t("searchGroups")} />
+          <label className="field">
+            <span>{t("supplierGroup")}</span>
+            <select className="select" value={group} onChange={(e) => setGroup(e.target.value)}>
+              <option value="">{t("chooseGroup", { n: groups.length })}</option>
+              {groups.filter((g) => !gq || matchesQuery(`${g.name} ${g.id}`, gq)).slice(0, 300).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
+      <ErrorBox error={top.error} onRetry={top.reload} />
+      {(!groups || group) && <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchLabel")} />}
       <ErrorBox error={error} onRetry={reload} />
-      {!data && !error && <Spinner />}
+      {((!top.data && !top.error) || (groups && group && !data && !error)) && <Spinner />}
       {data && (
         <div className="list">
           {items.map((i) => (
