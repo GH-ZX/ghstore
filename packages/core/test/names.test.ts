@@ -20,6 +20,11 @@ describe("cleanSupplierName", () => {
     expect(clean("SPEECHIFY PREMIUM – 12 MONTHS")).toEqual(["Speechify Premium", "12 months", null]);
     expect(clean("bolt.new PRO 12m NW")).toEqual(["Bolt.new Pro", "12 months", "No warranty"]);
     expect(clean("pangram")).toEqual(["Pangram", "Standard", null]);
+    expect(clean("Spotify premium account1M FW")).toEqual(["Spotify Premium", "1 month · Ready account", "Full warranty"]);
+    expect(clean("Autodesk Admin 3000 invite")).toEqual(["Autodesk Admin", "3,000 invitations", null]);
+    expect(clean("Gemini Pro 18Months (link)")).toEqual(["Gemini Pro", "18 months · Activation link", null]);
+    expect(clean("Gmails Accounts")).toEqual(["Ready Gmail Account", "Standard", null]);
+    expect(cleanSupplierName("Gmails Accounts").productAr).toBe("حساب Gmail جاهز");
   });
 
   it("writes Arabic with the right plural", () => {

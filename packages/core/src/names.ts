@@ -38,14 +38,17 @@ export interface CleanName {
 
 export const DEFAULT_NAME_WORDS: NameWord[] = [
   { from: "ready account", en: "Ready account", ar: "حساب جاهز", part: "package" },
+  { from: "account", en: "Ready account", ar: "حساب جاهز", part: "package" },
   { from: "gmail", en: "Ready Gmail account", ar: "حساب Gmail جاهز", part: "package" },
   { from: "google pay", en: "Google Pay", ar: "عبر Google Pay", part: "package" },
   { from: "activation link", en: "Activation link", ar: "رابط تفعيل", part: "package" },
   { from: "redeem link", en: "Activation link", ar: "رابط تفعيل", part: "package" },
+  { from: "link", en: "Activation link", ar: "رابط تفعيل", part: "package" },
   { from: "invitation", en: "Invite", ar: "دعوة", part: "package" },
   { from: "invite", en: "Invite", ar: "دعوة", part: "package" },
   { from: "individual", en: "Individual", ar: "فردي", part: "package" },
   { from: "private", en: "Private", ar: "خاص", part: "package" },
+  { from: "gmails accounts", en: "Ready Gmail Account", ar: "حساب Gmail جاهز", part: "product" },
   { from: "api claude", en: "Claude API", ar: "Claude API", part: "product" },
   { from: "api codex", en: "Codex API", ar: "Codex API", part: "product" },
   { from: "chatgpt", en: "ChatGPT", ar: "ChatGPT", part: "product" },
@@ -123,7 +126,8 @@ function escape(s: string): string {
 
 /** A word or phrase, not inside another word. */
 function phrase(from: string): RegExp {
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escape(from)}(?![\\p{L}\\p{N}])`, "giu");
+  // Any run of spaces in the text matches a space in the phrase.
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escape(from).replace(/ +/g, "\\s+")}(?![\\p{L}\\p{N}])`, "giu");
 }
 
 interface Detail {
@@ -159,6 +163,8 @@ export function cleanSupplierName(raw: string, words: NameWord[] = DEFAULT_NAME_
   take(new RegExp(`\\(?${B}w(\\d{1,3})\\s*([hdmy])${E}\\)?`, "giu"), (m) => timed(Number(m[1]), m[2]!));
   take(new RegExp(`\\(?${B}(\\d{1,3})\\s*(h|hours?|d|days?|m|months?)\\s*warranty${E}\\)?`, "giu"), (m) => timed(Number(m[1]), m[2]!));
   take(new RegExp(`${B}warranty${E}`, "giu"), () => undefined);
+  // "account1M": a duration stuck to a word.
+  s = s.replace(/(\p{L}{3,})(\d{1,3}\s*(?:months?|mos?|m|years?|yrs?|y|days?|d)(?![\p{L}\p{N}]))/giu, "$1 $2");
 
   // ── amounts: tokens, credits, money (before durations: "100M" here is not 100 months)
   take(new RegExp(`${B}(\\d+(?:[.,]\\d+)?)\\s*([kmb])\\s*tokens?${E}`, "giu"), (m) => {
@@ -182,7 +188,7 @@ export function cleanSupplierName(raw: string, words: NameWord[] = DEFAULT_NAME_
   count("profiles?", "profiles", "ملفات");
   count("x?\\s*seats?", "seats", "مقاعد");
   count("devices?", "devices", "أجهزة");
-  count("invitations?", "invitations", "دعوة");
+  count("invit(?:ations?|es?)", "invitations", "دعوة");
 
   // ── duration: the first is the package's, any other is a detail
   const setDuration = (d: Detail) => {
@@ -196,6 +202,16 @@ export function cleanSupplierName(raw: string, words: NameWord[] = DEFAULT_NAME_
     const n = Number(m[1]);
     if (unit && n > 0) setDuration({ en: enDuration(n, unit), ar: arDuration(n, unit) });
   });
+
+  // ── the owner's product phrases ("gmails accounts" → "Ready Gmail Account") win over package words:
+  // they are set aside here and put back once the product name is cased.
+  const kept: NameWord[] = [];
+  for (const w of words.filter((w) => w.part === "product" && w.from.includes(" "))) {
+    s = s.replace(phrase(w.from), () => {
+      kept.push(w);
+      return ` \u0001${kept.length - 1}\u0001 `;
+    });
+  }
 
   // ── the owner's package words ("Gmail" → "Ready Gmail account")
   for (const w of words.filter((w) => w.part === "package")) {
@@ -229,12 +245,6 @@ export function cleanSupplierName(raw: string, words: NameWord[] = DEFAULT_NAME_
     return true;
   }).join(" ");
 
-  let en = s;
-  let ar = s;
-  for (const w of words.filter((w) => w.part === "product" && w.from.includes(" "))) {
-    en = en.replace(phrase(w.from), w.en);
-    ar = ar.replace(phrase(w.from), w.ar || w.en);
-  }
   const single = new Map(words.filter((w) => w.part === "product" && !w.from.includes(" ")).map((w) => [w.from, w]));
   const cased = (text: string, lang: "en" | "ar") =>
     text.split(" ").map((t) => {
@@ -244,8 +254,13 @@ export function cleanSupplierName(raw: string, words: NameWord[] = DEFAULT_NAME_
       if (/^\p{Lu}{5,}$/u.test(t)) return t[0] + t.slice(1).toLowerCase();
       return t;
     }).join(" ");
-  en = cased(en, "en").trim();
-  ar = cased(ar, "ar").trim();
+  const back = (text: string, lang: "en" | "ar") =>
+    text.replace(/\u0001(\d+)\u0001/g, (_, i: string) => {
+      const w = kept[Number(i)]!;
+      return lang === "ar" ? w.ar || w.en : w.en;
+    });
+  let en = back(cased(s, "en"), "en").trim();
+  let ar = back(cased(s, "ar"), "ar").trim();
   if (!en) en = ar = raw.trim().slice(0, 120);
 
   const parts: Detail[] = [...(duration ? [duration] : []), ...details];
