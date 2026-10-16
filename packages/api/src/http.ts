@@ -23,6 +23,8 @@ export type ErrorCode =
   | "coupon_used"
   | "coupon_exhausted"
   | "coupon_min_order"
+  | "account_in_use"
+  | "already_linked"
   | "internal";
 
 const STATUS: Record<ErrorCode, number> = {
@@ -48,6 +50,8 @@ const STATUS: Record<ErrorCode, number> = {
   coupon_used: 409,
   coupon_exhausted: 409,
   coupon_min_order: 409,
+  account_in_use: 409,
+  already_linked: 409,
   internal: 500,
 };
 

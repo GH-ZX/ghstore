@@ -5,6 +5,8 @@
  * - Mini App: the client posts Telegram initData; we verify it with the bot token.
  * - Website: the client signs in with Supabase Auth (email or Google) and posts
  *   the Supabase access token; we confirm it with Supabase and swap it for ours.
+ * - Linking: a signed-in customer adds the other kind of login (Telegram, or
+ *   email/Google), so every door opens the same wallet.
  */
 import { readSessionToken, SESSION_TTL_SECONDS, signSession, verifyInitData, verifyLoginWidget, verifySession, type Channel, type TelegramUser } from "@store/core";
 import type { AuthedUser, Ctx } from "./context";
@@ -80,20 +82,23 @@ export async function telegramWidgetLogin(ctx: Ctx): Promise<Response> {
   );
 }
 
-export async function webLogin(ctx: Ctx): Promise<Response> {
-  const body = await readJson(ctx.req);
-  const accessToken = str(body, "accessToken", { max: 4096 });
+/** Ask Supabase Auth who an access token belongs to. Never decode it ourselves without verifying. */
+async function supabaseUser(ctx: Ctx, accessToken: string): Promise<{ id: string; email: string | null; name: string }> {
   if (!ctx.env.SUPABASE_URL || !ctx.env.SUPABASE_PUBLISHABLE_KEY) throw new ApiError("not_allowed");
-  // Ask Supabase Auth who this token belongs to. Never decode it ourselves without verifying.
   const res = await ctx.svc.fetch(`${ctx.env.SUPABASE_URL}/auth/v1/user`, {
     headers: { apikey: ctx.env.SUPABASE_PUBLISHABLE_KEY, authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new ApiError("unauthorized");
   const au = (await res.json()) as { id?: string; email?: string; user_metadata?: { full_name?: string; name?: string } };
   if (!au.id) throw new ApiError("unauthorized");
-  const name = au.user_metadata?.full_name ?? au.user_metadata?.name ?? "";
+  return { id: au.id, email: au.email ?? null, name: au.user_metadata?.full_name ?? au.user_metadata?.name ?? "" };
+}
+
+export async function webLogin(ctx: Ctx): Promise<Response> {
+  const body = await readJson(ctx.req);
+  const au = await supabaseUser(ctx, str(body, "accessToken", { max: 4096 }));
   const locale = body.locale === "en" ? "en" : "ar";
-  const rows = await call<{ id: string }>(ctx.svc.db, `select app.ensure_web_user($1, $2, $3, $4) as id`, [au.id, au.email ?? null, name, locale]);
+  const rows = await call<{ id: string }>(ctx.svc.db, `select app.ensure_web_user($1, $2, $3, $4) as id`, [au.id, au.email, au.name, locale]);
   const userId = rows[0]?.id;
   if (!userId) throw new ApiError("internal");
   const user = await loadUser(ctx.svc.db, userId);
@@ -103,6 +108,73 @@ export async function webLogin(ctx: Ctx): Promise<Response> {
     { expiresAt: expiresAt.toISOString(), user: publicUser(user) },
     { headers: { "set-cookie": setCookie(SESSION_COOKIE, token, SESSION_TTL_SECONDS.web) } },
   );
+}
+
+/**
+ * Attach a verified login to the signed-in customer (see app.link_identity).
+ * When the login's own account was the one with history, the customer carries
+ * on in that account: we answer with a fresh session for it.
+ */
+async function linkIdentity(ctx: Ctx, provider: "telegram" | "supabase", subject: string, username: string | null, email: string | null): Promise<Response> {
+  const auth = await requireUser(ctx);
+  const rows = await call<{ user_id: string; merged: boolean }>(ctx.svc.db, `select user_id, merged from app.link_identity($1, $2, $3, $4, $5)`, [
+    auth.id,
+    provider,
+    subject,
+    username,
+    email,
+  ]);
+  const result = rows[0];
+  if (!result) throw new ApiError("internal");
+  if (provider === "telegram") await promoteOwner(ctx.svc.db, result.user_id, subject, ctx.env.OWNER_TELEGRAM_IDS);
+  if (result.user_id === auth.id) return json({ linked: provider, merged: result.merged, switched: false });
+  // This account was unused and its logins moved to the other one: continue there.
+  const { token, expiresAt } = await startSession(ctx, result.user_id, auth.channel);
+  if (auth.channel !== "miniapp") {
+    return json(
+      { linked: provider, merged: true, switched: true, expiresAt: expiresAt.toISOString() },
+      { headers: { "set-cookie": setCookie(SESSION_COOKIE, token, SESSION_TTL_SECONDS.web) } },
+    );
+  }
+  return json({ linked: provider, merged: true, switched: true, token, expiresAt: expiresAt.toISOString() });
+}
+
+/** Profile → add email or Google: the client signed in with Supabase Auth and sends its access token. */
+export async function linkWeb(ctx: Ctx): Promise<Response> {
+  const body = await readJson(ctx.req);
+  const au = await supabaseUser(ctx, str(body, "accessToken", { max: 4096 }));
+  return linkIdentity(ctx, "supabase", au.id, null, au.email);
+}
+
+/** Website profile → connect Telegram: the Telegram Login Widget's signed fields. */
+export async function linkTelegram(ctx: Ctx): Promise<Response> {
+  const body = await readJson(ctx.req);
+  const verified = await verifyLoginWidget(body, ctx.env.TELEGRAM_BOT_TOKEN, { now: ctx.svc.now(), maxAgeSeconds: 3600 });
+  if (!verified) throw new ApiError("unauthorized");
+  return linkIdentity(ctx, "telegram", String(verified.user.id), verified.user.username ?? null, null);
+}
+
+/** Remove a login, as long as the customer keeps another way in. */
+export async function unlink(ctx: Ctx): Promise<Response> {
+  const auth = await requireUser(ctx);
+  const body = await readJson(ctx.req);
+  const provider = body.provider === "telegram" ? "telegram" : body.provider === "supabase" ? "supabase" : null;
+  if (!provider) throw new ApiError("invalid_input", "provider");
+  // The login used for this very session stays: unlinking it would sign the person out of the bot or website.
+  if (provider === "telegram" && auth.channel === "miniapp") throw new ApiError("not_allowed");
+  const removed = await ctx.svc.db.query(
+    `delete from app.identities i
+      where i.user_id = $1 and i.provider = $2
+        and exists (select 1 from app.identities o where o.user_id = $1 and o.provider <> $2)
+      returning i.id`,
+    [auth.id, provider],
+  );
+  if (!removed.length) throw new ApiError("bad_state", "last_login");
+  await ctx.svc.db.query(
+    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'user.unlink', 'user', $2, $3::text::jsonb)`,
+    [auth.id, auth.id, JSON.stringify({ provider })],
+  );
+  return me(ctx);
 }
 
 export async function logout(ctx: Ctx): Promise<Response> {

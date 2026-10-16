@@ -161,6 +161,8 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "telegram.bot_username": () => false,
   // Tell owners and support staff about each new order.
   "notify.new_orders": (v) => typeof v === "boolean",
+  "login.email": (v) => typeof v === "boolean",
+  "login.google": (v) => typeof v === "boolean",
 };
 
 export async function getSettings(ctx: Ctx): Promise<Response> {

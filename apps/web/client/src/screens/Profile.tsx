@@ -1,6 +1,8 @@
-/** Profile: who you are, totals, preferences, support, admin link and sign-out. */
+/** Profile: who you are, totals, preferences, ways to sign in, support, admin link and sign-out. */
 import { store } from "@store/config";
-import { api } from "../lib/api";
+import { useState } from "react";
+import { api, ApiFail } from "../lib/api";
+import { errorText } from "../lib/i18n";
 import { copyText, usd } from "../lib/format";
 import { navigate } from "../lib/router";
 import { refreshMe, setLang, setMode, signOut, toast, useApp, useT, type Mode } from "../lib/state";
@@ -8,9 +10,9 @@ import { haptic, openExternal, openTelegramLink } from "../lib/telegram";
 import type { Referral } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { ChevronIcon, GiftIcon, WalletIcon } from "../ui/icons";
-import { Seg, Switch } from "../ui/kit";
+import { Seg, Sheet, Switch } from "../ui/kit";
 import { AdminLink, Shell } from "../ui/Shell";
-import { RequireUser } from "./Login";
+import { EmailCode, linkWebLogin, RequireUser } from "./Login";
 
 export function Profile() {
   const { t } = useT();
@@ -121,6 +123,8 @@ function ProfileView() {
           />
         </div>
       </div>
+
+      <LoginsCard />
 
       <div className="list">
         {supportLinks.map((s) => (
@@ -239,6 +243,110 @@ function InviteCard() {
           <span className="small muted">{t("earned")}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Ways to sign in: Telegram and email/Google on one account, so the website,
+ * the bot and the Mini App open the same wallet. Adding one on the website goes
+ * through the sign-in page; in the Mini App, email is added right here.
+ */
+function LoginsCard() {
+  const { t, lang } = useT();
+  const { me, miniApp, config } = useApp();
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!me) return null;
+  const u = me.user;
+  const methods = config?.login ?? ["telegram"];
+  const webOn = !!config?.supabase && (methods.includes("email") || methods.includes("google"));
+  const canAddTelegram = !u.hasTelegram && !miniApp && methods.includes("telegram");
+  const canAddWeb = !u.email && webOn && (!miniApp || methods.includes("email"));
+  // Nothing to show when only Telegram sign-in is on and this is a Telegram account.
+  if (!u.email && !canAddWeb && u.hasTelegram && !canAddTelegram) return null;
+
+  function addOnWebsite() {
+    navigate(`/login?link=1&next=${encodeURIComponent("/profile")}`);
+  }
+
+  async function remove(provider: "telegram" | "supabase") {
+    setBusy(true);
+    try {
+      await api("/api/me/unlink", { body: { provider } });
+      await refreshMe();
+      toast(t("loginRemoved"));
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const both = u.hasTelegram && !!u.email;
+  return (
+    <div className="card" style={{ padding: "6px 16px" }}>
+      <div className="small muted" style={{ padding: "10px 0 2px" }}>
+        {t("logins")}
+      </div>
+      <div className="pref-row">
+        <span className="stack-sm" style={{ gap: 2, minWidth: 0 }}>
+          <span>Telegram</span>
+          {u.hasTelegram && <span className="small muted num">{u.telegramUsername ? `@${u.telegramUsername}` : t("linked")}</span>}
+        </span>
+        {u.hasTelegram ? (
+          both && !miniApp && (
+            <button type="button" className="btn btn--xs btn--ghost press" disabled={busy} onClick={() => remove("telegram")}>
+              {t("removeLogin")}
+            </button>
+          )
+        ) : canAddTelegram ? (
+          <button type="button" className="btn btn--xs press" onClick={addOnWebsite}>
+            {t("connect")}
+          </button>
+        ) : null}
+      </div>
+      {(u.email || canAddWeb) && (
+        <div className="pref-row">
+          <span className="stack-sm" style={{ gap: 2, minWidth: 0 }}>
+            <span>{t("emailOrGoogle")}</span>
+            {u.email && (
+              <span className="small muted num" dir="ltr">
+                {u.email}
+              </span>
+            )}
+          </span>
+          {u.email ? (
+            both && (
+              <button type="button" className="btn btn--xs btn--ghost press" disabled={busy} onClick={() => remove("supabase")}>
+                {t("removeLogin")}
+              </button>
+            )
+          ) : (
+            <button type="button" className="btn btn--xs press" onClick={() => (miniApp ? setAdding(true) : addOnWebsite())}>
+              {t("connect")}
+            </button>
+          )}
+        </div>
+      )}
+      <p className="small muted" style={{ margin: "4px 0 12px" }}>
+        {t("loginsHint")}
+      </p>
+      {adding && (
+        <Sheet onClose={() => setAdding(false)} label={t("linkTitle")}>
+          <EmailCode
+            onToken={async (token) => {
+              try {
+                await linkWebLogin(token);
+                setAdding(false);
+                toast(t("loginLinked"));
+              } catch (e) {
+                toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+              }
+            }}
+          />
+        </Sheet>
+      )}
     </div>
   );
 }

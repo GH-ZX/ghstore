@@ -41,6 +41,8 @@ const DB_CODES = new Set<ErrorCode>([
   "coupon_used",
   "coupon_exhausted",
   "coupon_min_order",
+  "account_in_use",
+  "already_linked",
 ]);
 
 /** SQLSTATE 23505 (unique violation): `code` in node-postgres/postgres.js, `errno` in Bun.SQL. */

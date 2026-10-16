@@ -38,7 +38,7 @@
     "PAYMENT_METHODS": "sam,nowpayments,bep20,stars",
     // Website sign-in options: telegram (same wallet as the bot), email (code), google.
     // Email and Google also need Supabase Auth set up first (docs/launch-a-store.md § 6).
-    "WEB_LOGIN_METHODS": "telegram",
+    "WEB_LOGIN_METHODS": "telegram,email,google",
     // Public project URL and publishable key (both are meant for browsers; not secrets).
     // Used only for website logins by email or Google.
     "SUPABASE_URL": "https://njlzgfddfnnqujaodbta.supabase.co",

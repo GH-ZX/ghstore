@@ -390,6 +390,21 @@ export function Settings() {
 
       <section className="card card--pad stack-sm">
         <div>
+          <h2>{t("websiteLogin")}</h2>
+          <p className="hint">{t("websiteLoginHint")}</p>
+        </div>
+        <div className="pref-row">
+          <span>{t("loginEmail")}</span>
+          <Switch checked={data.settings["login.email"] !== false} onChange={(v) => put("login.email", v)} label={t("loginEmail")} />
+        </div>
+        <div className="pref-row">
+          <span>{t("loginGoogle")}</span>
+          <Switch checked={data.settings["login.google"] === true} onChange={(v) => put("login.google", v)} label={t("loginGoogle")} />
+        </div>
+      </section>
+
+      <section className="card card--pad stack-sm">
+        <div>
           <h2>{t("dailySummary")}</h2>
           <p className="hint">{t("dailySummaryHint", { tz: store.timeZone })}</p>
         </div>
