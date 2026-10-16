@@ -209,11 +209,17 @@ async function confirmedHead(ctx: AdapterContext, s: Settings, url: string): Pro
  * Confirmed Transfer logs of the token to the store address after `sinceBlock`,
  * at most LOGS_STEP blocks at a time (`toBlock` is where the next scan starts)
  * and never further back than the public servers answer.
+ *
+ * Block heights come from BSC_RPC_URL as well: a log server claiming a later
+ * head never moves the scan past the real chain, and a saved place ahead of
+ * the real chain starts again from the servers' reach.
  */
 export async function recentDeposits(ctx: AdapterContext, sinceBlock?: number): Promise<{ toBlock: number; deposits: Deposit[] }> {
   const s = readSettings(ctx);
+  const trusted = await confirmedHead(ctx, s, s.rpcUrl);
+  if (sinceBlock !== undefined && sinceBlock > trusted) sinceBlock = undefined;
   return withLogServer(s, async (url) => {
-    const confirmed = await confirmedHead(ctx, s, url);
+    const confirmed = Math.min(trusted, await confirmedHead(ctx, s, url));
     const oldest = confirmed - LOGS_REACH + 1;
     const from = Math.max(sinceBlock !== undefined ? sinceBlock + 1 : oldest, oldest);
     // A server lagging behind the last scan: nothing new, keep the place.

@@ -301,12 +301,30 @@ describe("BEP20 deposits and account (auto-matching, Admin → Settings → APIs
     const r = await adapter.recentDeposits!(BLOCK - 10_000);
     const confirmed = BLOCK + 5000 - 19;
     expect(r.toBlock).toBe(confirmed - 4500 + 1500);
-    expect(asked[0]).toBe(LOGS);
+    expect(asked[1]).toBe(LOGS); // after the block height from BSC_RPC_URL
     expect(asked.some((u) => u.includes("publicnode"))).toBe(true);
     expect(new URL(asked.at(-1)!).hostname).toBe("rpc-bsc.48.club");
     // Every server refusing is a retryable error (the job tries again next run).
     const down = fakeFetch([[() => true, { status: 429, text: "busy" }]]);
     await expect(createBep20(context(down.fetch, CONFIG)).recentDeposits!()).rejects.toMatchObject({ retryable: true });
+  });
+
+  it("never lets a log server move the scan past the real chain", async () => {
+    const fake = fakeFetch([
+      [
+        () => true,
+        (call: RecordedCall) => {
+          const req = call.body as { method: string };
+          const liar = call.url === LOGS;
+          return { json: { jsonrpc: "2.0", id: 1, result: req.method === "eth_blockNumber" ? hex(liar ? BLOCK + 900_000 : BLOCK + 100) : [] } };
+        },
+      ],
+    ]);
+    const adapter = createBep20(context(fake.fetch, { ...CONFIG, BSC_LOGS_RPC_URL: LOGS }));
+    expect((await adapter.recentDeposits!(BLOCK + 10)).toBlock).toBe(BLOCK + 81);
+    // A saved place ahead of the real chain starts again from the servers' reach.
+    const again = await adapter.recentDeposits!(BLOCK + 500_000);
+    expect(again.toBlock).toBe(BLOCK + 81 - 4500 + 1500);
   });
 
   it("shows the address's USDT and BNB balances and its latest deposits", async () => {
