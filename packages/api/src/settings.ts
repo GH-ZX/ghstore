@@ -62,6 +62,9 @@ export async function channelUrl(db: Db): Promise<string | null> {
 export const SHOWCASE_STYLES = ["cinematic", "deal"] as const;
 export type ShowcaseStyle = (typeof SHOWCASE_STYLES)[number];
 
+/** Which of a product's pictures the showcase shows: its wide cover, its square icon, or auto (the cover when it has one). */
+export const PICTURE_MODES = ["auto", "wide", "square"] as const;
+
 /** Autoplay choices for the showcase, in seconds per slide (0 = off). */
 export const SHOWCASE_AUTOPLAY = [0, 4, 6, 8, 10, 12] as const;
 
@@ -76,11 +79,14 @@ export interface ShowcaseSettings {
   autoplay: number;
   /** How many packages a deal slide shows. */
   dealPackages: number;
+  /** Which picture slides show by default. */
+  pictureMode: (typeof PICTURE_MODES)[number];
 }
 
 /** The showcase's settings (Admin → Home), with the defaults for anything not set. */
 export async function showcaseSettings(db: Db): Promise<ShowcaseSettings> {
-  const s = await readSettings(db, ["home.showcase_style", "home.badge_instant", "home.badge_label", "home.autoplay_seconds", "home.deal_packages"]);
+  const s = await readSettings(db, ["home.showcase_style", "home.badge_instant", "home.badge_label", "home.autoplay_seconds", "home.deal_packages", "home.picture_mode"]);
+  const picture = s["home.picture_mode"];
   const style = s["home.showcase_style"];
   const autoplay = s["home.autoplay_seconds"];
   const deal = s["home.deal_packages"];
@@ -90,6 +96,7 @@ export async function showcaseSettings(db: Db): Promise<ShowcaseSettings> {
     badgeLabel: s["home.badge_label"] !== false,
     autoplay: (SHOWCASE_AUTOPLAY as readonly unknown[]).includes(autoplay) ? (autoplay as number) : 6,
     dealPackages: typeof deal === "number" && Number.isInteger(deal) && deal >= 2 && deal <= 4 ? deal : 3,
+    pictureMode: (PICTURE_MODES as readonly unknown[]).includes(picture) ? (picture as ShowcaseSettings["pictureMode"]) : "auto",
   };
 }
 

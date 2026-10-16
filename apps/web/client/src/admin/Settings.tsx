@@ -26,7 +26,7 @@ interface BotStatus {
 
 interface StoreKey {
   name: string;
-  group: "payments" | "suppliers" | "telegram";
+  group: "payments" | "suppliers" | "telegram" | "email" | "storage";
   label: string;
   source: "admin" | "worker" | null;
   hint: string | null;
@@ -59,9 +59,9 @@ function KeysCard() {
       {!keys ? (
         <div className="skeleton" style={{ height: 120 }} />
       ) : (
-        (["payments", "suppliers", "telegram", "email"] as const).map((group) => (
+        (["payments", "suppliers", "telegram", "email", "storage"] as const).map((group) => (
           <div key={group} className="stack-sm">
-            <h3 style={{ margin: 0, fontSize: 15 }}>{t(group === "payments" ? "keysPayments" : group === "suppliers" ? "keysSuppliers" : group === "telegram" ? "keysTelegram" : "keysEmail")}</h3>
+            <h3 style={{ margin: 0, fontSize: 15 }}>{t(group === "payments" ? "keysPayments" : group === "suppliers" ? "keysSuppliers" : group === "telegram" ? "keysTelegram" : group === "email" ? "keysEmail" : "keysStorage")}</h3>
             {keys.filter((k) => k.group === group).map((k) => {
               const draft = drafts[k.name] ?? "";
               return (

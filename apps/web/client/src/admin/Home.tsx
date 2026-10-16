@@ -8,7 +8,8 @@ import { useT } from "../lib/state";
 import { invalidate, useApi } from "../lib/useApi";
 import { CATEGORY_ICON_NAMES, CategoryIcon } from "../ui/icons";
 import { Empty, ErrorBox, Seg, Sheet, Spinner, Switch } from "../ui/kit";
-import { ShowcaseSlide, type ShowcaseOptions, type ShowcaseStyle, type SlidePackage } from "../ui/Showcase";
+import { ShowcaseSlide, type PictureMode, type ShowcaseOptions, type ShowcaseStyle, type SlidePackage } from "../ui/Showcase";
+import { ImageField } from "./ImageField";
 import { useAction } from "./common";
 
 interface AdminBanner {
@@ -25,6 +26,8 @@ interface AdminBanner {
   style: "accent" | "dark" | "light";
   /** The slide's own look; null follows the store's default. */
   look: ShowcaseStyle | null;
+  /** The slide's own choice of picture; null follows the store's setting. */
+  pictureMode: PictureMode | null;
   sort: number;
   active: boolean;
   startsAt: string | null;
@@ -53,6 +56,7 @@ interface ProductLite {
   name_ar: string;
   name_en: string;
   image_url: string | null;
+  cover_url?: string | null;
   /** The lowest price on sale and a few packages (filled in from the catalogue's packages). */
   fromCents?: number | null;
   packages?: SlidePackage[];
@@ -71,6 +75,7 @@ interface OfferLite {
 const LOOKS: ShowcaseStyle[] = ["cinematic", "deal"];
 const AUTOPLAY = [0, 4, 6, 8, 10, 12];
 const DEAL_PACKAGES = [2, 3, 4];
+const PICTURE_MODES: PictureMode[] = ["auto", "wide", "square"];
 
 /** The same picks as the store: the cheapest, one from the middle, one near the top. */
 function pickPackages<T>(sorted: T[], max = 3): T[] {
@@ -106,6 +111,7 @@ export function HomeAdmin() {
     badgeInstant: set["home.badge_instant"] !== false,
     badgeLabel: set["home.badge_label"] !== false,
     autoplay: typeof set["home.autoplay_seconds"] === "number" ? (set["home.autoplay_seconds"] as number) : 6,
+    pictureMode: PICTURE_MODES.includes(set["home.picture_mode"] as PictureMode) ? (set["home.picture_mode"] as PictureMode) : "auto",
   };
   const dealPackages = typeof set["home.deal_packages"] === "number" ? (set["home.deal_packages"] as number) : 3;
   const action = useAction();
@@ -220,6 +226,17 @@ export function HomeAdmin() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="field span-2">
+            <span>{t("pictureMode")}</span>
+            <select className="select" value={options.pictureMode} disabled={action.busy || !settings.data} onChange={(e) => void saveSetting("home.picture_mode", e.target.value)}>
+              {PICTURE_MODES.map((m) => (
+                <option key={m} value={m}>
+                  {t(`picture_${m}`)}
+                </option>
+              ))}
+            </select>
+            <span className="hint">{t("pictureModeHint")}</span>
           </label>
         </div>
       </section>
@@ -341,6 +358,7 @@ function BannerSheet({ banner, categories, products, look: defaultLook, options,
   const [style, setStyle] = useState<AdminBanner["style"]>(banner?.style ?? "accent");
   // "default" follows the store's look (Showcase settings above).
   const [ownLook, setOwnLook] = useState<ShowcaseStyle | "default">(banner?.look ?? "default");
+  const [ownPicture, setOwnPicture] = useState<PictureMode | "default">(banner?.pictureMode ?? "default");
   const look: ShowcaseStyle = ownLook === "default" ? defaultLook : ownLook;
   const [linkType, setLinkType] = useState<AdminBanner["linkType"]>(banner?.linkType ?? "none");
   const [linkValue, setLinkValue] = useState(banner?.linkValue ?? "");
@@ -364,6 +382,7 @@ function BannerSheet({ banner, categories, products, look: defaultLook, options,
       imageUrl: image.trim() || null,
       style,
       look: ownLook === "default" ? null : ownLook,
+      pictureMode: ownPicture === "default" ? null : ownPicture,
       linkType,
       linkValue: linkType === "none" ? null : linkValue.trim(),
       startsAt: starts ? dayToIso(starts, false) : null,
@@ -387,6 +406,8 @@ function BannerSheet({ banner, categories, products, look: defaultLook, options,
     cta: (lang === "ar" ? ctaAr : ctaEn) || (linkType !== "none" ? t("shopNow") : ""),
     picture: imageOk && image.trim() ? image.trim() : null,
     art: linked ? { name: linked.name_en, imageUrl: linked.image_url } : null,
+    cover: linked?.cover_url ?? null,
+    pictureMode: ownPicture === "default" ? null : ownPicture,
     look,
     packages: linked?.packages,
     packageCount: linked?.packageCount,
@@ -441,11 +462,20 @@ function BannerSheet({ banner, categories, products, look: defaultLook, options,
         </label>
       </div>
 
-      <label className="field">
-        <span>{t("bannerImage")}</span>
-        <input className="input" dir="ltr" value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://…" aria-invalid={!imageOk || undefined} />
-        <span className="hint">{t("bannerImageHint")}</span>
-      </label>
+      <ImageField label={t("bannerImage")} hint={t("bannerImageHint")} value={image} onChange={setImage} shape="wide" />
+      {linkType === "product" && !image.trim() && (
+        <label className="field">
+          <span>{t("slidePicture")}</span>
+          <select className="select" value={ownPicture} onChange={(e) => setOwnPicture(e.target.value as PictureMode | "default")}>
+            <option value="default">{t("slideLookDefault", { look: t(`picture_${options.pictureMode ?? "auto"}`) })}</option>
+            {PICTURE_MODES.map((m) => (
+              <option key={m} value={m}>
+                {t(`picture_${m}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="field">
         <span>{t("slideLook")}</span>
         <select className="select" value={ownLook} onChange={(e) => setOwnLook(e.target.value as ShowcaseStyle | "default")}>

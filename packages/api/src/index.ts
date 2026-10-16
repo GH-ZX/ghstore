@@ -15,6 +15,7 @@ import { ApiError, errorResponse, json } from "./http";
 import * as orders from "./orders";
 import * as payments from "./payments";
 import * as promo from "./promo";
+import * as images from "./images";
 import * as reports from "./reports";
 import * as selection from "./selection";
 import * as supplierCatalogue from "./supplier-catalogue";
@@ -60,6 +61,7 @@ const router = new Router()
   .on("POST", "/api/orders", orders.placeOrder)
   .on("GET", "/api/orders", orders.listOrders)
   .on("GET", "/api/orders/:id", orders.getOrder)
+  .on("POST", "/api/orders/:id/number", orders.closeNumber)
   .on("POST", "/api/coupons/quote", promo.quoteCoupon)
   .on("POST", "/api/webhooks/suppliers/:id", orders.supplierWebhook)
   // wallet and top-ups
@@ -83,6 +85,7 @@ const router = new Router()
   .on("GET", "/api/admin/users", admin.listUsers)
   .on("POST", "/api/admin/users/:id/wallet", admin.adjustWallet)
   .on("POST", "/api/admin/users/:id/role", admin.setUserRole)
+  .on("POST", "/api/admin/suppliers/check-all", admin.checkAllSuppliers)
   .on("POST", "/api/admin/suppliers/:id/sync", admin.runSupplierSync)
   .on("GET", "/api/admin/telegram", telegramSetup.getBotStatus)
   .on("POST", "/api/admin/telegram/connect", telegramSetup.connectBot)
@@ -103,6 +106,7 @@ const router = new Router()
   .on("POST", "/api/admin/categories", adminCatalog.createCategory)
   .on("PATCH", "/api/admin/categories/:id", home.updateCategory)
   .on("GET", "/api/admin/home", home.listBanners)
+  .on("POST", "/api/admin/images", images.uploadImage)
   .on("POST", "/api/admin/banners", home.createBanner)
   .on("PATCH", "/api/admin/banners/:id", home.updateBanner)
   .on("DELETE", "/api/admin/banners/:id", home.deleteBanner)

@@ -20,7 +20,18 @@ fixed: confirm the plan with the owner before building, and show screenshots
   autoplay and packages per Deal slide are settings (Admin → Home → Showcase,
   `home.*` in app.settings). Admin → Home previews with the same component.
 
+- **Units, covers and pictures**, **5SIM virtual numbers** and **supplier check
+  schedules** (see `docs/architecture.md` → Stock, units and pictures; Virtual
+  numbers).
+
 ## Live checks after the next deploy
+
+- Migration `0019_units_covers_numbers.sql` on the live database first; the
+  Storage bucket `store-images` (public) exists and the secret key is in
+  Settings → Keys → Storage; the `store_images` job copies the linked pictures.
+- 5SIM: Choose packages lists services; add one (Telegram) and buy a cheap
+  number: the number, countdown and code appear in Orders; cancel one before a
+  code arrives and check the refund.
 
 - Migration `0018_supplier_catalogue.sql` is on the live database first.
 - Admin → Suppliers → Choose packages, for each enabled supplier: the list

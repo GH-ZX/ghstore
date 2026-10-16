@@ -11,6 +11,7 @@ import { ApiError, int, json, readJson, uuid } from "./http";
 const LINK_TYPES = ["none", "product", "category", "url"] as const;
 const STYLES = ["accent", "dark", "light"] as const;
 const LOOKS = ["cinematic", "deal"] as const;
+const PICTURES = ["auto", "wide", "square"] as const;
 /** The icon names the web app draws (apps/web/client/src/ui/icons.tsx, CATEGORY_ICONS). */
 export const CATEGORY_ICON_NAMES = [
   "game", "gift", "spark", "play", "palette", "briefcase", "shield", "phone", "bolt", "code",
@@ -30,13 +31,14 @@ interface BannerRow {
   link_value: string | null;
   style: (typeof STYLES)[number];
   look: (typeof LOOKS)[number] | null;
+  picture_mode: (typeof PICTURES)[number] | null;
   sort: number;
   active: boolean;
   starts_at: string | null;
   ends_at: string | null;
 }
 
-const BANNER_COLS = `id, title_ar, title_en, subtitle_ar, subtitle_en, cta_ar, cta_en, image_url, link_type, link_value, style, look, sort, active, starts_at, ends_at`;
+const BANNER_COLS = `id, title_ar, title_en, subtitle_ar, subtitle_en, cta_ar, cta_en, image_url, link_type, link_value, style, look, picture_mode, sort, active, starts_at, ends_at`;
 
 function publicBanner(b: BannerRow) {
   return {
@@ -52,6 +54,8 @@ function publicBanner(b: BannerRow) {
     style: b.style,
     /** null: the store's default look. */
     look: b.look,
+    /** Which of the product's pictures: wide cover, square icon or auto; null: the store's setting. */
+    pictureMode: b.picture_mode,
   };
 }
 
@@ -126,6 +130,10 @@ function bannerChanges(body: Record<string, unknown>, creating: boolean): Record
   if (body.style !== undefined) {
     if (!STYLES.includes(body.style as never)) throw new ApiError("invalid_input", "style");
     c.style = body.style;
+  }
+  if (body.pictureMode !== undefined) {
+    if (body.pictureMode !== null && !PICTURES.includes(body.pictureMode as never)) throw new ApiError("invalid_input", "pictureMode");
+    c.picture_mode = body.pictureMode;
   }
   if (body.look !== undefined) {
     if (body.look !== null && !LOOKS.includes(body.look as never)) throw new ApiError("invalid_input", "look");

@@ -4,6 +4,10 @@
  * Called right after an order is placed (in the background) and again by the
  * scheduled job for orders that are pending or failed with a retryable error.
  * Delivered values are encrypted before they are stored.
+ *
+ * A purchase the supplier refuses for lack of stock is refunded, and its
+ * package stops selling at once (paused as "supplier_unavailable"); the price
+ * check puts it back on sale when the supplier has stock again.
  */
 import { encryptText, nextStep, type InputField, type PurchaseResult } from "@store/core";
 import type { ApiEnv, Services } from "./context";
@@ -21,13 +25,20 @@ interface OrderRow {
   supplier_order_id: string | null;
   attempts: number;
   supplier_ref: string | null;
+  offer_cost_cents: string | number | null;
+  supplier_expires_at: string | Date | null;
+}
+
+/** The supplier said it has none left (wording varies by supplier). */
+export function isOutOfStock(result: PurchaseResult): boolean {
+  return result.status === "failed" && (result.code === "out_of_stock" || /out of stock|no free (numbers|phones)|sold out/i.test(result.reason));
 }
 
 export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): Promise<string> {
   const order = await one<OrderRow>(
     svc.db,
-    `select o.id, o.number, o.user_id, o.offer_id, o.status, o.quantity, o.input, o.supplier_id, o.supplier_order_id, o.attempts,
-            f.supplier_ref
+    `select o.id, o.number, o.user_id, o.offer_id, o.status, o.quantity, o.input, o.supplier_id, o.supplier_order_id, o.attempts, o.supplier_expires_at,
+            f.supplier_ref, f.cost_cents as offer_cost_cents
        from app.orders o join app.offers f on f.id = o.offer_id
       where o.id = $1`,
     [orderId],
@@ -47,6 +58,8 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
         quantity: order.quantity,
         fields: order.input,
         idempotencyKey: order.id,
+        // Never pay more than the package was priced from, where the supplier can cap it.
+        ...(order.offer_cost_cents !== null ? { maxCostCents: n(order.offer_cost_cents) } : {}),
       });
     }
   } catch (err) {
@@ -90,13 +103,18 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
           order.user_id, JSON.stringify({ order_id: order.id, number: n(order.number) }),
         ]);
         break;
-      case "processing":
+      case "processing": {
+        // A virtual number lasts a few minutes: check it often while it lives.
+        const expires = result.status === "pending" && result.expiresAt && !Number.isNaN(Date.parse(result.expiresAt)) ? result.expiresAt : null;
+        const after = expires || order.supplier_expires_at ? Math.min(step.checkAfterSeconds, 15) : step.checkAfterSeconds;
         await db.query(
           `update app.orders set status = 'processing', supplier_order_id = $2, attempts = attempts + 1,
-                  next_check_at = to_timestamp($3::double precision / 1000), last_error = null where id = $1`,
-          [order.id, supplierOrderId, now + step.checkAfterSeconds * 1000],
+                  next_check_at = to_timestamp($3::double precision / 1000), last_error = null,
+                  supplier_expires_at = coalesce($4::timestamptz, supplier_expires_at) where id = $1`,
+          [order.id, supplierOrderId, now + after * 1000, expires],
         );
         break;
+      }
       case "retry":
         await db.query(
           `update app.orders set attempts = attempts + 1, last_error = $2,
@@ -112,6 +130,9 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
           order.id, step.reason.slice(0, 500),
         ]);
         await call(db, `select * from app.refund_order($1, $2)`, [order.id, step.reason]);
+        if (isOutOfStock(result)) {
+          await db.query(`update app.offers set paused_reason = 'supplier_unavailable' where id = $1 and paused_reason is null`, [order.offer_id]);
+        }
         break;
     }
   });

@@ -280,8 +280,15 @@ Menu button: @BotFather → `/mybots` → your bot → Bot Settings → Menu But
    once, with the supplier's description template and the store's picture
    template; each supplier's category and description are under its
    **Settings → New products**. Edit names, pictures and texts in
-   **Admin → Catalogue**. Codes and accounts you sell yourself go in a package
+   **Admin → Catalogue**, with the product's **unit** ("UC", "Diamonds": packages
+   named "60" show as "60 UC") and its square and wide pictures (upload, paste a
+   link, or "Save a copy"). Codes and accounts you sell yourself go in a package
    with "Manual stock" → "Add stock".
+   Pictures are kept in Supabase Storage: create a public bucket `store-images`
+   in the project and put the project's secret key in **Settings → Keys →
+   Storage**; pictures linked from other sites are then copied in by themselves.
+   How often each supplier's prices and stock are checked, and whether stock
+   changes alert you on Telegram, is set under **Suppliers → Price and stock checks**.
 4. **Admin → Settings**: pick the theme (Calm, Energetic, Minimal, Warm) and the
    default light/dark mode, and the SYP rate if you want Syrian pound prices shown.
    - **Support contact**: the Telegram username, WhatsApp number and email shown

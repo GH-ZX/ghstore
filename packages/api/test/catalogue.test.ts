@@ -233,6 +233,28 @@ describe("choose packages", () => {
     expect(cat("i:22")).not.toBe(vouchers);
   });
 
+  it("names a new product as typed (Arabic and English) with a unit, and keeps a supplier's Arabic package names", async () => {
+    games.mlbb = [
+      { ...pkg("mlbb", "86", 140), packageNameAr: "٨٦" },
+      { ...pkg("mlbb", "Weekly Pass", 150), packageNameAr: "البطاقة الأسبوعية" },
+    ];
+    await h.call("POST", `/api/admin/suppliers/${big}/catalogue/refresh`, { token: owner, body: {} });
+    await items(big, "game:mlbb");
+    const version = (await catalogue(big)).data.version;
+    const key = "p:game:mlbb";
+    const body = { version, add: ["mlbb:86", "mlbb:Weekly Pass"], place: { [key]: { nameAr: "موبايل ليجندز", nameEn: `Mobile Legends ${run}`, unitEn: "Diamonds", unitAr: "ألماسة" } } };
+    const dry = await select(big, { ...body, dryRun: true });
+    expect(dry.data.plan.add[0]).toMatchObject({ nameAr: "موبايل ليجندز", nameEn: `Mobile Legends ${run}`, unitEn: "Diamonds" });
+    expect(dry.data.plan.add[0].items.map((i: any) => [i.name, i.nameAr])).toEqual([["86 Diamonds", "٨٦ ألماسة"], ["Weekly Pass", "البطاقة الأسبوعية"]]);
+    expect((await select(big, { ...body, place: { [key]: { nameAr: " " } } })).status).toBe(400);
+    expect((await select(big, body)).status).toBe(200);
+    const o = (await db.query<{ name_ar: string; name_en: string; unit_en: string; product_ar: string }>(
+      `select o.name_ar, o.name_en, p.unit_en, p.name_ar as product_ar from app.offers o join app.products p on p.id = o.product_id where o.supplier_id = $1 and o.supplier_ref = 'mlbb:86'`,
+      [big],
+    ))[0]!;
+    expect(o).toEqual({ name_ar: "٨٦ ألماسة", name_en: "86 Diamonds", unit_en: "Diamonds", product_ar: "موبايل ليجندز" });
+  });
+
   it("marks what a supplier stops listing as gone, without touching the store", async () => {
     flatItems = flatItems.filter((i) => i.externalId !== "12");
     await h.call("POST", `/api/admin/suppliers/${flat}/catalogue/refresh`, { token: owner, body: {} });

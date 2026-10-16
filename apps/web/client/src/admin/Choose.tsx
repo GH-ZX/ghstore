@@ -53,6 +53,7 @@ interface Item {
   ref: string;
   name: string;
   packageName: string | null;
+  packageNameAr?: string | null;
   productKey: string | null;
   productName: string | null;
   costCents: number;
@@ -62,12 +63,17 @@ interface Item {
   offer: Offer | null;
 }
 interface Plan {
-  add: { key: string; productId: string | null; categoryId: string | null; nameAr: string; nameEn: string; isNew: boolean; items: { ref: string; name: string; costCents: number; priceCents: number; reactivate: boolean }[] }[];
+  add: {
+    key: string; productId: string | null; categoryId: string | null; nameAr: string; nameEn: string; unitAr?: string; unitEn?: string; isNew: boolean;
+    items: { ref: string; name: string; nameAr?: string; costCents: number; priceCents: number; reactivate: boolean }[];
+  }[];
   remove: { ref: string; nameAr: string; nameEn: string; productAr: string; productEn: string; action: "delete" | "archive" }[];
   hide: { id: string; nameAr: string; nameEn: string }[];
   show: { id: string; nameAr: string; nameEn: string }[];
 }
-type Place = Record<string, { productId: string } | { categoryId: string }>;
+/** Where a new package goes: into an existing product, or a new one (its category, names and unit). */
+type NewProduct = { categoryId?: string; nameAr?: string; nameEn?: string; unitAr?: string; unitEn?: string };
+type Place = Record<string, { productId: string } | NewProduct>;
 
 const FILTERS = ["all", "chosen", "not", "new", "changed", "gone"] as const;
 type Filter = (typeof FILTERS)[number];
@@ -492,7 +498,7 @@ function ItemRow({ item: i, on, change, price, changed, gone, replacements, onTo
       </button>
       <span className="list-row__main">
         <span className="list-row__title">
-          {i.packageName || i.name}
+          {(lang === "ar" && i.packageNameAr) || i.packageName || i.name}
           {change !== undefined && <span className={change ? "plus small" : "minus small"}> {change ? t("chWillAdd") : t("chWillRemove")}</span>}
         </span>
         <span className="list-row__meta wrap" style={{ gap: 6 }}>
@@ -518,6 +524,11 @@ function ItemRow({ item: i, on, change, price, changed, gone, replacements, onTo
       </span>
     </div>
   );
+}
+
+/** The new-product part of a destination's choice (none when it goes into an existing product). */
+function newPart(choice: Place[string] | undefined): NewProduct {
+  return choice && !("productId" in choice) ? choice : {};
 }
 
 function ReviewSheet({ base, frame, add, remove, onClose, onStale, onDone }: {
@@ -589,7 +600,7 @@ function ReviewSheet({ base, frame, add, remove, onClose, onStale, onDone }: {
                       <select
                         className="select choose__select"
                         value={d.categoryId ?? ""}
-                        onChange={(e) => setPlace((p) => ({ ...p, [d.key]: { categoryId: e.target.value } }))}
+                        onChange={(e) => setPlace((p) => ({ ...p, [d.key]: { ...newPart(p[d.key]), categoryId: e.target.value } }))}
                       >
                         {frame.categories.map((c) => (
                           <option key={c.id} value={c.id}>
@@ -608,7 +619,7 @@ function ReviewSheet({ base, frame, add, remove, onClose, onStale, onDone }: {
                         setPlace((p) => {
                           const next = { ...p };
                           if (e.target.value) next[d.key] = { productId: e.target.value };
-                          else next[d.key] = { categoryId: frame.supplier.categoryId ?? frame.categories[0]?.id ?? "" };
+                          else next[d.key] = { ...newPart(p[d.key]), categoryId: frame.supplier.categoryId ?? frame.categories[0]?.id ?? "" };
                           return next;
                         })
                       }
@@ -623,10 +634,39 @@ function ReviewSheet({ base, frame, add, remove, onClose, onStale, onDone }: {
                   </label>
                 </div>
               )}
+              {d.isNew && (
+                <div className="form-grid choose__names" key={`${d.key}-names`}>
+                  {(
+                    [
+                      ["nameAr", t("nameAr"), "rtl", 120, d.nameAr],
+                      ["nameEn", t("nameEn"), "ltr", 120, d.nameEn],
+                      ["unitAr", t("unitAr"), "rtl", 24, d.unitAr ?? ""],
+                      ["unitEn", t("unitEn"), "ltr", 24, d.unitEn ?? ""],
+                    ] as const
+                  ).map(([k, label, dir, max, value]) => (
+                    <label key={k} className="field">
+                      <span className="small">{label}</span>
+                      <input
+                        className="input choose__input"
+                        dir={dir}
+                        maxLength={max}
+                        defaultValue={value}
+                        placeholder={k === "unitEn" ? t("unitExampleEn") : k === "unitAr" ? t("unitExampleAr") : undefined}
+                        // Saved when you leave the field: the preview below follows.
+                        onBlur={(e) => {
+                          const v = e.target.value.trim();
+                          if (v === value || (!v && k.startsWith("name"))) return;
+                          setPlace((p) => ({ ...p, [d.key]: { ...newPart(p[d.key]), [k]: v } }));
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
               <ul>
                 {d.items.map((i) => (
                   <li key={i.ref}>
-                    {i.name} <span className="num muted">{usd(i.costCents)} → {usd(i.priceCents)}</span>
+                    {lang === "ar" ? i.nameAr ?? i.name : i.name} <span className="num muted">{usd(i.costCents)} → {usd(i.priceCents)}</span>
                     {i.reactivate && <span className="small muted"> · {t("chComesBack")}</span>}
                   </li>
                 ))}

@@ -48,7 +48,7 @@ If no Supabase connector is available, stop and give the owner the SQL to run
 in Supabase → SQL Editor, then wait for "done" before pushing.
 Keep migrations additive (new tables/columns, `if not exists`); anything that
 drops or rewrites data needs the owner's explicit OK first. Live is at
-`0018_supplier_catalogue.sql`; check `select max(name) from app.schema_migrations`.
+`0019_units_covers_numbers.sql`; check `select max(name) from app.schema_migrations`.
 
 ## Checking your work
 

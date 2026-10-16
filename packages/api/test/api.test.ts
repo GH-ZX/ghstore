@@ -660,7 +660,7 @@ describe("supplier sync and margin guard", () => {
     expect((await h.call("POST", `/api/admin/offers/${jump}/accept-cost`, { token: owner, body: {} })).status).toBe(409);
 
     // Settings: repricing off keeps prices (pausing only below the margin); no jump guard.
-    const bad = await h.call("PATCH", `/api/admin/suppliers/${supplier}`, { token: owner, body: { syncMinutes: 5 } });
+    const bad = await h.call("PATCH", `/api/admin/suppliers/${supplier}`, { token: owner, body: { syncMinutes: 4 } });
     expect(bad.status).toBe(400);
     const set = await h.call("PATCH", `/api/admin/suppliers/${supplier}`, {
       token: owner,

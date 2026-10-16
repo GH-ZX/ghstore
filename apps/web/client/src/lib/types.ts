@@ -55,6 +55,8 @@ export interface Banner {
   style: "accent" | "dark" | "light";
   /** The slide's own look; null follows the store's default (Admin → Home). */
   look?: "cinematic" | "deal" | null;
+  /** Which of the product's pictures: wide cover, square icon or auto; null follows the store's setting. */
+  pictureMode?: "auto" | "wide" | "square" | null;
 }
 
 export interface ProductCard {
@@ -65,6 +67,8 @@ export interface ProductCard {
   nameEn: string;
   kind: Kind;
   imageUrl: string | null;
+  /** A wide picture (cover art), when the product has one. */
+  coverUrl?: string | null;
   featured: boolean;
   fromCents: number;
   packages: number;
@@ -97,6 +101,8 @@ export interface ProductDetail {
     category: string;
     kind: Kind;
     imageUrl: string | null;
+    /** A wide picture (cover art), when the product has one. */
+    coverUrl?: string | null;
     nameAr: string;
     nameEn: string;
     descriptionAr: string;
@@ -140,6 +146,11 @@ export interface OrderDetail {
     packageEn: string;
     productSlug: string | null;
     fields: { key: string; labelEn: string; labelAr: string | null }[];
+    kind?: Kind;
+    /** Virtual numbers: when the number ends. */
+    expiresAt?: string | null;
+    /** Virtual numbers: the number can still be cancelled or reported as already used. */
+    numberActions?: boolean;
   };
   deliveries: { kind: string; label: string | null; value: string }[];
 }

@@ -1,5 +1,6 @@
 /** Product sheet: pick a package, fill its fields, buy from the wallet. */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { matchesQuery } from "@store/core";
 import { api, ApiFail, idempotencyKey } from "../lib/api";
 import { copyText, toLatinDigits, usd } from "../lib/format";
 import { errorText, pick } from "../lib/i18n";
@@ -49,6 +50,8 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const [couponText, setCouponText] = useState("");
   const [couponErr, setCouponErr] = useState<string | null>(null);
   const [couponBusy, setCouponBusy] = useState(false);
+  // Many packages (a virtual number's countries): a search box over them.
+  const [pq, setPq] = useState("");
   const key = useRef(idempotencyKey());
 
   // Field names are the supplier's own; look them up without touching Object internals.
@@ -249,13 +252,26 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             <span className="badge badge--good">● {t("instant")}</span>
           </div>
 
+          {data.product.kind === "sms" && <p className="small muted">{t("numBuyHint")}</p>}
+
           {data.offers.length > 1 && (
             <div className="stack-sm">
               <span className="small" style={{ fontWeight: 600 }}>
-                {t("package")}
+                {data.product.kind === "sms" ? t("numCountry") : t("package")}
               </span>
+              {data.offers.length > 12 && (
+                <input
+                  className="input"
+                  type="search"
+                  value={pq}
+                  onChange={(e) => setPq(e.target.value)}
+                  placeholder={t("searchLabel")}
+                  aria-label={t("searchLabel")}
+                  style={{ minHeight: 42 }}
+                />
+              )}
               <div className="options" role="radiogroup" aria-label={t("package")}>
-                {data.offers.map((o) => (
+                {data.offers.filter((o) => o.id === offer.id || !pq || matchesQuery(`${o.nameAr} ${o.nameEn}`, pq)).map((o) => (
                   <button key={o.id} type="button" role="radio" aria-checked={o.id === offer.id} className="option press" onClick={() => choose(o)}>
                     <span>{pick(lang, o.nameAr, o.nameEn)}</span>
                     <span className="num">{usd(o.priceCents)}</span>

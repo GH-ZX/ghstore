@@ -23,6 +23,8 @@ import { ArrowIcon, BoltIcon } from "./icons";
 import { Tile } from "./kit";
 
 export type ShowcaseStyle = "cinematic" | "deal";
+/** Which of a product's pictures a slide shows: its wide cover, its square icon, or auto. */
+export type PictureMode = "auto" | "wide" | "square";
 
 /** Settings from Admin → Home (see app.settings home.*). */
 export interface ShowcaseOptions {
@@ -30,9 +32,11 @@ export interface ShowcaseOptions {
   badgeLabel: boolean;
   /** Seconds per slide; 0 = no autoplay. */
   autoplay: number;
+  /** Which picture slides show unless they pick their own. */
+  pictureMode?: PictureMode;
 }
 
-export const DEFAULT_OPTIONS: ShowcaseOptions = { badgeInstant: true, badgeLabel: true, autoplay: 6 };
+export const DEFAULT_OPTIONS: ShowcaseOptions = { badgeInstant: true, badgeLabel: true, autoplay: 6, pictureMode: "auto" };
 
 export interface SlidePackage {
   id: string;
@@ -53,6 +57,10 @@ export interface SlideData {
   picture?: string | null;
   /** The product's picture: fills the slide when it is big and wide, else a card. */
   art?: { name: string; imageUrl: string | null } | null;
+  /** The product's wide cover picture, when it has one. */
+  cover?: string | null;
+  /** The slide's own choice of picture; null follows the store's setting. */
+  pictureMode?: PictureMode | null;
   style: Banner["style"];
   /** A few of the product's packages ("deal"), each opening that package. */
   packages?: SlidePackage[];
@@ -101,9 +109,13 @@ export function usePictureShape(url: string | null | undefined): "cover" | "card
 
 export function ShowcaseSlide({ s, options = DEFAULT_OPTIONS, index = 0, count = 1, preview = false }: { s: SlideData; options?: ShowcaseOptions; index?: number; count?: number; preview?: boolean }) {
   const { t, lang } = useT();
-  const artShape = usePictureShape(s.picture ? null : s.art?.imageUrl);
-  // The picture that fills the slide: the banner's own, or the product's when it is a cover photo.
-  const cover = s.picture || (s.art?.imageUrl && artShape === "cover" ? s.art.imageUrl : null);
+  // Square: always the icon as a card. Wide or auto: the product's cover when it has
+  // one, else its picture fills the slide when it is big and wide enough.
+  const mode: PictureMode = s.pictureMode ?? options.pictureMode ?? "auto";
+  const productCover = mode !== "square" && s.cover ? s.cover : null;
+  const artShape = usePictureShape(s.picture || productCover || mode === "square" ? null : s.art?.imageUrl);
+  // The picture that fills the slide: the banner's own, the product's cover, or its picture when it is a cover photo.
+  const cover = s.picture || productCover || (s.art?.imageUrl && artShape === "cover" ? s.art.imageUrl : null);
   const card = !cover && s.art && artShape !== "unknown" ? s.art : null;
   // Still measuring the product's picture: its blurred colours only, for a moment.
   const wash = card?.imageUrl ?? (artShape === "unknown" && !s.picture ? s.art?.imageUrl : null);

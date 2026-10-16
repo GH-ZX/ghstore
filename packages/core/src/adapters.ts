@@ -48,8 +48,12 @@ export interface SupplierProduct {
    */
   productKey?: string;
   productName?: string;
+  /** The product's Arabic name, when the supplier can give one (5SIM: "رقم Telegram"). */
+  productNameAr?: string;
   /** The item's name as a package inside that product ("60 UC" in "PUBG Mobile"). Defaults to name. */
   packageName?: string;
+  /** The package's Arabic name, when the supplier can give one (5SIM: the country's name). */
+  packageNameAr?: string;
 }
 
 export interface PurchaseRequest {
@@ -59,6 +63,11 @@ export interface PurchaseRequest {
   fields: Record<string, string>;
   /** Our order id. Adapters pass it to the supplier when it supports idempotency. */
   idempotencyKey: string;
+  /**
+   * The most we accept to pay for one unit (the package's known cost), when the
+   * supplier can cap a price (5SIM: maxPrice). A supplier asking more refuses.
+   */
+  maxCostCents?: number;
 }
 
 /** One thing handed to the customer: a code, credentials, a link, a phone number, an SMS code. */

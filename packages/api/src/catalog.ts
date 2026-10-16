@@ -17,6 +17,7 @@ interface ProductRow {
   name_en: string;
   kind: string;
   image_url: string | null;
+  cover_url: string | null;
   featured: boolean;
   search_terms: string;
   min_price_cents: string | number;
@@ -29,7 +30,7 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
     `select slug, name_ar, name_en, icon from app.categories where active order by sort, slug`,
   );
   const rows = await db.query<ProductRow>(
-    `select p.id, p.slug, c.slug as category_slug, p.name_ar, p.name_en, p.kind, p.image_url, p.featured, p.search_terms,
+    `select p.id, p.slug, c.slug as category_slug, p.name_ar, p.name_en, p.kind, p.image_url, p.cover_url, p.featured, p.search_terms,
             min(o.price_cents) as min_price_cents, count(o.id) as offer_count
        from app.products p
        join app.categories c on c.id = p.category_id and c.active
@@ -53,6 +54,7 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
       nameEn: r.name_en,
       kind: r.kind,
       imageUrl: r.image_url,
+      coverUrl: r.cover_url,
       featured: r.featured,
       fromCents: n(r.min_price_cents),
       packages: n(r.offer_count),
@@ -123,12 +125,12 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
   const slug = ctx.params.slug ?? "";
   if (!/^[a-z0-9-]{1,80}$/.test(slug)) throw new ApiError("not_found");
   const p = await one<{
-    id: string; slug: string; name_ar: string; name_en: string; kind: string; image_url: string | null;
+    id: string; slug: string; name_ar: string; name_en: string; kind: string; image_url: string | null; cover_url: string | null;
     description_ar: string; description_en: string; instructions_ar: string; instructions_en: string;
     warranty_ar: string; warranty_en: string; category_slug: string;
   }>(
     ctx.svc.db,
-    `select p.id, p.slug, p.name_ar, p.name_en, p.kind, p.image_url, p.description_ar, p.description_en,
+    `select p.id, p.slug, p.name_ar, p.name_en, p.kind, p.image_url, p.cover_url, p.description_ar, p.description_en,
             p.instructions_ar, p.instructions_en, p.warranty_ar, p.warranty_en, c.slug as category_slug
        from app.products p join app.categories c on c.id = p.category_id
       where p.slug = $1 and p.active and c.active`,
@@ -147,7 +149,7 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
   if (!offers.length) throw new ApiError("not_found");
   return json({
     product: {
-      id: p.id, slug: p.slug, category: p.category_slug, kind: p.kind, imageUrl: p.image_url,
+      id: p.id, slug: p.slug, category: p.category_slug, kind: p.kind, imageUrl: p.image_url, coverUrl: p.cover_url,
       nameAr: p.name_ar, nameEn: p.name_en, descriptionAr: p.description_ar, descriptionEn: p.description_en,
       instructionsAr: p.instructions_ar, instructionsEn: p.instructions_en, warrantyAr: p.warranty_ar, warrantyEn: p.warranty_en,
     },

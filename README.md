@@ -32,7 +32,10 @@ someone else's store.
 | Web app: website, Mini App (`/tg`), admin (`/admin`) | Done: React, Arabic/English, 4 themes × light/dark, checked end to end in a browser |
 | Staff roles: Owner, Support, Monitor (watch only) | Done, tested |
 | Choose packages: tick what to sell from each supplier, review, apply | Done, tested |
-| Home showcase: product-art slides, "up next" list, progress bars | Done |
+| Home showcase: Cinematic and Deal looks, per slide, with settings | Done |
+| Units on packages, wide covers, pictures in Supabase Storage | Done, tested |
+| 5SIM virtual numbers: countdown, code, cancel / already used with refund | Done, tested |
+| Per-supplier check schedules (5 min to 24 h), out-of-stock hiding | Done, tested |
 | Email and Google sign-in, linked to Telegram (one wallet) | Done, tested |
 | Email receipts (Resend), Telegram broadcasts, job-failure alerts | Done, tested |
 

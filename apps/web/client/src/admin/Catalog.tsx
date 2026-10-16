@@ -8,12 +8,13 @@ import { matchesQuery, minimumPrice, priceFromCost, type MarkupMode } from "@sto
 import { linkHandler } from "../lib/router";
 import { dollarsToCents, usd } from "../lib/format";
 import { pick } from "../lib/i18n";
-import { useT } from "../lib/state";
+import { toast, useT } from "../lib/state";
 import { invalidate, useApi } from "../lib/useApi";
 import type { InputField, Kind } from "../lib/types";
 import { PlusIcon } from "../ui/icons";
 import { Empty, ErrorBox, Sheet, Spinner, Switch } from "../ui/kit";
 import { useAction } from "./common";
+import { ImageField } from "./ImageField";
 
 interface Cat {
   id: string;
@@ -35,6 +36,9 @@ interface Prod {
   warranty_en: string;
   search_terms: string;
   image_url: string | null;
+  cover_url?: string | null;
+  unit_ar?: string;
+  unit_en?: string;
   kind: Kind;
   active: boolean;
   featured: boolean;
@@ -225,6 +229,9 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
     featured: product?.featured ?? false,
     sort: product?.sort ?? 0,
     imageUrl: product?.image_url ?? "",
+    coverUrl: product?.cover_url ?? "",
+    unitAr: product?.unit_ar ?? "",
+    unitEn: product?.unit_en ?? "",
     descriptionAr: product?.description_ar ?? "",
     descriptionEn: product?.description_en ?? "",
     instructionsAr: product?.instructions_ar ?? "",
@@ -236,8 +243,13 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
 
   async function save() {
-    const body = { ...f, imageUrl: f.imageUrl.trim() || null, slug: f.slug.trim().toLowerCase() };
-    const ok = product ? await action.run(`/api/admin/products/${product.id}`, { method: "PATCH", body }) : await action.run(`/api/admin/products`, { body });
+    const body = { ...f, imageUrl: f.imageUrl.trim() || null, coverUrl: f.coverUrl.trim() || null, unitAr: f.unitAr.trim(), unitEn: f.unitEn.trim(), slug: f.slug.trim().toLowerCase() };
+    const ok = product
+      ? await action.run<{ renamed?: number }>(`/api/admin/products/${product.id}`, { method: "PATCH", body })
+      : await action.run<{ id: string }>(`/api/admin/products`, { body });
+    // A new unit renames this product's packages named by their amount ("60" → "60 UC").
+    const renamed = ok && "renamed" in ok ? Number(ok.renamed ?? 0) : 0;
+    if (renamed > 0) toast(t("unitRenamed", { n: renamed }));
     if (ok) onClose();
   }
 
@@ -290,8 +302,20 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
           <span>{t("sort")}</span>
           <input className="input num" inputMode="numeric" value={f.sort} onChange={(e) => set("sort", Number(e.target.value.replace(/[^\d-]/g, "")) || 0)} />
         </label>
-        {text("imageUrl", t("imageUrl"), { dir: "ltr" })}
         {text("searchTerms", t("searchTerms"))}
+        <div className="span-2 form-grid" style={{ gap: 12 }}>
+          <ImageField label={t("imageUrl")} hint={t("imageSquareHint")} value={f.imageUrl} onChange={(v) => set("imageUrl", v)} shape="square" />
+          <ImageField label={t("coverUrl")} hint={t("coverHint")} value={f.coverUrl} onChange={(v) => set("coverUrl", v)} shape="wide" />
+        </div>
+        <label className="field">
+          <span>{t("unitAr")}</span>
+          <input className="input" dir="rtl" maxLength={24} value={f.unitAr} onChange={(e) => set("unitAr", e.target.value)} placeholder="شدة" />
+        </label>
+        <label className="field">
+          <span>{t("unitEn")}</span>
+          <input className="input" dir="ltr" maxLength={24} value={f.unitEn} onChange={(e) => set("unitEn", e.target.value)} placeholder="UC" />
+          <span className="hint">{t("unitHint", { example: f.unitEn.trim() ? `60 ${f.unitEn.trim()}` : "60 UC" })}</span>
+        </label>
         <div className="pref-row">
           <span>{t("active")}</span>
           <Switch checked={f.active} onChange={(v) => set("active", v)} label={t("active")} />

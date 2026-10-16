@@ -9,6 +9,7 @@ import { fulfilOrder } from "./fulfilment";
 import { alertOwners, alertStaff, sendOutbox } from "./notify";
 import { queueDailySummary } from "./reports";
 import { settlePayment } from "./payments";
+import { copyLinkedImages } from "./images";
 import { refreshDueCatalogues } from "./supplier-catalogue";
 import { syncDueSuppliers } from "./sync";
 
@@ -142,10 +143,13 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   if (minute % 2 === 0 && room(svc, 4) > 0) await heartbeat(svc, "payments", () => recheckPendingPayments(svc, 10));
   if (minute % 10 === 5) await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
   if (minute % 15 === 7 && room(svc, 2) > 0) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
+  // Price and stock checks, every minute for whichever suppliers are due (each has its own interval).
   const groups = room(svc, 2);
-  if (minute % 5 === 3 && groups >= 3) await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 1, { maxGroups: groups }));
+  if (groups >= 3) await heartbeat(svc, "supplier_sync", () => syncDueSuppliers(svc, 5, { maxGroups: groups, reserve: 2 }));
   // The saved copy of each supplier's list (Choose packages), a few groups at a time.
   if (minute % 5 === 1 && room(svc, 2) >= 10) await heartbeat(svc, "supplier_catalogue", () => refreshDueCatalogues(svc, { maxGroups: 3 }));
+  // Pictures linked from other sites, copied into the store's storage (once the key is set).
+  if (minute % 10 === 4 && room(svc, 2) >= 10) await heartbeat(svc, "store_images", () => copyLinkedImages(svc, env, 4));
   if (minute % 30 === 11) await heartbeat(svc, "buy_again", () => queueBuyAgain(svc));
   // Checked six times an hour, so one missed tick never skips a day; it is sent once.
   if (minute % 10 === 9) await heartbeat(svc, "daily_summary", () => queueDailySummary(svc));

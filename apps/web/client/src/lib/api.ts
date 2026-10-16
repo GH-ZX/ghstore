@@ -69,6 +69,21 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
   return data as T;
 }
 
+/** Send a file (a picture) as the request body, with the current session. */
+export async function apiUpload<T>(path: string, file: Blob): Promise<T> {
+  const headers: Record<string, string> = { accept: "application/json", "content-type": file.type || "application/octet-stream" };
+  if (token) headers.authorization = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(path, { method: "POST", headers, body: file, credentials: "same-origin" });
+  } catch {
+    throw new ApiFail("network", 0);
+  }
+  const data = (await res.json().catch(() => null)) as { error?: { code?: string; field?: string } } | null;
+  if (!res.ok) throw new ApiFail(data?.error?.code ?? "internal", res.status, data?.error?.field);
+  return data as T;
+}
+
 /** Download a file the API makes (a CSV export) with the current session, under the server's file name. */
 export async function download(path: string): Promise<void> {
   const headers: Record<string, string> = {};

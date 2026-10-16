@@ -31,7 +31,7 @@ describe("fivesim listProducts", () => {
     ]);
     expect(list[0]?.meta).toMatchObject({ country: "usa", service: "telegram", stock: 35, maxCostCents: 50 });
     // One store product per service, a package per country.
-    expect(list[0]).toMatchObject({ productKey: "service:telegram", productName: "Telegram", packageName: "Usa" });
+    expect(list[0]).toMatchObject({ productKey: "service:telegram", productName: "Telegram number", productNameAr: "رقم Telegram", packageName: "Usa" });
     // Guest prices are public: no key goes out.
     expect(calls.every((c) => c.headers.authorization === undefined)).toBe(true);
   });
@@ -43,6 +43,51 @@ describe("fivesim listProducts", () => {
     );
     const list = await createFiveSim(ctx).listProducts();
     expect(list.map((p) => [p.externalId, p.costCents])).toEqual([["usa/telegram", 42]]);
+  });
+});
+
+describe("fivesim catalogue by service", () => {
+  const routes = {
+    "GET /v1/guest/products/any/any": json({
+      whatsapp: { Category: "activation", Qty: 900, Price: 30 },
+      telegram: { Category: "activation", Qty: 4000, Price: 40 },
+      "3hours": { Category: "hosting", Qty: 10, Price: 100 },
+    }),
+    "GET /v1/guest/countries": json({
+      usa: { iso: { us: 1 }, prefix: { "+1": 1 }, text_en: "USA", text_ru: "США" },
+      england: { iso: { gb: 1 }, prefix: { "+44": 1 }, text_en: "England" },
+    }),
+    "GET /v1/guest/prices?product=telegram": json({
+      telegram: {
+        usa: { virtual21: { cost: 45.0, count: 10 }, virtual4: { cost: 40.0, count: 25 } },
+        england: { virtual4: { cost: 20.5, count: 0 } },
+      },
+    }),
+  };
+
+  it("lists services (activation only, most numbers first), then a service's countries with flags and Arabic names", async () => {
+    const { ctx, calls } = context(routes, config);
+    const g = createFiveSim(ctx);
+    expect(await g.listGroups!()).toEqual([
+      { id: "service:telegram", name: "Telegram" },
+      { id: "service:whatsapp", name: "WhatsApp" },
+    ]);
+    const list = await g.listProducts("service:telegram");
+    expect(list.map((p) => [p.externalId, p.costCents, p.available])).toEqual([["usa/telegram", 44, true], ["england/telegram", 23, false]]);
+    expect(list[0]).toMatchObject({ productKey: "service:telegram", productName: "Telegram number", packageName: "🇺🇸 USA" });
+    expect(list[0]!.packageNameAr).toMatch(/^🇺🇸 /);
+    expect(list[1]!.packageName).toBe("🇬🇧 England");
+    // Never the multi-megabyte full price list.
+    expect(calls.some((c) => c.path === "/v1/guest/prices")).toBe(false);
+  });
+
+  it("prices only the services the store sells, one request each, for the sync", async () => {
+    const { ctx, calls } = context(routes, config);
+    const g = createFiveSim(ctx);
+    const list = await g.listProductsFor!(["usa/telegram", "england/telegram"]);
+    expect(list.map((p) => [p.externalId, p.costCents])).toEqual([["usa/telegram", 44], ["england/telegram", 23]]);
+    expect(calls.map((c) => c.path)).toEqual(["/v1/guest/prices?product=telegram"]);
+    expect(g.syncGroup!("usa/telegram")).toBe("service:telegram");
   });
 });
 
@@ -63,8 +108,19 @@ describe("fivesim purchase", () => {
       status: "pending",
       supplierOrderId: "998877",
       items: [{ kind: "phone", value: "+1234567890" }],
+      expiresAt: "2026-09-13T12:00:00.000Z",
     });
     expect(calls[0]?.headers.authorization).toBe(`Bearer ${KEY}`);
+  });
+
+  it("caps the price at the package's cost, in rubles", async () => {
+    const { ctx, calls } = context(
+      { "GET /v1/user/buy/activation/usa/any/telegram": json({ id: 5, phone: "+1555", status: "PENDING" }) },
+      config,
+    );
+    await createFiveSim(ctx).purchase({ ...req, maxCostCents: 44 });
+    // 44 cents / 0.011 = 40 RUB.
+    expect(calls[0]?.path).toBe("/v1/user/buy/activation/usa/any/telegram?maxPrice=40.0000");
   });
 
   it.each([

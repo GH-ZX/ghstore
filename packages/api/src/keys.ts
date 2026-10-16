@@ -18,7 +18,7 @@ import { ApiError, json, readJson } from "./http";
 
 export interface KeySpec {
   name: string;
-  group: "payments" | "suppliers" | "telegram" | "email";
+  group: "payments" | "suppliers" | "telegram" | "email" | "storage";
   /** What it is for, shown in the admin. */
   label: string;
   pattern: RegExp;
@@ -42,6 +42,9 @@ export const STORE_KEYS: KeySpec[] = [
   { name: "NOTIFY_BOT_TOKEN", group: "telegram", label: "Staff alerts bot token (optional)", pattern: /^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$/ },
   // Email receipts (Admin → Settings → Email receipts), sent with Resend.
   { name: "RESEND_API_KEY", group: "email", label: "Resend API key", pattern: /^re_[A-Za-z0-9_]{10,200}$/ },
+  // Store pictures (uploads, and copies of linked pictures) in Supabase Storage: the project's
+  // secret key (sb_secret_…, or the legacy service_role key). It can write to the bucket.
+  { name: "SUPABASE_SECRET_KEY", group: "storage", label: "Supabase secret key (pictures)", pattern: /^(sb_secret_[A-Za-z0-9_-]{10,200}|eyJ[A-Za-z0-9_.-]{40,2000})$/ },
 ];
 const SPEC = new Map(STORE_KEYS.map((k) => [k.name, k]));
 

@@ -5,7 +5,7 @@
  * What to sell from a supplier is chosen in Admin → Suppliers → Choose packages
  * (supplier-catalogue.ts, selection.ts). The sync keeps cost and price in line.
  */
-import { encryptText, minimumPrice, priceFromCost, type InputField, type MarkupMode } from "@store/core";
+import { encryptText, minimumPrice, priceFromCost, withUnit, type InputField, type MarkupMode } from "@store/core";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { call, must, n, one } from "./db";
@@ -134,6 +134,16 @@ function productChanges(body: Record<string, unknown>): Record<string, unknown> 
   }
   const image = httpsUrl(body, "imageUrl");
   if (image !== undefined) out.image_url = image;
+  // A wide picture for the home showcase, next to the square image.
+  const cover = httpsUrl(body, "coverUrl");
+  if (cover !== undefined) out.cover_url = cover;
+  // The unit of packages named by their amount ("60" → "60 UC").
+  for (const [key, col] of [["unitAr", "unit_ar"], ["unitEn", "unit_en"]] as const) {
+    const v = body[key];
+    if (v === undefined) continue;
+    if (typeof v !== "string" || v.trim().length > 24) throw new ApiError("invalid_input", key);
+    out[col] = v.replace(/\s+/g, " ").trim();
+  }
   for (const [key, col] of [["active", "active"], ["featured", "featured"]] as const) {
     const v = bool(body, key);
     if (v !== undefined) out[col] = v;
@@ -161,7 +171,7 @@ export async function getCatalog(ctx: Ctx): Promise<Response> {
   const categories = await db.query(`select id, slug, name_ar, name_en, sort, active from app.categories order by sort, slug`);
   const products = await db.query(
     `select id, slug, category_id, name_ar, name_en, description_ar, description_en, instructions_ar, instructions_en,
-            warranty_ar, warranty_en, search_terms, image_url, kind, active, featured, sort
+            warranty_ar, warranty_en, search_terms, image_url, cover_url, unit_ar, unit_en, kind, active, featured, sort
        from app.products order by sort, name_en`,
   );
   const offers = await db.query<Record<string, unknown> & { cost_cents: unknown; price_cents: unknown }>(
@@ -226,9 +236,28 @@ export async function updateProduct(ctx: Ctx): Promise<Response> {
   const id = uuid(ctx.params.id);
   const body = await readJson(ctx.req, 65_536);
   const changes = productChanges(body);
+  const before = await one<{ unit_ar: string; unit_en: string }>(ctx.svc.db, `select unit_ar, unit_en from app.products where id = $1`, [id]);
   await updateRow(ctx, "products", id, changes);
-  await audit(ctx, staff.id, "product.update", "product", id, { fields: Object.keys(changes) });
-  return json({ ok: true });
+  const renamed = before ? await applyUnits(ctx, id, before, changes) : 0;
+  await audit(ctx, staff.id, "product.update", "product", id, { fields: Object.keys(changes), renamed });
+  return json({ ok: true, renamed });
+}
+
+/** The unit changed: rename this product's packages that are named by their amount ("60" ⇄ "60 UC"). */
+async function applyUnits(ctx: Ctx, productId: string, before: { unit_ar: string; unit_en: string }, changes: Record<string, unknown>): Promise<number> {
+  const ar = typeof changes.unit_ar === "string" ? changes.unit_ar : before.unit_ar;
+  const en = typeof changes.unit_en === "string" ? changes.unit_en : before.unit_en;
+  if (ar === before.unit_ar && en === before.unit_en) return 0;
+  const offers = await ctx.svc.db.query<{ id: string; name_ar: string; name_en: string }>(`select id, name_ar, name_en from app.offers where product_id = $1`, [productId]);
+  let renamed = 0;
+  for (const o of offers) {
+    const nameAr = withUnit(o.name_ar, ar, before.unit_ar);
+    const nameEn = withUnit(o.name_en, en, before.unit_en);
+    if (nameAr === o.name_ar && nameEn === o.name_en) continue;
+    await ctx.svc.db.query(`update app.offers set name_ar = $2, name_en = $3 where id = $1`, [o.id, nameAr, nameEn]);
+    renamed++;
+  }
+  return renamed;
 }
 
 interface OfferPricing {
@@ -377,8 +406,11 @@ export async function updateSupplier(ctx: Ctx): Promise<Response> {
   if (low !== undefined) changes.low_balance_cents = low;
   if (body.name !== undefined) changes.name = str(body, "name", { max: 60 });
   // How the price check behaves (see app.suppliers in migration 0016).
-  const every = optInt(body, "syncMinutes", 15, 1440);
+  const every = optInt(body, "syncMinutes", 5, 1440);
   if (every !== undefined) changes.sync_minutes = every;
+  // Telegram alerts when packages run out of stock and come back.
+  const stockAlerts = bool(body, "stockAlerts");
+  if (stockAlerts !== undefined) changes.stock_alerts = stockAlerts;
   const auto = bool(body, "autoReprice");
   if (auto !== undefined) changes.auto_reprice = auto;
   if (body.maxJumpPct !== undefined) changes.max_jump_pct = body.maxJumpPct === null ? null : int(body, "maxJumpPct", 5, 1000);
@@ -452,7 +484,8 @@ export async function listSuppliers(ctx: Ctx): Promise<Response> {
   await requireStaff(ctx, "owner");
   const rows = await ctx.svc.db.query<Record<string, unknown>>(
     `select s.id, s.name, s.enabled, s.health, s.last_error, s.balance_cents, s.balance_checked_at, s.low_balance_cents,
-            s.last_sync_at, s.sync_minutes, s.auto_reprice, s.max_jump_pct, s.import_markup_pct, s.import_min_margin_pct,
+            s.last_sync_at, s.sync_minutes, s.stock_alerts,
+            s.last_sync_at + make_interval(mins => s.sync_minutes) as next_sync_at, s.auto_reprice, s.max_jump_pct, s.import_markup_pct, s.import_min_margin_pct,
             s.import_round_to_cents, s.import_category_id, s.import_description_ar, s.import_description_en, s.last_sync_report,
             count(o.id) filter (where o.active) as packages,
             count(o.id) filter (where o.active and o.paused_reason is null) as selling,
@@ -480,6 +513,8 @@ export async function listSuppliers(ctx: Ctx): Promise<Response> {
       lowBalanceCents: num(r.low_balance_cents),
       lastSyncAt: r.last_sync_at,
       syncMinutes: r.sync_minutes,
+      stockAlerts: r.stock_alerts === true,
+      nextSyncAt: r.next_sync_at ?? null,
       autoReprice: r.auto_reprice,
       maxJumpPct: r.max_jump_pct === null ? null : Number(r.max_jump_pct),
       importMarkupPct: Number(r.import_markup_pct),

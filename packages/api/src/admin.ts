@@ -6,7 +6,7 @@
 import { requireStaff } from "./auth";
 import { EMAIL_FROM, sendTestEmail } from "./email";
 import { TIME_ZONE } from "./reports";
-import { CHANNEL_URL, EMAIL, SHOWCASE_AUTOPLAY, SHOWCASE_STYLES, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
+import { CHANNEL_URL, EMAIL, PICTURE_MODES, SHOWCASE_AUTOPLAY, SHOWCASE_STYLES, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder } from "./fulfilment";
@@ -174,6 +174,7 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "home.badge_label": (v) => typeof v === "boolean",
   "home.autoplay_seconds": (v) => typeof v === "number" && (SHOWCASE_AUTOPLAY as readonly number[]).includes(v),
   "home.deal_packages": (v) => typeof v === "number" && Number.isInteger(v) && v >= 2 && v <= 4,
+  "home.picture_mode": (v) => typeof v === "string" && (PICTURE_MODES as readonly string[]).includes(v),
 };
 
 export async function getSettings(ctx: Ctx): Promise<Response> {
@@ -239,6 +240,29 @@ export async function runSupplierSync(ctx: Ctx): Promise<Response> {
   const report = await syncSupplier(ctx.svc, id, { maxGroups: room(ctx.svc, 3) });
   await audit(ctx, staff.id, "supplier.sync", "supplier", id, { ...report });
   return json(report);
+}
+
+/**
+ * POST /api/admin/suppliers/check-all — check every enabled supplier now, the
+ * least recently checked first, as far as this request's outside requests go;
+ * the scheduled checks pick up any left over within a minute or two.
+ */
+export async function checkAllSuppliers(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const due = await ctx.svc.db.query<{ id: string }>(`select id from app.suppliers where enabled order by last_sync_at nulls first`);
+  const reports = [];
+  for (const s of due) {
+    if (reports.length > 0 && room(ctx.svc, 3) < 4) break;
+    reports.push(await syncSupplier(ctx.svc, s.id, { maxGroups: Math.max(1, room(ctx.svc, 3)) }));
+  }
+  const checked = new Set(reports.map((r) => r.supplier));
+  // Whatever did not fit is made due, so the next scheduled run checks it.
+  const later = due.filter((s) => !checked.has(s.id)).map((s) => s.id);
+  if (later.length) {
+    await ctx.svc.db.query(`update app.suppliers set last_sync_at = null where id in (select jsonb_array_elements_text($1::text::jsonb))`, [JSON.stringify(later)]);
+  }
+  await audit(ctx, staff.id, "supplier.sync_all", "supplier", "*", { checked: [...checked], later });
+  return json({ reports, later });
 }
 
 /** Find customers by name, Telegram username or id, email, or user id. */

@@ -101,20 +101,41 @@ export async function listOrders(ctx: Ctx): Promise<Response> {
   });
 }
 
+interface OrderView {
+  id: string; number: string | number; status: string; total_cents: string | number; discount_cents: string | number; created_at: string;
+  delivered_at: string | null; input: Record<string, string>; slug: string; product_active: boolean; name_ar: string; name_en: string;
+  offer_ar: string; offer_en: string; input_fields: InputField[]; kind: string; supplier_id: string | null; supplier_order_id: string | null;
+  supplier_expires_at: string | Date | null; stale: boolean;
+}
+
+/** Ownership is part of the query: another user's order is simply "not found". */
+async function ownOrder(ctx: Ctx, id: string, userId: string): Promise<OrderView | undefined> {
+  return one<OrderView>(
+    ctx.svc.db,
+    `select o.id, o.number, o.status, o.total_cents, o.discount_cents, o.created_at, o.delivered_at, o.input,
+            p.slug, p.active as product_active, p.name_ar, p.name_en, p.kind,
+            f.name_ar as offer_ar, f.name_en as offer_en, f.input_fields,
+            o.supplier_id, o.supplier_order_id, o.supplier_expires_at,
+            o.updated_at < now() - interval '4 seconds' as stale
+       from app.orders o join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
+      where o.id = $1 and o.user_id = $2`,
+    [id, userId],
+  );
+}
+
+const open = (status: string) => status === "paid" || status === "processing";
+
 export async function getOrder(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
   const id = uuid(ctx.params.id);
-  // Ownership is part of the query: another user's order is simply "not found".
-  const o = await one<{ id: string; number: string | number; status: string; total_cents: string | number; discount_cents: string | number; created_at: string; delivered_at: string | null; input: Record<string, string>; slug: string; product_active: boolean; name_ar: string; name_en: string; offer_ar: string; offer_en: string; input_fields: InputField[] }>(
-    ctx.svc.db,
-    `select o.id, o.number, o.status, o.total_cents, o.discount_cents, o.created_at, o.delivered_at, o.input,
-            p.slug, p.active as product_active, p.name_ar, p.name_en,
-            f.name_ar as offer_ar, f.name_en as offer_en, f.input_fields
-       from app.orders o join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
-      where o.id = $1 and o.user_id = $2`,
-    [id, user.id],
-  );
+  let o = await ownOrder(ctx, id, user.id);
   if (!o) throw new ApiError("not_found");
+  // A virtual number is waiting for its code while the customer watches: ask the supplier now
+  // (at most every few seconds) instead of waiting for the scheduled check.
+  if (o.kind === "sms" && open(o.status) && o.supplier_order_id && o.stale) {
+    await fulfilOrder(ctx.svc, ctx.env, o.id).catch((e) => console.error("number check failed", o?.id, String(e)));
+    o = (await ownOrder(ctx, id, user.id)) ?? o;
+  }
   const dels = await ctx.svc.db.query<{ id: string | number; kind: string; value_enc: string; label: string | null }>(
     `select id, kind, value_enc, label from app.deliveries where order_id = $1 order by id`,
     [id],
@@ -122,6 +143,9 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
   await ctx.svc.db.query(`update app.deliveries set first_viewed_at = now() where order_id = $1 and first_viewed_at is null`, [id]);
   const deliveries = [];
   for (const d of dels) deliveries.push({ kind: d.kind, label: d.label, value: await decryptText(d.value_enc, ctx.env.DATA_KEY) });
+  const expires = o.supplier_expires_at ? new Date(o.supplier_expires_at).toISOString() : null;
+  // Before its code arrives, a number can be cancelled or reported as already used (both refunded).
+  const numberActions = o.kind === "sms" && o.status === "processing" && !!o.supplier_order_id && !dels.some((d) => d.kind === "sms") && !!ctx.svc.supplier(o.supplier_id ?? "")?.cancel;
   return json({
     order: {
       id: o.id, number: n(o.number), status: o.status, totalCents: n(o.total_cents), discountCents: n(o.discount_cents), createdAt: o.created_at,
@@ -131,7 +155,54 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
       productSlug: o.product_active ? o.slug : null,
       // Labels for the details the customer typed (player ID, server...).
       fields: (o.input_fields ?? []).map((f) => ({ key: f.key, labelEn: f.labelEn, labelAr: f.labelAr ?? null })),
+      kind: o.kind,
+      // Virtual numbers: when the number ends, and whether it can still be cancelled.
+      expiresAt: expires,
+      numberActions,
     },
     deliveries,
   });
+}
+
+/**
+ * POST /api/orders/:id/number { action: "cancel" | "used" } — a virtual number
+ * that has not received its code yet: cancel it, or report it as already used
+ * by the service. The supplier releases it (and charges nothing), and the
+ * order is refunded to the wallet. If the code arrived meanwhile, it is fetched
+ * instead and nothing is refunded.
+ */
+export async function closeNumber(ctx: Ctx): Promise<Response> {
+  const user = await requireUser(ctx);
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const action = body.action === "used" ? "used" : body.action === "cancel" ? "cancel" : null;
+  if (!action) throw new ApiError("invalid_input", "action");
+  const o = await ownOrder(ctx, id, user.id);
+  if (!o) throw new ApiError("not_found");
+  if (o.kind !== "sms" || o.status !== "processing" || !o.supplier_order_id || !o.supplier_id) throw new ApiError("bad_state");
+  const adapter = ctx.svc.supplier(o.supplier_id);
+  if (!adapter?.cancel) throw new ApiError("bad_state");
+  const has = await one(ctx.svc.db, `select 1 from app.deliveries where order_id = $1 and kind = 'sms'`, [id]);
+  if (has) throw new ApiError("bad_state", "code");
+
+  let closed: boolean;
+  try {
+    closed = action === "used" && adapter.ban ? await adapter.ban(o.supplier_order_id) : await adapter.cancel(o.supplier_order_id);
+  } catch {
+    throw new ApiError("rate_limited"); // the supplier did not answer: try again in a moment
+  }
+  if (!closed) {
+    // Refused: the code may have just arrived. Fetch it.
+    await fulfilOrder(ctx.svc, ctx.env, id).catch(() => null);
+    return json({ closed: false });
+  }
+  const reason = action === "used" ? "customer: number already used" : "customer: cancelled the number";
+  await ctx.svc.db.tx(async (db) => {
+    const locked = await one<{ status: string }>(db, `select status from app.orders where id = $1 for update`, [id]);
+    if (!locked || locked.status !== "processing") return;
+    await db.query(`update app.orders set status = 'failed', last_error = $2, next_check_at = null where id = $1`, [id, reason]);
+    await db.query(`insert into app.order_events (order_id, type, data) values ($1, 'number_closed', $2::text::jsonb)`, [id, JSON.stringify({ action })]);
+    await call(db, `select * from app.refund_order($1, $2)`, [id, reason]);
+  });
+  return json({ closed: true });
 }

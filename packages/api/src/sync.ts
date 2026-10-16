@@ -8,10 +8,14 @@
  *  - pause a package whose cost jumped by more than max_jump_pct, for the owner
  *    to review (the new cost waits in pending_cost_cents),
  *  - pause manual-price packages whose price no longer clears the minimum margin,
- *  - pause packages the supplier stopped selling, and resume them when they return.
+ *  - pause packages the supplier stopped selling or has none of in stock, and
+ *    resume them when they return (they disappear from the store meanwhile).
  * New supplier products are not added automatically: the owner chooses them
  * (Admin → Suppliers → Choose packages, selection.ts).
  * Every check leaves a short report on the supplier for the admin to read.
+ * Owners get a Telegram alert for price jumps and lost margins; stock coming
+ * and going alerts only for suppliers with stock_alerts on (some suppliers run
+ * out and restock all day).
  */
 import { onCostChange, type PriceRule, type SupplierProduct } from "@store/core";
 import type { Services } from "./context";
@@ -39,6 +43,7 @@ interface OfferRow {
 interface SupplierSettings {
   auto_reprice: boolean;
   max_jump_pct: number | null;
+  stock_alerts: boolean;
 }
 
 export interface SyncReport {
@@ -83,9 +88,10 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
   const report: SyncReport = { supplier: supplierId, checked: 0, repriced: 0, paused: 0, resumed: 0, missing: 0, review: 0, complete: true };
   const adapter = svc.supplier(supplierId);
   if (!adapter) return report;
-  const settings = (await one<SupplierSettings>(svc.db, `select auto_reprice, max_jump_pct from app.suppliers where id = $1`, [supplierId])) ?? {
+  const settings = (await one<SupplierSettings>(svc.db, `select auto_reprice, max_jump_pct, stock_alerts from app.suppliers where id = $1`, [supplierId])) ?? {
     auto_reprice: true,
     max_jump_pct: null,
+    stock_alerts: false,
   };
 
   // `due`: not checked since the last complete pass (a pass may take several runs).
@@ -141,6 +147,8 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
   }
 
   const paused: string[] = [];
+  /** Paused only for stock (no alert unless the supplier's stock alerts are on). */
+  let stockPaused = 0;
   // Packages whose cost and price did not change (nearly all of them on a normal
   // hour). They are marked as checked together in one write after the loop, so a
   // sync costs a few queries instead of one per package (Hyperdrive's free plan
@@ -157,6 +165,7 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
         await svc.db.query(`update app.offers set paused_reason = 'supplier_unavailable', cost_checked_at = now() where id = $1`, [o.id]);
         report.paused++;
         paused.push(o.id);
+        stockPaused++;
       } else {
         unchanged.push(o.id); // still away: checked, nothing to change
       }
@@ -259,20 +268,22 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
     [supplierId, report.complete],
   );
   await saveReport(svc, supplierId, report);
-  if (paused.length) {
+  const alerting = settings.stock_alerts ? paused.length : paused.length - stockPaused;
+  if (alerting > 0) {
     const review = report.review ? ` ${report.review} need your review: their cost jumped.` : "";
-    await alertOwners(svc, `${supplierId}: ${paused.length} package(s) paused (price or availability changed).${review}`);
+    await alertOwners(svc, `${supplierId}: ${alerting} package(s) paused (price or availability changed).${review}`);
   }
   return report;
 }
 
 /**
  * Sync enabled suppliers whose last check is older than their own interval
- * (Admin → Suppliers → Settings), oldest first, at most `max` per call. One per
- * cron tick keeps each run light (the Workers free plan allows 10 ms of CPU and
- * 50 outgoing requests per invocation).
+ * (Admin → Suppliers → Checks), oldest first, at most `max` per call, and only
+ * while the run has requests left (`reserve` kept back; the Workers free plan
+ * allows 50 outgoing requests and 10 ms of CPU per invocation). The rest are
+ * due again on the next tick.
  */
-export async function syncDueSuppliers(svc: Services, max = 1, opts: SyncOptions = {}): Promise<SyncReport[]> {
+export async function syncDueSuppliers(svc: Services, max = 1, opts: SyncOptions & { reserve?: number } = {}): Promise<SyncReport[]> {
   const due = await svc.db.query<{ id: string }>(
     `select id from app.suppliers
       where enabled and (last_sync_at is null or last_sync_at < now() - make_interval(mins => sync_minutes))
@@ -280,6 +291,11 @@ export async function syncDueSuppliers(svc: Services, max = 1, opts: SyncOptions
     [max],
   );
   const reports: SyncReport[] = [];
-  for (const s of due) reports.push(await syncSupplier(svc, s.id, opts));
+  const left = () => (svc.budget ? svc.budget.left() - (opts.reserve ?? 0) : Number.POSITIVE_INFINITY);
+  for (const s of due) {
+    // Each supplier needs a few requests; a big catalogue checks only as many groups as fit.
+    if (reports.length > 0 && left() < 4) break;
+    reports.push(await syncSupplier(svc, s.id, { ...opts, maxGroups: Math.max(1, Math.min(opts.maxGroups ?? Number.POSITIVE_INFINITY, left() - 1)) }));
+  }
   return reports;
 }

@@ -1,8 +1,8 @@
-/** Orders list and order detail with copyable deliveries. */
+/** Orders list and order detail with copyable deliveries; virtual numbers get their own panel. */
 import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { api, ApiFail } from "../lib/api";
 import { copyText, dateTime, usd } from "../lib/format";
-import { pick } from "../lib/i18n";
+import { errorText, pick } from "../lib/i18n";
 import { linkHandler, navigate } from "../lib/router";
 import { toast, useT } from "../lib/state";
 import { haptic } from "../lib/telegram";
@@ -160,7 +160,9 @@ function OrderView({ id }: { id: string }) {
         )}
       </div>
 
-      {data.deliveries.length > 0 && (
+      {o.kind === "sms" && <NumberPanel data={data} onChanged={reload} onCopy={copy} />}
+
+      {o.kind !== "sms" && data.deliveries.length > 0 && (
         <div className="card card--pad stack-sm">
           <h3>{t("yourDelivery")}</h3>
           {data.deliveries.map((d, i) => (
@@ -174,7 +176,7 @@ function OrderView({ id }: { id: string }) {
         </div>
       )}
 
-      {open && (
+      {open && o.kind !== "sms" && (
         <div className="card card--pad wrap">
           <Spinner small />
           <span>{t("inProgress")}</span>
@@ -198,6 +200,104 @@ function OrderView({ id }: { id: string }) {
         <button type="button" className="btn btn--block btn--soft press" onClick={() => navigate(`/p/${o.productSlug}`)}>
           {t("buyAgain")}
         </button>
+      )}
+    </div>
+  );
+}
+
+/** "mm:ss" left until `iso`, ticking every second (null without an end). */
+function useCountdown(iso: string | null | undefined): string | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!iso) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [iso]);
+  if (!iso) return null;
+  const left = Math.max(0, Math.floor((Date.parse(iso) - now) / 1000));
+  return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+}
+
+/**
+ * A virtual number: the number to copy, a countdown while it waits for the
+ * code, the code as soon as it arrives, and (before a code) cancel or "already
+ * used", both refunded.
+ */
+function NumberPanel({ data, onChanged, onCopy }: { data: OrderDetail; onChanged: () => void; onCopy: (v: string) => void }) {
+  const { t, lang } = useT();
+  const [busy, setBusy] = useState<"cancel" | "used" | null>(null);
+  const o = data.order;
+  const phone = data.deliveries.find((d) => d.kind === "phone");
+  const codes = data.deliveries.filter((d) => d.kind === "sms");
+  const waiting = (o.status === "paid" || o.status === "processing") && codes.length === 0;
+  const left = useCountdown(waiting ? o.expiresAt : null);
+
+  async function close(action: "cancel" | "used") {
+    if (!window.confirm(t(action === "cancel" ? "numConfirmCancel" : "numConfirmUsed"))) return;
+    setBusy(action);
+    try {
+      const r = await api<{ closed: boolean }>(`/api/orders/${o.id}/number`, { method: "POST", body: { action } });
+      toast(r.closed ? t("numClosed") : t("numCodeArrived"));
+      haptic(r.closed ? "tap" : "success");
+      onChanged();
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="stack-sm">
+      {phone && (
+        <div className="card card--pad number-card">
+          <span className="small muted">{t("numYour")}</span>
+          <div className="row-between">
+            <span className="number-card__value num">{phone.value}</span>
+            <button type="button" className="btn btn--xs btn--soft press" onClick={() => onCopy(phone.value.replace(/[^\d+]/g, ""))}>
+              {t("copy")}
+            </button>
+          </div>
+        </div>
+      )}
+      {codes.map((c, i) => (
+        <div key={i} className="card card--pad number-card number-card--code">
+          <span className="small muted">{t("numCode")}</span>
+          <div className="row-between">
+            <span className="number-card__code num">{c.value}</span>
+            <button type="button" className="btn btn--xs press" onClick={() => onCopy(c.value)}>
+              {t("copy")}
+            </button>
+          </div>
+          {c.label && <span className="small muted">{c.label}</span>}
+        </div>
+      ))}
+      {waiting && (
+        <div className="card card--pad stack-sm">
+          <div className="row-between">
+            <span className="wrap" style={{ gap: 10 }}>
+              <span className="number-wait" aria-hidden="true" />
+              <strong>{t("numWaiting")}</strong>
+            </span>
+            {left && (
+              <span className="small muted">
+                {t("numEndsIn", { time: "" })}
+                <span className="num" style={{ fontWeight: 700 }}>{left}</span>
+              </span>
+            )}
+          </div>
+          <span className="small muted">{t("numHint")}</span>
+          {o.numberActions && (
+            <div className="wrap">
+              <button type="button" className="btn btn--xs btn--ghost press" disabled={busy !== null} onClick={() => close("cancel")}>
+                {busy === "cancel" ? <Spinner small /> : t("numCancel")}
+              </button>
+              <button type="button" className="btn btn--xs btn--ghost press" disabled={busy !== null} onClick={() => close("used")}>
+                {busy === "used" ? <Spinner small /> : t("numUsed")}
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

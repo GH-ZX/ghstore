@@ -37,6 +37,9 @@ interface Sup {
   lowBalanceCents: number;
   lastSyncAt: string | null;
   syncMinutes: number;
+  /** Telegram alerts when packages run out of stock and come back. */
+  stockAlerts: boolean;
+  nextSyncAt: string | null;
   autoReprice: boolean;
   maxJumpPct: number | null;
   importMarkupPct: number;
@@ -63,7 +66,7 @@ function plainError(t: T, raw: string): string {
   return t("supErrOther");
 }
 
-const EVERY = [15, 30, 60, 180, 360, 720, 1440];
+const EVERY = [5, 10, 15, 30, 60, 180, 360, 720, 1440];
 const JUMPS = [20, 30, 50, 100, 200];
 const ROUNDS = [1, 5, 10, 25, 50, 100];
 
@@ -94,6 +97,7 @@ function SupplierList() {
   return (
     <div className="stack">
       <p className="hint">{t("suppliersHint")}</p>
+      <ChecksPanel suppliers={data.suppliers} onChanged={reload} />
       <div className="sup-grid">
         {data.suppliers.map((s) => (
           <SupplierCard key={s.id} s={s} onChanged={reload} onSettings={() => setSettings(s)} onReview={() => setReview(s)} />
@@ -119,6 +123,110 @@ function SupplierList() {
         />
       )}
     </div>
+  );
+}
+
+/** "in 4 minutes", or "now" when it is due. */
+function inTime(iso: string | null, lang: "ar" | "en", t: T): string {
+  if (!iso) return t("checkSoon");
+  const s = Math.round((Date.parse(iso) - Date.now()) / 1000);
+  if (s <= 30) return t("checkSoon");
+  const rtf = new Intl.RelativeTimeFormat(lang === "ar" ? "ar-u-nu-latn" : "en", { numeric: "auto" });
+  return s < 3600 ? rtf.format(Math.round(s / 60), "minute") : rtf.format(Math.round(s / 3600), "hour");
+}
+
+/**
+ * Every supplier's price and stock checks in one place: how often, stock alerts,
+ * when it last ran and runs next, and "check now" (one, or all of them).
+ */
+function ChecksPanel({ suppliers, onChanged }: { suppliers: Sup[]; onChanged: () => void }) {
+  const { t, lang } = useT();
+  const action = useAction();
+  const [checking, setChecking] = useState<string | null>(null);
+  const on = suppliers.filter((s) => s.enabled);
+
+  async function save(s: Sup, body: Record<string, unknown>) {
+    if (await action.run(`/api/admin/suppliers/${s.id}`, { method: "PATCH", body })) onChanged();
+  }
+
+  async function check(id: string | null) {
+    setChecking(id ?? "*");
+    try {
+      if (id) {
+        const rep = await api<Report>(`/api/admin/suppliers/${id}/sync`, { method: "POST", body: {} });
+        if (rep.error) toast(`${t("supCheckFailed")}: ${plainError(t, rep.error)}`, true);
+        else toast(t("supChecked", { checked: rep.checked, repriced: rep.repriced, paused: rep.paused }));
+      } else {
+        const r = await api<{ reports: (Report & { supplier: string })[]; later: string[] }>("/api/admin/suppliers/check-all", { method: "POST", body: {} });
+        const failed = r.reports.filter((x) => x.error).length;
+        toast(`${t("checkAllDone", { n: r.reports.length })}${r.later.length ? ` · ${t("checkAllLater", { n: r.later.length })}` : ""}${failed ? ` · ${t("checkAllFailed", { n: failed })}` : ""}`, failed > 0);
+      }
+      onChanged();
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    } finally {
+      setChecking(null);
+    }
+  }
+
+  return (
+    <section className="card card--pad stack-sm">
+      <div className="row-between">
+        <div>
+          <h2>{t("checksTitle")}</h2>
+          <p className="hint">{t("checksHint")}</p>
+        </div>
+        <button type="button" className="btn btn--sm press" disabled={checking !== null || on.length === 0} onClick={() => check(null)}>
+          {checking === "*" ? <Spinner small /> : t("checkAll")}
+        </button>
+      </div>
+      <div className="table-wrap">
+        <table className="table checks">
+          <thead>
+            <tr>
+              <th>{t("supplier")}</th>
+              <th>{t("checkEvery")}</th>
+              <th>{t("stockAlerts")}</th>
+              <th>{t("checkLast")}</th>
+              <th>{t("checkNext")}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {suppliers.map((s) => (
+              <tr key={s.id} style={{ opacity: s.enabled ? 1 : 0.5 }}>
+                <td>
+                  <span className="wrap" style={{ gap: 8 }}>
+                    <span className="dot" style={{ background: !s.enabled ? "var(--muted)" : s.health === "ok" ? "var(--good)" : s.health === "unknown" ? "var(--warn)" : "var(--bad)" }} />
+                    <strong>{s.name}</strong>
+                  </span>
+                </td>
+                <td>
+                  <select className="select checks__select" value={s.syncMinutes} disabled={action.busy} aria-label={`${s.name}: ${t("checkEvery")}`} onChange={(e) => void save(s, { syncMinutes: Number(e.target.value) })}>
+                    {EVERY.map((m) => (
+                      <option key={m} value={m}>
+                        {everyLabel(t, m)}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <Switch checked={s.stockAlerts} onChange={(v) => void save(s, { stockAlerts: v })} label={`${s.name}: ${t("stockAlerts")}`} />
+                </td>
+                <td className="small">{s.lastSyncAt ? ago(s.lastSyncAt, lang) : "—"}</td>
+                <td className="small">{s.enabled ? inTime(s.nextSyncAt, lang, t) : "—"}</td>
+                <td>
+                  <button type="button" className="btn btn--xs btn--ghost press" disabled={checking !== null || !s.enabled} onClick={() => check(s.id)}>
+                    {checking === s.id ? <Spinner small /> : t("supCheckNow")}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="hint">{t("stockAlertsHint")}</p>
+    </section>
   );
 }
 

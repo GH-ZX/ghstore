@@ -34,7 +34,7 @@ describe("store keys", () => {
     try {
       const before = await h.call("GET", "/api/admin/keys", { token: owner });
       const row = (name: string, keys = before.data.keys) => keys.find((k: { name: string }) => k.name === name);
-      expect(before.data.keys).toHaveLength(12);
+      expect(before.data.keys).toHaveLength(13);
       expect(row("BEP20_ADDRESS")).toMatchObject({ source: null, hint: null });
       expect(row("SAM_API_KEY").source).toBe("worker"); // set as a Worker secret in the test settings
       expect((await h.call("GET", "/api/topups/methods")).data.methods).not.toContain("bep20");

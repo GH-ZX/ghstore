@@ -161,6 +161,36 @@ New supplier items are never added automatically: the owner chooses them in
   ordered, archived (hidden) if they have orders; a product left with nothing
   to sell is hidden; ticking an archived package brings it back.
 
+## Stock, units and pictures
+
+- **Out of stock**: a package the supplier has none of is paused
+  (`supplier_unavailable`) and disappears from the store; the next check puts
+  it back when stock returns. A purchase refused for lack of stock is refunded
+  and pauses its package at once. Telegram alerts for stock changes are a
+  per-supplier option (`suppliers.stock_alerts`, off by default); price jumps
+  and lost margins always alert.
+- **Units**: `products.unit_ar` / `unit_en` ("شدة" / "UC"). Packages named only
+  by their amount are renamed with the unit when it changes ("60" → "60 UC",
+  `withUnit` in packages/core); new packages from Choose packages get it too.
+- **Pictures**: `products.image_url` (square icon) and `cover_url` (wide). The
+  showcase shows the cover, the icon, or decides by itself (`home.picture_mode`,
+  per slide `banners.picture_mode`). Uploads and copies live in the Supabase
+  Storage bucket `store-images` (`packages/api/src/images.ts`), written with the
+  project's secret key (Admin → Settings → Keys → Storage).
+
+## Virtual numbers (5SIM)
+
+One product per service (Telegram, WhatsApp…), a package per country with its
+flag and Arabic name. Buying passes the package's cost as 5SIM's `maxPrice`, so
+a number never costs more than it was priced from. The order page shows the
+number with a countdown (`orders.supplier_expires_at`) and asks 5SIM for the
+code every few seconds while the customer watches; the scheduled check does
+it every 15 s otherwise. Before a code arrives the customer can cancel or
+report the number as already used (`POST /api/orders/:id/number`): 5SIM
+releases it and the order is refunded. A number that expires without a code is
+refunded too. The catalogue is read a service at a time (the full price list is
+several MB).
+
 ## Scheduled jobs (every minute)
 
 | Job | Work |
@@ -169,8 +199,9 @@ New supplier items are never added automatically: the owner chooses them in
 | `stuck_orders` | Flag orders open too long, alert owners |
 | `payments` | Re-check pending SAM/NOWPayments top-ups; expire old ones |
 | `supplier_balances` | Every 15 min; alert once when a balance drops under its threshold |
-| `supplier_sync` | Hourly per supplier: costs, availability, margin guard |
+| `supplier_sync` | Every minute, for each supplier whose own interval is up (5 min to 24 h, Admin → Suppliers → Price and stock checks): costs, availability, margin guard |
 | `supplier_catalogue` | Every 5 min, with spare requests only: refresh up to 3 groups of the saved supplier lists (Choose packages) |
+| `store_images` | Every 10 min, once the storage key is set: copy pictures linked from other sites into the store's Storage bucket |
 | `outbox` | Send queued Telegram notifications |
 | `buy_again` | Twice an hour: queue due "buy again" reminders |
 | `daily_summary` | Every 10 minutes; in the owner's chosen local hour (default 09:00), queue yesterday's summary once |

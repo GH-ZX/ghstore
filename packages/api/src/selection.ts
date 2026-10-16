@@ -2,7 +2,8 @@
  * Admin → Suppliers → Choose packages → Apply: sell exactly what the owner ticked.
  *
  * POST /api/admin/suppliers/:id/selection
- *   { version, add: [ref], remove: [ref], place?: { [destination]: { productId } | { categoryId } }, dryRun? }
+ *   { version, add: [ref], remove: [ref], dryRun?,
+ *     place?: { [destination]: { productId } | { categoryId, nameAr?, nameEn?, unitAr?, unitEn? } } }
  *
  * - Every item is checked against the saved copy of the supplier's list
  *   (supplier-catalogue.ts); one it does not list, or lists as unavailable, is refused.
@@ -12,7 +13,9 @@
  *   joins its product; otherwise a new product is made (shown at once, in the
  *   supplier's import category or where its products of that kind usually
  *   are, with its description template). `place` moves a
- *   destination into an existing product or another category.
+ *   destination into an existing product, or names a new one (Arabic and
+ *   English), puts it in another category and gives it a unit.
+ * - Packages named only by their amount take the product's unit ("60" → "60 UC").
  * - New packages are priced with the supplier's import defaults and always clear
  *   the margin guard.
  * - Removing: a package never ordered is deleted; one with orders is archived
@@ -23,7 +26,7 @@
  * - One transaction, owner only, audit logged. dryRun returns the same plan
  *   without changing anything.
  */
-import { priceFromCost, type InputField } from "@store/core";
+import { priceFromCost, withUnit, type InputField } from "@store/core";
 import { parseInputFields } from "./admin-catalog";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
@@ -42,7 +45,9 @@ interface Item {
   name: string;
   product_key: string | null;
   product_name: string | null;
+  product_name_ar: string | null;
   package_name: string | null;
+  package_name_ar: string | null;
   cost_cents: string | number;
   available: boolean;
   missing: boolean;
@@ -69,9 +74,24 @@ interface Destination {
   categoryId: string | null;
   nameAr: string;
   nameEn: string;
+  unitAr: string;
+  unitEn: string;
   kind: string;
   isNew: boolean;
-  items: { ref: string; name: string; costCents: number; priceCents: number; fields: InputField[]; reactivate?: string }[];
+  items: { ref: string; name: string; nameAr: string; costCents: number; priceCents: number; fields: InputField[]; reactivate?: string }[];
+}
+
+/** A name typed in the review step: 1-120 characters. */
+function typedName(v: unknown, key: string): string | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string" || !v.trim() || v.trim().length > 120) throw new ApiError("invalid_input", key);
+  return v.replace(/\s+/g, " ").trim();
+}
+
+function typedUnit(v: unknown, key: string): string | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "string" || v.trim().length > 24) throw new ApiError("invalid_input", key);
+  return v.replace(/\s+/g, " ").trim();
 }
 
 function refs(body: Record<string, unknown>, key: string): string[] {
@@ -141,7 +161,8 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
     const items = new Map(
       (
         await db.query<Item>(
-          `select external_id, name, product_key, product_name, package_name, cost_cents, available, missing_since is not null as missing, kind, fields
+          `select external_id, name, product_key, product_name, product_name_ar, package_name, package_name_ar, cost_cents, available,
+                  missing_since is not null as missing, kind, fields
              from app.supplier_items where supplier_id = $1 and external_id in (select jsonb_array_elements_text($2::text::jsonb))`,
           [supplierId, JSON.stringify(add)],
         )
@@ -188,12 +209,19 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
       } catch {
         throw new ApiError("invalid_input", `fields:${ref}`);
       }
-      const entry = { ref, name: item.package_name || item.name, costCents: cost, priceCents: priceFromCost(cost, rule), fields };
+      const entry = {
+        ref,
+        name: item.package_name || item.name,
+        nameAr: item.package_name_ar || item.package_name || item.name,
+        costCents: cost,
+        priceCents: priceFromCost(cost, rule),
+        fields,
+      };
       if (offer) {
         // Archived earlier: the same package comes back, in its own product.
         const key = `o:${offer.product_id}`;
-        const d = dests.get(key) ?? { key, productId: offer.product_id, categoryId: null, nameAr: offer.product_ar, nameEn: offer.product_en, kind: item.kind, isNew: false, items: [] };
-        d.items.push({ ...entry, name: offer.name_en, reactivate: offer.id });
+        const d = dests.get(key) ?? { key, productId: offer.product_id, categoryId: null, nameAr: offer.product_ar, nameEn: offer.product_en, unitAr: "", unitEn: "", kind: item.kind, isNew: false, items: [] };
+        d.items.push({ ...entry, name: offer.name_en, nameAr: offer.name_ar, reactivate: offer.id });
         dests.set(key, d);
         productNames.set(offer.product_id, { ar: offer.product_ar, en: offer.product_en, active: offer.product_active });
         continue;
@@ -202,16 +230,22 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
       let d = dests.get(key);
       if (!d) {
         const name = (item.product_key ? item.product_name : item.name) || item.name;
-        d = { key, productId: null, categoryId: categoryFor(item.kind), nameAr: name.slice(0, 120), nameEn: name.slice(0, 120), kind: item.kind, isNew: true, items: [] };
+        const nameAr = (item.product_key ? item.product_name_ar : null) || name;
+        d = { key, productId: null, categoryId: categoryFor(item.kind), nameAr: nameAr.slice(0, 120), nameEn: name.slice(0, 120), unitAr: "", unitEn: "", kind: item.kind, isNew: true, items: [] };
         const choice = (place as Record<string, unknown>)[key];
         if (choice !== undefined) {
-          const c = choice as Record<string, unknown>;
+          const c = (choice ?? {}) as Record<string, unknown>;
           if (typeof c.productId === "string" && UUID.test(c.productId)) {
             d.productId = c.productId;
-          } else if (typeof c.categoryId === "string" && categoryIds.has(c.categoryId)) {
-            d.categoryId = c.categoryId;
           } else {
-            throw new ApiError("invalid_input", `place:${key}`);
+            if (c.categoryId !== undefined) {
+              if (typeof c.categoryId !== "string" || !categoryIds.has(c.categoryId)) throw new ApiError("invalid_input", `place:${key}`);
+              d.categoryId = c.categoryId;
+            }
+            d.nameAr = typedName(c.nameAr, `place:${key}`) ?? d.nameAr;
+            d.nameEn = typedName(c.nameEn, `place:${key}`) ?? d.nameEn;
+            d.unitAr = typedUnit(c.unitAr, `place:${key}`) ?? d.unitAr;
+            d.unitEn = typedUnit(c.unitEn, `place:${key}`) ?? d.unitEn;
           }
         } else if (item.product_key) {
           // The store already sells this supplier group: join that product.
@@ -225,19 +259,24 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
           if (existing[0]) d.productId = existing[0].product_id;
         }
         if (d.productId) {
-          const p = (await db.query<{ name_ar: string; name_en: string; active: boolean }>(`select name_ar, name_en, active from app.products where id = $1`, [d.productId]))[0];
+          const p = (await db.query<{ name_ar: string; name_en: string; active: boolean; unit_ar: string; unit_en: string }>(
+            `select name_ar, name_en, active, unit_ar, unit_en from app.products where id = $1`,
+            [d.productId],
+          ))[0];
           if (!p) throw new ApiError("invalid_input", `place:${key}`);
           d.isNew = false;
           d.categoryId = null;
           d.nameAr = p.name_ar;
           d.nameEn = p.name_en;
+          d.unitAr = p.unit_ar;
+          d.unitEn = p.unit_en;
           productNames.set(d.productId, { ar: p.name_ar, en: p.name_en, active: p.active });
         } else if (!d.categoryId) {
           throw new ApiError("bad_state", "category");
         }
         dests.set(key, d);
       }
-      d.items.push(entry);
+      d.items.push({ ...entry, name: withUnit(entry.name, d.unitEn), nameAr: withUnit(entry.nameAr, d.unitAr) });
     }
 
     // ── removals
@@ -266,8 +305,8 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
 
     const plan = {
       add: [...dests.values()].map((d) => ({
-        key: d.key, productId: d.productId, categoryId: d.categoryId, nameAr: d.nameAr, nameEn: d.nameEn, isNew: d.isNew,
-        items: d.items.map((i) => ({ ref: i.ref, name: i.name, costCents: i.costCents, priceCents: i.priceCents, reactivate: !!i.reactivate })),
+        key: d.key, productId: d.productId, categoryId: d.categoryId, nameAr: d.nameAr, nameEn: d.nameEn, unitAr: d.unitAr, unitEn: d.unitEn, isNew: d.isNew,
+        items: d.items.map((i) => ({ ref: i.ref, name: i.name, nameAr: i.nameAr, costCents: i.costCents, priceCents: i.priceCents, reactivate: !!i.reactivate })),
       })),
       remove: removals.map(({ offerId: _o, productId: _p, ...r }) => r),
       hide: hide.map((p) => ({ id: p.id, nameAr: p.name_ar, nameEn: p.name_en })),
@@ -289,9 +328,12 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
         const slug = await uniqueSlug(db, slugBase(d.nameEn, `${supplierId.replace(/_/g, "-")}-${hashOf(d.key)}`));
         const fill = (t: string, name: string) => t.replaceAll("{name}", name).slice(0, 4000);
         const rows = await db.query<{ id: string }>(
-          `insert into app.products (slug, category_id, name_ar, name_en, kind, active, description_ar, description_en, search_terms)
-           values ($1, $2, $3, $4, $5, true, $6, $7, $8) returning id`,
-          [slug, d.categoryId, d.nameAr, d.nameEn, d.kind, fill(sup.import_description_ar, d.nameAr), fill(sup.import_description_en, d.nameEn), d.nameEn.slice(0, 500)],
+          `insert into app.products (slug, category_id, name_ar, name_en, kind, active, description_ar, description_en, search_terms, unit_ar, unit_en)
+           values ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10) returning id`,
+          [
+            slug, d.categoryId, d.nameAr, d.nameEn, d.kind, fill(sup.import_description_ar, d.nameAr), fill(sup.import_description_en, d.nameEn),
+            `${d.nameEn} ${d.nameAr}`.slice(0, 500), d.unitAr, d.unitEn,
+          ],
         );
         productId = rows[0]!.id;
         await db.query(
@@ -312,8 +354,8 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
           await db.query(
             `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value,
                                      round_to_cents, min_margin_pct, input_fields, cost_checked_at)
-             values ($1, $2, $2, $3, $4, $5, $6, 'percent', $7, $8, $9, $10::text::jsonb, now())`,
-            [productId, i.name.slice(0, 120), supplierId, i.ref, i.costCents, i.priceCents, rule.value, rule.roundToCents, rule.minMarginPct, JSON.stringify(i.fields)],
+             values ($1, $11, $2, $3, $4, $5, $6, 'percent', $7, $8, $9, $10::text::jsonb, now())`,
+            [productId, i.name.slice(0, 120), supplierId, i.ref, i.costCents, i.priceCents, rule.value, rule.roundToCents, rule.minMarginPct, JSON.stringify(i.fields), i.nameAr.slice(0, 120)],
           );
         }
       }
