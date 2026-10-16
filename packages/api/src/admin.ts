@@ -108,15 +108,22 @@ export async function recheckPayment(ctx: Ctx): Promise<Response> {
 export async function listOrders(ctx: Ctx): Promise<Response> {
   await requireStaff(ctx, "monitor");
   const status = ctx.url.searchParams.get("status");
+  // "waiting": orders a person has to finish (sold by hand, or a supplier's delivery to check), oldest first.
+  const waiting = status === "waiting";
   const rows = await ctx.svc.db.query(
     `select o.id, o.number, o.status, o.total_cents, o.discount_cents, o.cost_cents, o.channel, o.supplier_id, o.supplier_order_id, o.attempts,
-            o.last_error, o.created_at, o.delivered_at, u.display_name, p.name_en as product_en, p.name_ar as product_ar
-       from app.orders o join app.users u on u.id = o.user_id join app.products p on p.id = o.product_id
+            o.last_error, o.created_at, o.delivered_at, o.hold, o.answered_at, u.display_name, p.name_en as product_en, p.name_ar as product_ar,
+            f.name_en as offer_en, f.name_ar as offer_ar
+       from app.orders o join app.users u on u.id = o.user_id join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
       where ($1::text is null or o.status = $1)
-      order by o.number desc limit 100`,
-    [status && /^[a-z]+$/.test(status) ? status : null],
+        and (not $2::boolean or (o.hold is not null and o.status in ('paid', 'processing')))
+      order by case when $2::boolean then o.number end asc, o.number desc limit 100`,
+    [!waiting && status && /^[a-z]+$/.test(status) ? status : null, waiting],
   );
-  return json({ orders: rows });
+  const counts = await ctx.svc.db.query<{ waiting: string | number }>(
+    `select count(*) as waiting from app.orders where hold is not null and status in ('paid', 'processing')`,
+  );
+  return json({ orders: rows, waiting: Number(counts[0]?.waiting ?? 0) });
 }
 
 export async function refundOrder(ctx: Ctx): Promise<Response> {

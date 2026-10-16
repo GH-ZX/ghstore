@@ -1,4 +1,8 @@
-/** Orders list and order detail with copyable deliveries; virtual numbers get their own panel. */
+/**
+ * Orders list and order detail with copyable deliveries; virtual numbers get
+ * their own panel, and products delivered by hand ask for the customer's
+ * details after paying.
+ */
 import { useEffect, useState } from "react";
 import { api, ApiFail } from "../lib/api";
 import { copyText, dateTime, usd } from "../lib/format";
@@ -8,7 +12,7 @@ import { toast, useT } from "../lib/state";
 import { haptic } from "../lib/telegram";
 import { useApi } from "../lib/useApi";
 import type { OrderDetail, OrderRow, OrderStatus } from "../lib/types";
-import { ChevronIcon } from "../ui/icons";
+import { CheckIcon, ChevronIcon } from "../ui/icons";
 import { Empty, ErrorBox, Spinner } from "../ui/kit";
 import { Shell } from "../ui/Shell";
 import { RequireUser } from "./Login";
@@ -75,7 +79,7 @@ function OrderList() {
                   {usd(o.totalCents)}
                 </span>
                 <span className="small" style={{ color: STATUS_COLOR[o.status], fontWeight: 600 }}>
-                  {t(`st_${o.status}`)}
+                  {o.hold === "info" && (o.status === "paid" || o.status === "processing") ? t("holdInfoShort") : t(`st_${o.status}`)}
                 </span>
               </span>
               <span className="muted">
@@ -109,13 +113,15 @@ function OrderView({ id }: { id: string }) {
   const { t, lang } = useT();
   const { data, error, reload } = useApi<OrderDetail>(`/api/orders/${encodeURIComponent(id)}`);
   const open = data && (data.order.status === "paid" || data.order.status === "processing");
+  const hold = open ? data?.order.hold ?? null : null;
 
-  // While the supplier is still working, check again every few seconds.
+  // While the supplier (or the team) is still working, check again every few
+  // seconds; not while the customer is filling in their details.
   useEffect(() => {
-    if (!open) return;
-    const timer = setInterval(() => void reload(), 5000);
+    if (!open || hold === "info") return;
+    const timer = setInterval(() => void reload(), hold ? 15000 : 5000);
     return () => clearInterval(timer);
-  }, [open, reload]);
+  }, [open, hold, reload]);
 
   async function copy(v: string) {
     if (await copyText(v)) {
@@ -150,7 +156,7 @@ function OrderView({ id }: { id: string }) {
             {usd(o.totalCents)}
           </span>
           <span className="badge" style={{ color: STATUS_COLOR[o.status], background: "var(--surface-2)" }}>
-            ● {t(`st_${o.status}`)}
+            ● {hold === "info" ? t("holdInfoShort") : hold ? t("st_processing") : t(`st_${o.status}`)}
           </span>
         </div>
         {o.discountCents > 0 && (
@@ -176,10 +182,12 @@ function OrderView({ id }: { id: string }) {
         </div>
       )}
 
-      {open && o.kind !== "sms" && (
-        <div className="card card--pad wrap">
+      {o.canAnswer && <DetailsPanel data={data} onSent={reload} />}
+
+      {open && o.kind !== "sms" && hold !== "info" && (
+        <div className="card card--pad status-wait">
           <Spinner small />
-          <span>{t("inProgress")}</span>
+          <span>{hold ? t("holdTeam") : t("inProgress")}</span>
         </div>
       )}
       {o.status === "refunded" && <div className="card card--pad">{t("refundedNote")}</div>}
@@ -300,5 +308,130 @@ function NumberPanel({ data, onChanged, onCopy }: { data: OrderDetail; onChanged
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The details a product needs after paying (email, password, cookies...).
+ * Once sent they can be corrected until the order is delivered; secrets are
+ * never shown back, and an empty secret keeps the one already sent.
+ */
+function DetailsPanel({ data, onSent }: { data: OrderDetail; onSent: () => void }) {
+  const { t, lang } = useT();
+  const o = data.order;
+  const fields = o.afterFields ?? [];
+  const sent = o.hold !== "info";
+  const [editing, setEditing] = useState(!sent);
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(fields.map((f) => [f.key, f.value ?? ""])));
+  const [show, setShow] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  const [bad, setBad] = useState<string | null>(null);
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setBad(null);
+    try {
+      await api(`/api/orders/${o.id}/answers`, { body: { values } });
+      haptic("success");
+      toast(t("afterSent"));
+      setEditing(false);
+      onSent();
+    } catch (err) {
+      const f = err instanceof ApiFail ? err : new ApiFail("internal", 0);
+      if (f.field?.startsWith("answers.")) setBad(f.field.slice(8));
+      toast(errorText(lang, f.code), true);
+      haptic("error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="card card--pad stack-sm">
+        <div className="row-between">
+          <strong className="good wrap" style={{ gap: 6 }}>
+            <CheckIcon /> {t("afterGiven")}
+          </strong>
+          <button type="button" className="btn btn--xs btn--ghost press" onClick={() => setEditing(true)}>
+            {t("afterEdit")}
+          </button>
+        </div>
+        {fields.map((f) => (
+          <div key={f.key} className="row-between small">
+            <span className="muted">{pick(lang, f.labelAr, f.labelEn)}</span>
+            <span dir="ltr">{f.value ?? (f.given ? "••••••" : "—")}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <form className="card card--pad stack details-form" onSubmit={send}>
+      <div className="stack-sm">
+        <h3>{t("afterFormTitle")}</h3>
+        <span className="small muted">{t("afterFormHint")}</span>
+      </div>
+      {fields.map((f) => {
+        const label = pick(lang, f.labelAr, f.labelEn);
+        const hint = pick(lang, f.hintAr ?? "", f.hintEn ?? "");
+        const set = (v: string) => setValues((x) => ({ ...x, [f.key]: v }));
+        const v = values[f.key] ?? "";
+        const keep = sent && f.given && (f.type === "password" || f.type === "token");
+        return (
+          <label key={f.key} className="field">
+            <span>
+              {label}
+              {f.required && <span className="muted"> *</span>}
+            </span>
+            {f.type === "token" || f.type === "custom" ? (
+              <textarea
+                className={f.type === "token" ? "input input--mono" : "input"}
+                dir={f.type === "token" ? "ltr" : "auto"}
+                rows={f.type === "token" ? 4 : 2}
+                value={v}
+                placeholder={keep ? t("afterKeep") : undefined}
+                aria-invalid={bad === f.key || undefined}
+                spellCheck={false}
+                onChange={(e) => set(e.target.value)}
+              />
+            ) : (
+              <span className="input-wrap">
+                <input
+                  className="input"
+                  dir="ltr"
+                  type={f.type === "email" ? "email" : f.type === "password" && !show[f.key] ? "password" : "text"}
+                  autoComplete={f.type === "email" ? "email" : "off"}
+                  value={v}
+                  placeholder={keep ? t("afterKeep") : undefined}
+                  aria-invalid={bad === f.key || undefined}
+                  onChange={(e) => set(e.target.value)}
+                />
+                {f.type === "password" && (
+                  <button type="button" className="btn btn--xs btn--ghost press" onClick={() => setShow((x) => ({ ...x, [f.key]: !x[f.key] }))}>
+                    {show[f.key] ? t("hide") : t("show")}
+                  </button>
+                )}
+              </span>
+            )}
+            {hint && <span className="small muted">{hint}</span>}
+            {bad === f.key && <span className="error-text">{v.trim() ? t("invalidValue") : t("required")}</span>}
+          </label>
+        );
+      })}
+      <span className="small muted">🔒 {t("afterPrivacy")}</span>
+      <div className="wrap">
+        <button className="btn press" disabled={busy}>
+          {busy ? <Spinner small /> : sent ? t("afterResend") : t("afterSubmit")}
+        </button>
+        {sent && (
+          <button type="button" className="btn btn--ghost press" onClick={() => setEditing(false)}>
+            {t("cancel")}
+          </button>
+        )}
+      </div>
+    </form>
   );
 }

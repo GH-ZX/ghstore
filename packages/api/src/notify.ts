@@ -17,6 +17,10 @@ const TEMPLATES: Record<string, { ar: (d: Data) => string; en: (d: Data) => stri
     ar: (d) => `تم تسليم طلبك رقم ${d.number}. افتح المتجر لرؤية التفاصيل.`,
     en: (d) => `Order #${d.number} is delivered. Open the store to see the details.`,
   },
+  order_needs_info: {
+    ar: (d) => `طلبك رقم ${d.number} بحاجة إلى بياناتك لنكمله. افتح الطلبات وأرسلها من هناك.`,
+    en: (d) => `Order #${d.number} needs your details before we can deliver it. Open Orders and send them there.`,
+  },
   order_refunded: {
     ar: (d) => `تعذّر تنفيذ الطلب رقم ${d.number}، وأُعيد ${formatUsd(n(d.amount_cents))} إلى محفظتك.`,
     en: (d) => `Order #${d.number} could not be completed. ${formatUsd(n(d.amount_cents))} is back in your wallet.`,

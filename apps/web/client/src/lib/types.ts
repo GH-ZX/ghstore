@@ -73,6 +73,8 @@ export interface ProductCard {
   fromCents: number;
   packages: number;
   searchTerms: string;
+  /** Delivered by the store's team (not instantly). */
+  byHand?: boolean;
 }
 
 export interface InputField {
@@ -92,6 +94,22 @@ export interface Offer {
   priceCents: number;
   fields: InputField[];
   maxQuantity: number;
+  /** "Full warranty", "5-hour warranty" (null: none said). */
+  warrantyAr?: string | null;
+  warrantyEn?: string | null;
+}
+
+/** What a customer gives after paying for a product delivered by hand. */
+export type AfterType = "email" | "password" | "id" | "username" | "token" | "custom";
+
+export interface AfterFieldDef {
+  key?: string;
+  type: AfterType;
+  labelEn: string;
+  labelAr: string;
+  hintEn?: string;
+  hintAr?: string;
+  required: boolean;
 }
 
 export interface ProductDetail {
@@ -111,6 +129,10 @@ export interface ProductDetail {
     instructionsEn: string;
     warrantyAr: string;
     warrantyEn: string;
+    /** Delivered by the store's team (not instantly). */
+    byHand?: boolean;
+    /** Asked after paying. */
+    afterFields?: { key: string; type: AfterType; labelEn: string; labelAr: string; required: boolean }[];
   };
   offers: Offer[];
 }
@@ -128,7 +150,11 @@ export interface OrderRow {
   productEn: string;
   packageAr: string;
   packageEn: string;
+  /** Waiting for the customer's details ("info") or the team ("owner", "release"). */
+  hold?: OrderHold | null;
 }
+
+export type OrderHold = "info" | "owner" | "release";
 
 export interface OrderDetail {
   order: {
@@ -151,6 +177,14 @@ export interface OrderDetail {
     expiresAt?: string | null;
     /** Virtual numbers: the number can still be cancelled or reported as already used. */
     numberActions?: boolean;
+    hold?: OrderHold | null;
+    /** The details asked after paying; secrets come back as null with given: true. */
+    afterFields?: {
+      key: string; type: AfterType; labelEn: string; labelAr: string; hintEn: string | null; hintAr: string | null;
+      required: boolean; value: string | null; given: boolean;
+    }[];
+    answeredAt?: string | null;
+    canAnswer?: boolean;
   };
   deliveries: { kind: string; label: string | null; value: string }[];
 }

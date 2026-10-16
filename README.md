@@ -36,6 +36,8 @@ someone else's store.
 | Units on packages, wide covers, pictures in Supabase Storage | Done, tested |
 | 5SIM virtual numbers: countdown, code, cancel / already used with refund | Done, tested |
 | Per-supplier check schedules (5 min to 24 h), out-of-stock hiding | Done, tested |
+| Products delivered by hand, details asked after paying, supplier deliveries checked before release | Done, tested |
+| Clean names for BatStore / ProdSeller shorthand, package warranties | Done, tested |
 | Email and Google sign-in, linked to Telegram (one wallet) | Done, tested |
 | Email receipts (Resend), Telegram broadcasts, job-failure alerts | Done, tested |
 

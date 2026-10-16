@@ -110,6 +110,30 @@ from 1001, shown as `GH-1001`.
    to "now". Orders still open after `orders.max_pending_hours` go to a person;
    they are never refunded automatically, because the supplier may still deliver.
 
+### Orders that wait for someone (`orders.hold`, migration 0021)
+
+How a product is delivered is `products.delivery`: `auto` (the supplier, or
+the stock uploaded in the admin), `manual` (a person: no supplier is called,
+no stock is used) or `review` (the supplier delivers, a person checks it and
+releases it). A product can also ask for details after paying
+(`products.after_fields`: email, password, account ID, username, cookies or
+session token, or the owner's own question); the product page lists them and
+the customer ticks "I have these ready" before paying.
+
+- `hold = 'info'`: paid, waiting for the customer's details. The order page
+  shows the form (`POST /api/orders/:id/answers`); the answers are checked,
+  stored encrypted (`orders.answers_enc`, `DATA_KEY`), never put in a message,
+  and erased two weeks after the order is closed (`erase_details` job). Then a
+  supplier is asked, or the order waits for a person.
+- `hold = 'owner'`: waiting for a person to deliver it (Admin → Orders →
+  Waiting). The details can be corrected until then.
+- `hold = 'release'`: the supplier delivered; the customer sees nothing until a
+  person releases it.
+- Staff (owner, support) open the order (`GET /api/admin/orders/:id`, every
+  look at the details is audit logged), deliver it or release it
+  (`POST /api/admin/orders/:id/deliver`), or refund it. A held order is never
+  bought or re-checked by the scheduled job.
+
 ## Top-up flow
 
 | Method | How it is confirmed |
@@ -148,8 +172,17 @@ New supplier items are never added automatically: the owner chooses them in
 - **Each supplier groups its own way**: an adapter tells, per item, which
   store product it belongs to (`productKey`, `productName`, `packageName` on
   `SupplierProduct`): G2Bulk one product per game (and per voucher brand),
-  MaxStore per category, 5SIM per service; BatStore and ProdSeller items are
-  products of their own. The screen has no supplier-specific code.
+  MaxStore per category, 5SIM per service. The screen has no supplier-specific code.
+- **Clean names** for suppliers that name each item in shorthand
+  (`suppliers.clean_names`: BatStore, ProdSeller): `cleanSupplierName` in
+  packages/core turns "Capcut pro 1M 1600 Ai credit FW" into the product
+  "CapCut Pro", the package "1 month · 1,600 AI credits" and the warranty
+  "Full warranty" (`offers.warranty_ar` / `warranty_en`, shown on the package),
+  in both languages; items with the same clean product name become packages of
+  one product. Warranties, durations, tokens, credits and seat counts are read
+  on their own; the rest comes from the owner's word list (Admin → Suppliers →
+  Names, setting `catalog.name_words`, with a live preview). Saving renames the
+  saved supplier lists only, never products on sale (`packages/api/src/names.ts`).
 - **Applying** (`POST /api/admin/suppliers/:id/selection`, `selection.ts`): a
   dry run returns the plan, the real run does it in one transaction, owner
   only, audit logged, at most 500 changes. Every item is checked against the
@@ -200,10 +233,11 @@ several MB).
 | `payments` | Re-check pending SAM/NOWPayments top-ups; expire old ones |
 | `supplier_balances` | Every 15 min; alert once when a balance drops under its threshold |
 | `supplier_sync` | Every minute, for each supplier whose own interval is up (5 min to 24 h, Admin → Suppliers → Price and stock checks): costs, availability, margin guard |
-| `supplier_catalogue` | Every 5 min, with spare requests only: refresh up to 3 groups of the saved supplier lists (Choose packages) |
+| `supplier_catalogue` | Every 5 min, with spare requests only: refresh up to 3 groups of the saved supplier lists (Choose packages); suppliers that list everything in one request go first, and new items of clean-name suppliers are named |
 | `store_images` | Every 10 min, once the storage key is set: copy pictures linked from other sites into the store's Storage bucket |
 | `outbox` | Send queued Telegram notifications |
 | `buy_again` | Twice an hour: queue due "buy again" reminders |
+| `erase_details` | Twice an hour: erase the details customers gave after paying, two weeks after their order closed |
 | `daily_summary` | Every 10 minutes; in the owner's chosen local hour (default 09:00), queue yesterday's summary once |
 
 Each job records `last_ok_at` / `last_error` in `app.job_heartbeats`, shown on the

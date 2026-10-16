@@ -13,6 +13,7 @@ import { toast, useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
 import { Empty, ErrorBox, Sheet, Spinner, Switch } from "../ui/kit";
 import { Choose } from "./Choose";
+import { Names } from "./Names";
 import { ago, useAction } from "./common";
 
 interface Report {
@@ -84,6 +85,7 @@ export function Suppliers() {
   const path = usePath();
   const choose = /^\/admin\/suppliers\/choose\/([a-z0-9_]{2,32})$/.exec(path);
   if (choose) return <Choose supplierId={choose[1]!} />;
+  if (path === "/admin/suppliers/names") return <Names />;
   return <SupplierList />;
 }
 
@@ -98,6 +100,15 @@ function SupplierList() {
     <div className="stack">
       <p className="hint">{t("suppliersHint")}</p>
       <ChecksPanel suppliers={data.suppliers} onChanged={reload} />
+      <div className="card card--pad row-between">
+        <span className="stack-sm">
+          <strong>{t("namesTitle")}</strong>
+          <span className="small muted">{t("namesCardHint")}</span>
+        </span>
+        <a className="btn btn--sm btn--soft press" href="/admin/suppliers/names" onClick={linkHandler("/admin/suppliers/names")}>
+          {t("namesOpen")}
+        </a>
+      </div>
       <div className="sup-grid">
         {data.suppliers.map((s) => (
           <SupplierCard key={s.id} s={s} onChanged={reload} onSettings={() => setSettings(s)} onReview={() => setReview(s)} />

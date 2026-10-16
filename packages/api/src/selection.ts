@@ -48,6 +48,8 @@ interface Item {
   product_name_ar: string | null;
   package_name: string | null;
   package_name_ar: string | null;
+  warranty_en: string | null;
+  warranty_ar: string | null;
   cost_cents: string | number;
   available: boolean;
   missing: boolean;
@@ -78,7 +80,10 @@ interface Destination {
   unitEn: string;
   kind: string;
   isNew: boolean;
-  items: { ref: string; name: string; nameAr: string; costCents: number; priceCents: number; fields: InputField[]; reactivate?: string }[];
+  items: {
+    ref: string; name: string; nameAr: string; costCents: number; priceCents: number; fields: InputField[];
+    warrantyEn: string | null; warrantyAr: string | null; reactivate?: string;
+  }[];
 }
 
 /** A name typed in the review step: 1-120 characters. */
@@ -161,7 +166,8 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
     const items = new Map(
       (
         await db.query<Item>(
-          `select external_id, name, product_key, product_name, product_name_ar, package_name, package_name_ar, cost_cents, available,
+          `select external_id, name, product_key, product_name, product_name_ar, package_name, package_name_ar, warranty_en, warranty_ar,
+                  cost_cents, available,
                   missing_since is not null as missing, kind, fields
              from app.supplier_items where supplier_id = $1 and external_id in (select jsonb_array_elements_text($2::text::jsonb))`,
           [supplierId, JSON.stringify(add)],
@@ -216,6 +222,8 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
         costCents: cost,
         priceCents: priceFromCost(cost, rule),
         fields,
+        warrantyEn: item.warranty_en,
+        warrantyAr: item.warranty_ar,
       };
       if (offer) {
         // Archived earlier: the same package comes back, in its own product.
@@ -306,7 +314,10 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
     const plan = {
       add: [...dests.values()].map((d) => ({
         key: d.key, productId: d.productId, categoryId: d.categoryId, nameAr: d.nameAr, nameEn: d.nameEn, unitAr: d.unitAr, unitEn: d.unitEn, isNew: d.isNew,
-        items: d.items.map((i) => ({ ref: i.ref, name: i.name, nameAr: i.nameAr, costCents: i.costCents, priceCents: i.priceCents, reactivate: !!i.reactivate })),
+        items: d.items.map((i) => ({
+          ref: i.ref, name: i.name, nameAr: i.nameAr, warrantyEn: i.warrantyEn, warrantyAr: i.warrantyAr,
+          costCents: i.costCents, priceCents: i.priceCents, reactivate: !!i.reactivate,
+        })),
       })),
       remove: removals.map(({ offerId: _o, productId: _p, ...r }) => r),
       hide: hide.map((p) => ({ id: p.id, nameAr: p.name_ar, nameEn: p.name_en })),
@@ -353,9 +364,12 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
         } else {
           await db.query(
             `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value,
-                                     round_to_cents, min_margin_pct, input_fields, cost_checked_at)
-             values ($1, $11, $2, $3, $4, $5, $6, 'percent', $7, $8, $9, $10::text::jsonb, now())`,
-            [productId, i.name.slice(0, 120), supplierId, i.ref, i.costCents, i.priceCents, rule.value, rule.roundToCents, rule.minMarginPct, JSON.stringify(i.fields), i.nameAr.slice(0, 120)],
+                                     round_to_cents, min_margin_pct, input_fields, cost_checked_at, warranty_en, warranty_ar)
+             values ($1, $11, $2, $3, $4, $5, $6, 'percent', $7, $8, $9, $10::text::jsonb, now(), $12, $13)`,
+            [
+              productId, i.name.slice(0, 120), supplierId, i.ref, i.costCents, i.priceCents, rule.value, rule.roundToCents, rule.minMarginPct,
+              JSON.stringify(i.fields), i.nameAr.slice(0, 120), i.warrantyEn?.slice(0, 40) ?? null, i.warrantyAr?.slice(0, 40) ?? null,
+            ],
           );
         }
       }

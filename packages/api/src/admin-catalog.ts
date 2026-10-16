@@ -5,16 +5,19 @@
  * What to sell from a supplier is chosen in Admin → Suppliers → Choose packages
  * (supplier-catalogue.ts, selection.ts). The sync keeps cost and price in line.
  */
-import { encryptText, minimumPrice, priceFromCost, withUnit, type InputField, type MarkupMode } from "@store/core";
+import { encryptText, minimumPrice, parseAfterFields, priceFromCost, withUnit, type InputField, type MarkupMode } from "@store/core";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { call, must, n, one } from "./db";
 import { ApiError, int, json, optStr, readJson, str, uuid } from "./http";
+import { renameSavedItems } from "./names";
 
 const SLUG = /^[a-z0-9-]{1,80}$/;
 const SUPPLIER_ID = /^[a-z0-9_]{2,32}$/;
 const KINDS = ["id", "code", "account", "link", "sms"] as const;
 const MODES: MarkupMode[] = ["percent", "fixed", "manual"];
+/** auto: the supplier or the stock delivers; manual: a person does; review: the supplier does, a person releases it. */
+const DELIVERY = ["auto", "manual", "review"] as const;
 
 async function audit(ctx: Ctx, actor: string, action: string, targetType: string, targetId: string, data: Record<string, unknown> = {}) {
   await ctx.svc.db.query(
@@ -150,6 +153,29 @@ function productChanges(body: Record<string, unknown>): Record<string, unknown> 
   }
   const sort = optInt(body, "sort", -10_000, 10_000);
   if (sort !== undefined) out.sort = sort;
+  if (body.delivery !== undefined) {
+    const d = str(body, "delivery", { max: 10 });
+    if (!(DELIVERY as readonly string[]).includes(d)) throw new ApiError("invalid_input", "delivery");
+    out.delivery = d;
+  }
+  // What the customer gives after paying (email, password, cookies...).
+  if (body.afterFields !== undefined) {
+    const fields = parseAfterFields(body.afterFields);
+    if (!fields) throw new ApiError("invalid_input", "afterFields");
+    out.after_fields = fields;
+  }
+  return out;
+}
+
+/** A package's warranty label ("Full warranty"), both languages or neither. */
+function warrantyChanges(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, col] of [["warrantyAr", "warranty_ar"], ["warrantyEn", "warranty_en"]] as const) {
+    const v = body[key];
+    if (v === undefined) continue;
+    if (v !== null && (typeof v !== "string" || v.trim().length > 40)) throw new ApiError("invalid_input", key);
+    out[col] = typeof v === "string" && v.trim() ? v.replace(/\s+/g, " ").trim() : null;
+  }
   return out;
 }
 
@@ -157,8 +183,9 @@ function productChanges(body: Record<string, unknown>): Record<string, unknown> 
 async function updateRow(ctx: Ctx, table: string, id: string, changes: Record<string, unknown>): Promise<void> {
   const cols = Object.keys(changes);
   if (!cols.length) throw new ApiError("bad_request");
-  const sets = cols.map((c, i) => (c === "input_fields" ? `${c} = $${i + 2}::text::jsonb` : `${c} = $${i + 2}`));
-  const params = cols.map((c) => (c === "input_fields" ? JSON.stringify(changes[c]) : changes[c]));
+  const isJson = (c: string) => c === "input_fields" || c === "after_fields";
+  const sets = cols.map((c, i) => (isJson(c) ? `${c} = $${i + 2}::text::jsonb` : `${c} = $${i + 2}`));
+  const params = cols.map((c) => (isJson(c) ? JSON.stringify(changes[c]) : changes[c]));
   const rows = await call(ctx.svc.db, `update app.${table} set ${sets.join(", ")} where id = $1 returning id`, [id, ...params]);
   if (!rows.length) throw new ApiError("not_found");
 }
@@ -171,13 +198,14 @@ export async function getCatalog(ctx: Ctx): Promise<Response> {
   const categories = await db.query(`select id, slug, name_ar, name_en, sort, active from app.categories order by sort, slug`);
   const products = await db.query(
     `select id, slug, category_id, name_ar, name_en, description_ar, description_en, instructions_ar, instructions_en,
-            warranty_ar, warranty_en, search_terms, image_url, cover_url, unit_ar, unit_en, kind, active, featured, sort
+            warranty_ar, warranty_en, search_terms, image_url, cover_url, unit_ar, unit_en, kind, active, featured, sort,
+            delivery, after_fields
        from app.products order by sort, name_en`,
   );
   const offers = await db.query<Record<string, unknown> & { cost_cents: unknown; price_cents: unknown }>(
     `select o.id, o.product_id, o.name_ar, o.name_en, o.sort, o.supplier_id, o.supplier_ref, o.cost_cents, o.price_cents,
             o.markup_mode, o.markup_value, o.round_to_cents, o.min_margin_pct, o.input_fields, o.max_quantity, o.active,
-            o.paused_reason, o.cost_checked_at, o.remind_after_days,
+            o.paused_reason, o.cost_checked_at, o.remind_after_days, o.warranty_ar, o.warranty_en,
             (select count(*) from app.stock_items s where s.offer_id = o.id and s.status = 'available') as stock_available
        from app.offers o order by o.sort, o.price_cents`,
   );
@@ -223,8 +251,9 @@ export async function createProduct(ctx: Ctx): Promise<Response> {
   const cols = Object.keys(c);
   const rows = await call<{ id: string }>(
     ctx.svc.db,
-    `insert into app.products (${cols.join(", ")}) values (${cols.map((_, i) => `$${i + 1}`).join(", ")}) returning id`,
-    cols.map((k) => c[k]),
+    `insert into app.products (${cols.join(", ")})
+     values (${cols.map((k, i) => (k === "after_fields" ? `$${i + 1}::text::jsonb` : `$${i + 1}`)).join(", ")}) returning id`,
+    cols.map((k) => (k === "after_fields" ? JSON.stringify(c[k]) : c[k])),
   );
   const id = rows[0]!.id;
   await audit(ctx, staff.id, "product.create", "product", id, { slug: c.slug });
@@ -300,19 +329,20 @@ export async function createOffer(ctx: Ctx): Promise<Response> {
   const pricing = pricingFrom(body);
   const price = resolvePrice(cost, pricing, optInt(body, "priceCents", 1, 10_000_000));
   const fields = body.inputFields === undefined ? [] : parseInputFields(body.inputFields);
+  const warranty = warrantyChanges(body);
   const rows = await call<{ id: string }>(
     ctx.svc.db,
     `insert into app.offers (product_id, name_ar, name_en, sort, supplier_id, supplier_ref, cost_cents, price_cents,
                              markup_mode, markup_value, round_to_cents, min_margin_pct, input_fields, max_quantity, active,
-                             remind_after_days, cost_checked_at)
+                             remind_after_days, cost_checked_at, warranty_ar, warranty_en)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text::jsonb, $14, $15, $16,
-             case when $7::bigint is null then null else now() end)
+             case when $7::bigint is null then null else now() end, $17, $18)
      returning id`,
     [
       productId, str(body, "nameAr", { max: 120 }), str(body, "nameEn", { max: 120 }), optInt(body, "sort", -10_000, 10_000) ?? 0,
       supplierId, supplierRef, cost, price, pricing.mode, pricing.value, pricing.roundToCents, pricing.minMarginPct,
       JSON.stringify(fields), optInt(body, "maxQuantity", 1, 100) ?? 1, bool(body, "active") ?? true,
-      optInt(body, "remindAfterDays", 1, 365) ?? null,
+      optInt(body, "remindAfterDays", 1, 365) ?? null, warranty.warranty_ar ?? null, warranty.warranty_en ?? null,
     ],
   );
   const id = rows[0]!.id;
@@ -348,6 +378,7 @@ export async function updateOffer(ctx: Ctx): Promise<Response> {
   // "Buy again" reminder after this many days (null turns it off).
   if (body.remindAfterDays !== undefined) changes.remind_after_days = body.remindAfterDays === null ? null : int(body, "remindAfterDays", 1, 365);
   if (body.inputFields !== undefined) changes.input_fields = parseInputFields(body.inputFields);
+  Object.assign(changes, warrantyChanges(body));
   // Clearing a system pause is an explicit decision; the next sync pauses again if still needed.
   if (bool(body, "clearPause")) changes.paused_reason = null;
 
@@ -411,6 +442,9 @@ export async function updateSupplier(ctx: Ctx): Promise<Response> {
   // Telegram alerts when packages run out of stock and come back.
   const stockAlerts = bool(body, "stockAlerts");
   if (stockAlerts !== undefined) changes.stock_alerts = stockAlerts;
+  // Name this supplier's items with the name cleaner (Admin → Suppliers → Names).
+  const cleanNames = bool(body, "cleanNames");
+  if (cleanNames !== undefined) changes.clean_names = cleanNames;
   const auto = bool(body, "autoReprice");
   if (auto !== undefined) changes.auto_reprice = auto;
   if (body.maxJumpPct !== undefined) changes.max_jump_pct = body.maxJumpPct === null ? null : int(body, "maxJumpPct", 5, 1000);
@@ -429,8 +463,10 @@ export async function updateSupplier(ctx: Ctx): Promise<Response> {
     changes[col] = v.trim();
   }
   await updateRow(ctx, "suppliers", id, changes);
+  // The saved list (Choose packages) follows at once; the store's products keep their names.
+  const renamed = cleanNames !== undefined ? await renameSavedItems(ctx.svc, id) : 0;
   await audit(ctx, staff.id, "supplier.update", "supplier", id, changes);
-  return json({ ok: true });
+  return json({ ok: true, renamed });
 }
 
 /**

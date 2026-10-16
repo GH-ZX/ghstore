@@ -1,4 +1,8 @@
-/** Product sheet: pick a package, fill its fields, buy from the wallet. */
+/**
+ * Product sheet: pick a package, fill its fields, buy from the wallet. A
+ * product delivered by hand lists the details it will ask for after paying,
+ * and the customer confirms they have them ready.
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { matchesQuery } from "@store/core";
 import { api, ApiFail, idempotencyKey } from "../lib/api";
@@ -9,7 +13,7 @@ import { refreshMe, toast, useApp, useT } from "../lib/state";
 import { haptic, openTelegramLink } from "../lib/telegram";
 import { invalidate, useApi } from "../lib/useApi";
 import type { CouponQuote, InputField, Offer, ProductDetail } from "../lib/types";
-import { CheckIcon, ShareIcon } from "../ui/icons";
+import { CheckIcon, ShareIcon, ShieldIcon } from "../ui/icons";
 import { ErrorBox, Sheet, Spinner, Tile } from "../ui/kit";
 
 interface Placed {
@@ -52,6 +56,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const [couponBusy, setCouponBusy] = useState(false);
   // Many packages (a virtual number's countries): a search box over them.
   const [pq, setPq] = useState("");
+  const [ready, setReady] = useState(false);
   const key = useRef(idempotencyKey());
 
   // Field names are the supplier's own; look them up without touching Object internals.
@@ -62,7 +67,8 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const total = coupon ? coupon.totalCents : listTotal;
   const balance = me?.balanceCents ?? 0;
   const enough = balance >= total;
-  const invalid = offer ? offer.fields.some((f) => fieldError(f, valueOf(f.key))) : true;
+  const after = data?.product.afterFields ?? [];
+  const invalid = offer ? offer.fields.some((f) => fieldError(f, valueOf(f.key))) || (after.length > 0 && !ready) : true;
 
   /** Share the product's page (it shows a preview with its name, picture and price). */
   async function share() {
@@ -158,6 +164,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
 
   if (placed) {
     const delivered = placed.status === "delivered";
+    const needsDetails = after.length > 0 && !delivered;
     return (
       <Sheet onClose={onClose} label={t("orderPlaced")} head={<span />}>
         <div className="done">
@@ -165,9 +172,9 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             <CheckIcon size={36} />
           </span>
           <h2>{t("orderPlaced")}</h2>
-          <p className="muted">{delivered ? t("orderDelivered") : t("orderProcessing")}</p>
+          <p className="muted">{delivered ? t("orderDelivered") : needsDetails ? t("afterNow") : t("orderProcessing")}</p>
           <button type="button" className="btn btn--block press" onClick={() => navigate(`/orders/${placed.orderId}`)}>
-            {t("viewOrder")}
+            {needsDetails ? t("afterSend") : t("viewOrder")}
           </button>
           <button type="button" className="btn btn--block btn--ghost press" onClick={onClose}>
             {t("keepShopping")}
@@ -249,7 +256,18 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                 </s>
               )}
             </span>
-            <span className="badge badge--good">● {t("instant")}</span>
+            <span className="wrap" style={{ gap: 6 }}>
+              {pick(lang, offer.warrantyAr ?? "", offer.warrantyEn ?? "") && (
+                <span className="badge badge--warranty">
+                  <ShieldIcon size={12} /> {pick(lang, offer.warrantyAr ?? "", offer.warrantyEn ?? "")}
+                </span>
+              )}
+              {data.product.byHand ? (
+                <span className="badge">✋ {t("byHand")}</span>
+              ) : (
+                <span className="badge badge--good">● {t("instant")}</span>
+              )}
+            </span>
           </div>
 
           {data.product.kind === "sms" && <p className="small muted">{t("numBuyHint")}</p>}
@@ -273,7 +291,14 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
               <div className="options" role="radiogroup" aria-label={t("package")}>
                 {data.offers.filter((o) => o.id === offer.id || !pq || matchesQuery(`${o.nameAr} ${o.nameEn}`, pq)).map((o) => (
                   <button key={o.id} type="button" role="radio" aria-checked={o.id === offer.id} className="option press" onClick={() => choose(o)}>
-                    <span>{pick(lang, o.nameAr, o.nameEn)}</span>
+                    <span className="option__name">
+                      <span>{pick(lang, o.nameAr, o.nameEn)}</span>
+                      {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "") && (
+                        <span className="option__note">
+                          <ShieldIcon size={11} /> {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "")}
+                        </span>
+                      )}
+                    </span>
                     <span className="num">{usd(o.priceCents)}</span>
                   </button>
                 ))}
@@ -356,6 +381,25 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             );
           })}
 
+          {after.length > 0 && (
+            <div className="card card--pad after-note stack-sm">
+              <strong>{t("afterTitle")}</strong>
+              <span className="small muted">{t("afterHint")}</span>
+              <div className="wrap" style={{ gap: 6 }}>
+                {after.map((f) => (
+                  <span key={f.key} className="chip chip--sm">
+                    {pick(lang, f.labelAr, f.labelEn)}
+                  </span>
+                ))}
+              </div>
+              <label className="check">
+                <input type="checkbox" checked={ready} onChange={(e) => setReady(e.target.checked)} />
+                <span>{t("afterReady")}</span>
+              </label>
+              {touched && !ready && <span className="error-text">{t("afterConfirm")}</span>}
+            </div>
+          )}
+
           {me && (
             <div className="stack-sm">
               {coupon ? (
@@ -418,7 +462,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                   <span className="good">
                     <CheckIcon />
                   </span>
-                  {t(k)}
+                  {data.product.byHand && k === "f1" ? t("f1Hand") : t(k)}
                 </span>
               ))}
             </div>

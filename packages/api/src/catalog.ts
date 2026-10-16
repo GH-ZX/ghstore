@@ -2,7 +2,7 @@
  * Public catalog. Only active products with at least one sellable offer appear.
  * Supplier names and costs are never exposed.
  */
-import { matchesQuery, type InputField } from "@store/core";
+import { matchesQuery, type AfterField, type InputField } from "@store/core";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
 import { liveBanners } from "./home";
@@ -16,6 +16,7 @@ interface ProductRow {
   name_ar: string;
   name_en: string;
   kind: string;
+  delivery: string;
   image_url: string | null;
   cover_url: string | null;
   featured: boolean;
@@ -30,7 +31,7 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
     `select slug, name_ar, name_en, icon from app.categories where active order by sort, slug`,
   );
   const rows = await db.query<ProductRow>(
-    `select p.id, p.slug, c.slug as category_slug, p.name_ar, p.name_en, p.kind, p.image_url, p.cover_url, p.featured, p.search_terms,
+    `select p.id, p.slug, c.slug as category_slug, p.name_ar, p.name_en, p.kind, p.delivery, p.image_url, p.cover_url, p.featured, p.search_terms,
             min(o.price_cents) as min_price_cents, count(o.id) as offer_count
        from app.products p
        join app.categories c on c.id = p.category_id and c.active
@@ -59,6 +60,8 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
       fromCents: n(r.min_price_cents),
       packages: n(r.offer_count),
       searchTerms: r.search_terms,
+      // Delivered by the team, not instantly.
+      byHand: r.delivery !== "auto",
     }));
   const home = !q && !cat;
   const banners = home ? await liveBanners(db) : [];
@@ -127,11 +130,11 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
   const p = await one<{
     id: string; slug: string; name_ar: string; name_en: string; kind: string; image_url: string | null; cover_url: string | null;
     description_ar: string; description_en: string; instructions_ar: string; instructions_en: string;
-    warranty_ar: string; warranty_en: string; category_slug: string;
+    warranty_ar: string; warranty_en: string; category_slug: string; delivery: string; after_fields: AfterField[];
   }>(
     ctx.svc.db,
     `select p.id, p.slug, p.name_ar, p.name_en, p.kind, p.image_url, p.cover_url, p.description_ar, p.description_en,
-            p.instructions_ar, p.instructions_en, p.warranty_ar, p.warranty_en, c.slug as category_slug
+            p.instructions_ar, p.instructions_en, p.warranty_ar, p.warranty_en, c.slug as category_slug, p.delivery, p.after_fields
        from app.products p join app.categories c on c.id = p.category_id
       where p.slug = $1 and p.active and c.active`,
     [slug],
@@ -139,8 +142,9 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
   if (!p) throw new ApiError("not_found");
   const offers = await ctx.svc.db.query<{
     id: string; name_ar: string; name_en: string; price_cents: string | number; input_fields: InputField[]; max_quantity: number;
+    warranty_ar: string | null; warranty_en: string | null;
   }>(
-    `select o.id, o.name_ar, o.name_en, o.price_cents, o.input_fields, o.max_quantity
+    `select o.id, o.name_ar, o.name_en, o.price_cents, o.input_fields, o.max_quantity, o.warranty_ar, o.warranty_en
        from app.offers o where o.product_id = $1 and o.active and o.paused_reason is null
         and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))
       order by o.sort, o.price_cents`,
@@ -152,10 +156,13 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
       id: p.id, slug: p.slug, category: p.category_slug, kind: p.kind, imageUrl: p.image_url, coverUrl: p.cover_url,
       nameAr: p.name_ar, nameEn: p.name_en, descriptionAr: p.description_ar, descriptionEn: p.description_en,
       instructionsAr: p.instructions_ar, instructionsEn: p.instructions_en, warrantyAr: p.warranty_ar, warrantyEn: p.warranty_en,
+      // Delivered by a person (not instantly), and what the customer is asked after paying.
+      byHand: p.delivery !== "auto",
+      afterFields: (p.after_fields ?? []).map((f) => ({ key: f.key, type: f.type, labelEn: f.labelEn, labelAr: f.labelAr, required: f.required })),
     },
     offers: offers.map((o) => ({
       id: o.id, nameAr: o.name_ar, nameEn: o.name_en, priceCents: n(o.price_cents),
-      fields: o.input_fields, maxQuantity: o.max_quantity,
+      fields: o.input_fields, maxQuantity: o.max_quantity, warrantyAr: o.warranty_ar, warrantyEn: o.warranty_en,
     })),
   });
 }

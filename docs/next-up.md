@@ -4,50 +4,41 @@ Work the owner asked for, with the recommended direction. Nothing here is
 fixed: confirm the plan with the owner before building, and show screenshots
 (mobile and desktop, Arabic and English) before calling a UI change done.
 
-## Done: choosing what to sell, and the home showcase
+## Done recently
 
-- **Admin → Suppliers → Choose packages** replaced the old "Import from
-  supplier" sheet (see `docs/architecture.md` → Choosing what to sell). Each
-  supplier groups its items its own way (G2Bulk per game, MaxStore per
-  category, 5SIM per service, BatStore and ProdSeller one product per item).
-  New products show at once, with the supplier's description template
-  (Suppliers → Settings → New products) and the store's picture template
-  (`Tile` in `ui/kit.tsx`) until they get a picture of their own.
-- **The home showcase** (`ui/Showcase.tsx`) replaced the carousel: two looks,
-  Cinematic (a poster: a cover photo fills the slide, an icon becomes a card
-  over its blurred colours) and Deal (small glass buttons with the product's
-  packages). Each slide picks its look or follows the default; badges,
-  autoplay and packages per Deal slide are settings (Admin → Home → Showcase,
-  `home.*` in app.settings). Admin → Home previews with the same component.
-
-- **Units, covers and pictures**, **5SIM virtual numbers** and **supplier check
-  schedules** (see `docs/architecture.md` → Stock, units and pictures; Virtual
-  numbers).
+- **Choose packages** (Admin → Suppliers): tick what to sell from each
+  supplier, review, apply (`docs/architecture.md` → Choosing what to sell).
+- **Home showcase**: Cinematic and Deal looks, per slide, with settings.
+- **Units, covers and pictures**, **5SIM virtual numbers**, **per-supplier
+  check schedules** (architecture → Stock, units and pictures; Virtual numbers).
+- **Products delivered by hand** and **details asked after paying**
+  (architecture → Orders that wait for someone), **supplier deliveries checked
+  before release**, **clean names** for BatStore / ProdSeller shorthand with
+  package warranties (Admin → Suppliers → Names).
+- BatStore renumbered its catalogue in October 2026: the store's old BatStore
+  products were removed and its in-stock items put on sale again with clean names.
 
 ## Live checks after the next deploy
 
-- Migration `0019_units_covers_numbers.sql` on the live database first; the
-  Storage bucket `store-images` (public) exists and the secret key is in
-  Settings → Keys → Storage; the `store_images` job copies the linked pictures.
-- 5SIM: Choose packages lists services; add one (Telegram) and buy a cheap
-  number: the number, countdown and code appear in Orders; cancel one before a
-  code arrives and check the refund.
+- Migrations up to `0021_hand_delivery_names.sql` are on the live database first.
+- Admin → Suppliers → Names: BatStore and ProdSeller items show clean names;
+  Choose packages groups them (Zoom 3 / 6 / 12 months under one product).
+- A product set to "By hand" with after-payment details: buy it, give the
+  details on the order page, deliver it from Admin → Orders → Waiting; the
+  customer sees the delivery and gets a message.
+- 5SIM: add a service (Telegram) in Choose packages and buy a cheap number:
+  the number, countdown and code appear in Orders; cancel one before a code
+  arrives and check the refund.
+- Pictures: with the Supabase secret key in Settings → Keys → Storage, the
+  `store_images` job copies linked pictures into the `store-images` bucket.
 
-- Migration `0018_supplier_catalogue.sql` is on the live database first.
-- Admin → Suppliers → Choose packages, for each enabled supplier: the list
-  loads (G2Bulk: the games; opening one reads it), counts match what the store
-  sells, and the `supplier_catalogue` job fills the rest over a few hours
-  without errors in Admin → Overview.
-- Apply a small change (one package added and removed again) and check the
-  product, its price and its description in the store.
-- Each enabled supplier's "last check" updates and its report has no errors.
-- BatStore renumbered its catalogue: its paused packages show as "gone" in
-  Choose packages; point each at its new item with "Replace with…", or untick
-  them and tick the new items.
+## Asked for, not started
 
-## Ideas not started
-
-- Uploading slide and product pictures instead of pasting a link (needs a
-  storage bucket in the gh-store Supabase project: ask the owner first).
-- A name override per new product in the review step (today: edit it in
-  Catalogue afterwards).
+- **Units and covers for every game**: units in both languages (UC, Diamonds,
+  Genesis Crystals, CP…) and wide covers for the games still without one
+  (MLBB, Genshin, Free Fire…). Show the list before changing anything live.
+- **"Tell me when it's back"**: a customer asks to be told when a package that
+  ran out is back (Telegram message on restock); favourites with it.
+- **Sales and profit page**: profit per supplier and product, best sellers,
+  a daily chart.
+- **MaxStore**: a real $1 order before relying on it (formats not fully verified).

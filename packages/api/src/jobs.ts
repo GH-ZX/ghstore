@@ -151,8 +151,23 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   // Pictures linked from other sites, copied into the store's storage (once the key is set).
   if (minute % 10 === 4 && room(svc, 2) >= 10) await heartbeat(svc, "store_images", () => copyLinkedImages(svc, env, 4));
   if (minute % 30 === 11) await heartbeat(svc, "buy_again", () => queueBuyAgain(svc));
+  if (minute % 30 === 23) await heartbeat(svc, "erase_details", () => eraseOldDetails(svc));
   // Checked six times an hour, so one missed tick never skips a day; it is sent once.
   if (minute % 10 === 9) await heartbeat(svc, "daily_summary", () => queueDailySummary(svc));
+}
+
+/**
+ * The details customers gave after paying (passwords, cookies...) are kept two
+ * weeks after the order is closed, for questions about it, then erased.
+ */
+export async function eraseOldDetails(svc: Services): Promise<number> {
+  const rows = await svc.db.query(
+    `update app.orders set answers_enc = null
+      where answers_enc is not null and status in ('delivered', 'refunded', 'failed')
+        and coalesce(delivered_at, updated_at) < now() - interval '14 days'
+     returning 1`,
+  );
+  return rows.length;
 }
 
 /** Queue due "buy again" reminders; the outbox sends them on the next ticks. */

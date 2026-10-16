@@ -173,7 +173,7 @@ function useSlides(data: Catalog): SlideData[] {
     key: p.id,
     title: pick(lang, p.nameAr, p.nameEn),
     eyebrow: catName(p.category),
-    subtitle: `${t(`kind_${p.kind}`)} · ${t("instant")}`,
+    subtitle: `${t(`kind_${p.kind}`)} · ${p.byHand ? t("byHandShort") : t("instant")}`,
     cta: t("buyNow"),
     art: { name: p.nameEn, imageUrl: p.imageUrl },
     cover: p.coverUrl ?? null,
@@ -302,8 +302,8 @@ function ProductTile({ p }: { p: ProductCard }) {
         </span>
       </a>
       <span className="product__flag" aria-hidden="true">
-        <BoltIcon />
-        {t("instant")}
+        {p.byHand ? "✋" : <BoltIcon />}
+        {p.byHand ? t("byHandShort") : t("instant")}
       </span>
     </div>
   );

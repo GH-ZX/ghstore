@@ -13,6 +13,8 @@ import { publicConfig } from "./config";
 import type { ApiEnv, Services } from "./context";
 import { ApiError, errorResponse, json } from "./http";
 import * as orders from "./orders";
+import * as adminOrders from "./admin-orders";
+import * as names from "./names";
 import * as payments from "./payments";
 import * as promo from "./promo";
 import * as images from "./images";
@@ -62,6 +64,7 @@ const router = new Router()
   .on("GET", "/api/orders", orders.listOrders)
   .on("GET", "/api/orders/:id", orders.getOrder)
   .on("POST", "/api/orders/:id/number", orders.closeNumber)
+  .on("POST", "/api/orders/:id/answers", orders.submitAnswers)
   .on("POST", "/api/coupons/quote", promo.quoteCoupon)
   .on("POST", "/api/webhooks/suppliers/:id", orders.supplierWebhook)
   // wallet and top-ups
@@ -78,6 +81,8 @@ const router = new Router()
   .on("POST", "/api/admin/payments/:id/reject", admin.rejectPayment)
   .on("POST", "/api/admin/payments/:id/recheck", admin.recheckPayment)
   .on("GET", "/api/admin/orders", admin.listOrders)
+  .on("GET", "/api/admin/orders/:id", adminOrders.getAdminOrder)
+  .on("POST", "/api/admin/orders/:id/deliver", adminOrders.deliverOrder)
   .on("POST", "/api/admin/orders/:id/refund", admin.refundOrder)
   .on("POST", "/api/admin/orders/:id/retry", admin.retryOrder)
   .on("GET", "/api/admin/settings", admin.getSettings)
@@ -90,6 +95,9 @@ const router = new Router()
   .on("GET", "/api/admin/telegram", telegramSetup.getBotStatus)
   .on("POST", "/api/admin/telegram/connect", telegramSetup.connectBot)
   .on("POST", "/api/admin/email/test", admin.testEmail)
+  .on("GET", "/api/admin/names", names.getNames)
+  .on("POST", "/api/admin/names/preview", names.previewNames)
+  .on("PUT", "/api/admin/names", names.putNames)
   .on("GET", "/api/admin/keys", keys.listKeys)
   .on("PUT", "/api/admin/keys/:name", keys.putKey)
   .on("GET", "/api/admin/export/:kind", reports.exportCsv)

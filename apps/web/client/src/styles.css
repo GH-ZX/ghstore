@@ -370,6 +370,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   padding: 6px 6px 6px 14px; padding-inline: 14px 6px; font-family: var(--font-mono); font-size: 13px; direction: ltr;
 }
 .copy-box > span { flex: 1; min-width: 0; word-break: break-all; }
+/* Buttons keep the text font: Arabic in the monospace font loses its joins. */
+.copy-box .btn { font-family: var(--font); }
 
 .done { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 18px 4px 6px; }
 .done__icon { width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
@@ -780,3 +782,49 @@ button.sup__stat:disabled { cursor: default; }
 /* Brand marks are drawn for light backgrounds, so their tile stays light in dark mode too. */
 .tile--logo { background: #f3f2f7; }
 .tile--logo img { object-fit: contain; padding: 18%; }
+
+/* ── package warranty, products delivered by hand, details after paying */
+.option__name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.option__note { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--good); }
+.badge--warranty { display: inline-flex; align-items: center; gap: 4px; background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); }
+.after-note { border: 1.5px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.check { display: flex; gap: 10px; align-items: center; font-weight: 600; font-size: 14px; cursor: pointer; }
+.check input { width: 20px; height: 20px; flex: none; accent-color: var(--accent); }
+textarea.input { padding: 10px 14px; min-height: 0; resize: vertical; line-height: 1.5; }
+.input--mono { font-family: var(--font-mono); font-size: 12.5px; }
+.input-wrap { display: flex; gap: 8px; align-items: center; }
+.input-wrap .input { flex: 1; min-width: 0; }
+.count-pill {
+  display: inline-block; margin-inline-start: 6px; padding: 0 7px; border-radius: 999px; font-size: 11px; line-height: 18px;
+  background: var(--accent); color: var(--accent-ink);
+}
+.waiting-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.waiting-card { display: flex; flex-direction: column; gap: 8px; width: 100%; text-align: start; color: var(--ink); border: 1.5px solid var(--line); cursor: pointer; }
+.waiting-card:hover { border-color: var(--accent); }
+.copy-box--stack { flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 14px; }
+.copy-box--stack > .small { font-family: var(--font); }
+.after-note .chip { display: inline-flex; align-items: center; min-height: 32px; }
+.status-wait { display: flex; gap: 12px; align-items: center; }
+.mono-block { white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; }
+.deliver-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 8px; align-items: start; }
+.deliver-row__value { grid-column: 1 / -1; }
+.after-editor__row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.after-editor__row > .select, .after-editor__row > .input { grid-column: span 2; min-height: 42px; font-size: 14px; }
+.after-editor__row > .after-editor__hint { grid-column: span 3; }
+.after-editor__end { grid-column: 1 / -1; justify-content: flex-end; }
+@media (max-width: 640px) {
+  .after-editor__row > .select, .after-editor__row > .input, .after-editor__row > .after-editor__hint { grid-column: 1 / -1; }
+  .deliver-row { grid-template-columns: 1fr auto; }
+  .deliver-row > .input { grid-column: 1 / -1; }
+}
+
+/* ── supplier names */
+.names-layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.names-words { display: grid; grid-template-columns: 1fr 1.4fr 1.4fr 170px auto; gap: 6px; align-items: center; max-height: 420px; overflow: auto; }
+.names-words .input, .names-words .select { min-height: 38px; font-size: 13px; padding-inline: 10px; border-radius: 10px; }
+.names-table td { vertical-align: top; }
+.names-table td .option__note { display: flex; margin-top: 2px; }
+@media (max-width: 640px) {
+  .names-words { grid-template-columns: 1fr 1fr; }
+  .names-words > span.small { display: none; }
+}

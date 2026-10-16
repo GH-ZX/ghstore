@@ -76,6 +76,14 @@ export const BoltIcon = ({ size = 12 }: P) => (
   </Svg>
 );
 
+/** A package's warranty. */
+export const ShieldIcon = ({ size = 14 }: P) => (
+  <Svg size={size}>
+    <path d="M12 3 5 6v5.5c0 4.3 2.9 8 7 9.5 4.1-1.5 7-5.2 7-9.5V6z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    <path d="m9 12 2.2 2.2L15.5 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
 export const ShareIcon = ({ size = 18 }: P) => (
   <Svg size={size}>
     <path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

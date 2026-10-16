@@ -1,11 +1,18 @@
-/** Placing orders and showing them (with decrypted deliveries) to their owner. */
-import { decryptText, type InputField } from "@store/core";
+/**
+ * Placing orders and showing them (with decrypted deliveries) to their owner.
+ *
+ * Some orders wait for someone (orders.hold, migration 0021): 'info' for the
+ * customer's details asked after paying (POST /api/orders/:id/answers), 'owner'
+ * for a person to deliver a product sold by hand, 'release' for a person to
+ * check what the supplier delivered (hidden from the customer until then).
+ */
+import { AFTER_SECRET, checkAnswers, decryptText, encryptText, type AfterField, type InputField } from "@store/core";
 import { requireUser } from "./auth";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder, validateInput } from "./fulfilment";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
-import { alertNewOrder } from "./notify";
+import { alertNewOrder, alertStaff } from "./notify";
 import { couponCode } from "./promo";
 import { store } from "@store/config";
 
@@ -50,6 +57,12 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
   if (r.created) {
     // Owners and support staff hear about it (sent by the next outbox run).
     await alertNewOrder(ctx.svc, r.order_id, store.orderPrefix).catch((e) => console.error("new order alert failed", r.order_id, String(e)));
+    // A product that needs the customer's details after paying: remind them where to give them.
+    await ctx.svc.db.query(
+      `insert into app.outbox (user_id, template, data)
+       select user_id, 'order_needs_info', jsonb_build_object('order_id', id, 'number', number) from app.orders where id = $1 and hold = 'info'`,
+      [r.order_id],
+    );
   }
   if (r.created && r.status === "paid") {
     ctx.svc.waitUntil(fulfilOrder(ctx.svc, ctx.env, r.order_id).catch((e) => console.error("fulfil failed", r.order_id, String(e))));
@@ -85,9 +98,9 @@ export async function listOrders(ctx: Ctx): Promise<Response> {
   const before = ctx.url.searchParams.get("before");
   const rows = await ctx.svc.db.query<{
     id: string; number: string | number; status: string; total_cents: string | number; created_at: string;
-    name_ar: string; name_en: string; offer_ar: string; offer_en: string; kind: string;
+    name_ar: string; name_en: string; offer_ar: string; offer_en: string; kind: string; hold: string | null;
   }>(
-    `select o.id, o.number, o.status, o.total_cents, o.created_at, p.name_ar, p.name_en, f.name_ar as offer_ar, f.name_en as offer_en, p.kind
+    `select o.id, o.number, o.status, o.total_cents, o.created_at, p.name_ar, p.name_en, f.name_ar as offer_ar, f.name_en as offer_en, p.kind, o.hold
        from app.orders o join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
       where o.user_id = $1 and ($2::bigint is null or o.number < $2::bigint)
       order by o.number desc limit 30`,
@@ -95,7 +108,7 @@ export async function listOrders(ctx: Ctx): Promise<Response> {
   );
   return json({
     orders: rows.map((r) => ({
-      id: r.id, number: n(r.number), status: r.status, totalCents: n(r.total_cents), createdAt: r.created_at, kind: r.kind,
+      id: r.id, number: n(r.number), status: r.status, totalCents: n(r.total_cents), createdAt: r.created_at, kind: r.kind, hold: r.hold,
       productAr: r.name_ar, productEn: r.name_en, packageAr: r.offer_ar, packageEn: r.offer_en,
     })),
   });
@@ -106,6 +119,7 @@ interface OrderView {
   delivered_at: string | null; input: Record<string, string>; slug: string; product_active: boolean; name_ar: string; name_en: string;
   offer_ar: string; offer_en: string; input_fields: InputField[]; kind: string; supplier_id: string | null; supplier_order_id: string | null;
   supplier_expires_at: string | Date | null; stale: boolean;
+  hold: string | null; answers_enc: string | null; answered_at: string | null; after_fields: AfterField[];
 }
 
 /** Ownership is part of the query: another user's order is simply "not found". */
@@ -116,7 +130,8 @@ async function ownOrder(ctx: Ctx, id: string, userId: string): Promise<OrderView
             p.slug, p.active as product_active, p.name_ar, p.name_en, p.kind,
             f.name_ar as offer_ar, f.name_en as offer_en, f.input_fields,
             o.supplier_id, o.supplier_order_id, o.supplier_expires_at,
-            o.updated_at < now() - interval '4 seconds' as stale
+            o.updated_at < now() - interval '4 seconds' as stale,
+            o.hold, o.answers_enc, o.answered_at, p.after_fields
        from app.orders o join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
       where o.id = $1 and o.user_id = $2`,
     [id, userId],
@@ -136,11 +151,17 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
     await fulfilOrder(ctx.svc, ctx.env, o.id).catch((e) => console.error("number check failed", o?.id, String(e)));
     o = (await ownOrder(ctx, id, user.id)) ?? o;
   }
-  const dels = await ctx.svc.db.query<{ id: string | number; kind: string; value_enc: string; label: string | null }>(
-    `select id, kind, value_enc, label from app.deliveries where order_id = $1 order by id`,
-    [id],
-  );
-  await ctx.svc.db.query(`update app.deliveries set first_viewed_at = now() where order_id = $1 and first_viewed_at is null`, [id]);
+  // What the supplier delivered waits for a person's check before the customer sees it.
+  const dels = o.hold === "release"
+    ? []
+    : await ctx.svc.db.query<{ id: string | number; kind: string; value_enc: string; label: string | null }>(
+        `select id, kind, value_enc, label from app.deliveries where order_id = $1 order by id`,
+        [id],
+      );
+  if (dels.length) await ctx.svc.db.query(`update app.deliveries set first_viewed_at = now() where order_id = $1 and first_viewed_at is null`, [id]);
+  // The details given after paying: shown back without the secrets (passwords, tokens).
+  const given = o.answers_enc ? (JSON.parse(await decryptText(o.answers_enc, ctx.env.DATA_KEY)) as Record<string, string>) : {};
+  const fields = o.after_fields ?? [];
   const deliveries = [];
   for (const d of dels) deliveries.push({ kind: d.kind, label: d.label, value: await decryptText(d.value_enc, ctx.env.DATA_KEY) });
   const expires = o.supplier_expires_at ? new Date(o.supplier_expires_at).toISOString() : null;
@@ -159,6 +180,16 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
       // Virtual numbers: when the number ends, and whether it can still be cancelled.
       expiresAt: expires,
       numberActions,
+      // Waiting for: the customer's details ('info'), the team ('owner', 'release'), or nothing.
+      hold: o.hold,
+      afterFields: fields.map((f) => ({
+        key: f.key, type: f.type, labelEn: f.labelEn, labelAr: f.labelAr, hintEn: f.hintEn ?? null, hintAr: f.hintAr ?? null, required: f.required,
+        value: AFTER_SECRET.has(f.type) ? null : given[f.key] ?? null,
+        given: f.key in given,
+      })),
+      answeredAt: o.answered_at,
+      // Details can be corrected until the order is delivered.
+      canAnswer: open(o.status) && (o.hold === "info" || o.hold === "owner") && fields.length > 0,
     },
     deliveries,
   });
@@ -205,4 +236,52 @@ export async function closeNumber(ctx: Ctx): Promise<Response> {
     await call(db, `select * from app.refund_order($1, $2)`, [id, reason]);
   });
   return json({ closed: true });
+}
+
+/**
+ * POST /api/orders/:id/answers { values: { email, password, token, ... } } —
+ * the details a product needs after paying. Stored encrypted; correctable
+ * until the order is delivered (an empty secret keeps the one already given).
+ * Then the supplier is asked (products a supplier activates), or the team is
+ * told (products delivered by hand).
+ */
+export async function submitAnswers(ctx: Ctx): Promise<Response> {
+  const user = await requireUser(ctx);
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req, 65_536);
+  const input = body.values && typeof body.values === "object" && !Array.isArray(body.values) ? (body.values as Record<string, unknown>) : {};
+  const o = await ownOrder(ctx, id, user.id);
+  if (!o) throw new ApiError("not_found");
+  const fields = o.after_fields ?? [];
+  if (!open(o.status) || !(o.hold === "info" || o.hold === "owner") || !fields.length) throw new ApiError("bad_state");
+  const previous = o.answers_enc ? (JSON.parse(await decryptText(o.answers_enc, ctx.env.DATA_KEY)) as Record<string, string>) : {};
+  const checked = checkAnswers(fields, input, previous);
+  if (!checked.ok) throw new ApiError("invalid_input", `answers.${checked.field}`);
+  const enc = await encryptText(JSON.stringify(checked.values), ctx.env.DATA_KEY);
+  const first = o.hold === "info";
+  const toSupplier = !!o.supplier_id;
+  await ctx.svc.db.tx(async (db) => {
+    const locked = await one<{ status: string; hold: string | null }>(db, `select status, hold from app.orders where id = $1 for update`, [id]);
+    if (!locked || !open(locked.status) || !(locked.hold === "info" || locked.hold === "owner")) throw new ApiError("bad_state");
+    await db.query(
+      `update app.orders set answers_enc = $2, answered_at = now(),
+              hold = case when $3::boolean then null else 'owner' end,
+              next_check_at = case when $3::boolean then now() else next_check_at end
+        where id = $1`,
+      [id, enc, toSupplier],
+    );
+    await db.query(`insert into app.order_events (order_id, type) values ($1, $2)`, [id, first ? "details_given" : "details_corrected"]);
+  });
+  if (!toSupplier) {
+    // The values themselves never go into a message: the team reads them in the admin.
+    const ref = `${store.orderPrefix}${n(o.number)}`;
+    await alertStaff(
+      ctx.svc,
+      first ? `Order ${ref} (${o.name_en}) has the customer's details: deliver it in Admin → Orders → Waiting.` : `Order ${ref}: the customer corrected their details.`,
+      ["owner", "support"],
+    );
+  } else {
+    ctx.svc.waitUntil(fulfilOrder(ctx.svc, ctx.env, id).catch((e) => console.error("fulfil failed", id, String(e))));
+  }
+  return json({ ok: true });
 }

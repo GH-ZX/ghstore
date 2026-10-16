@@ -1,0 +1,20 @@
+/** BatStore's item names as listed on 2026-10-16 (Admin → Suppliers → Choose packages). */
+export const BATSTORE_NAMES = [
+  "500$ API CLaude - 30 days", "Amazon prime 6 months video 6 profile", "API 100M Token Claude 3Day", "API 100M Token codex (3Day )",
+  "API 10M Token Claude 1Day Warranty", "API 10M Token codex (1Day Warranty)", "API 50M Token codex (2Day)", "API Claude 50M Token (2Day)",
+  "Arize Pro 12m", "Autodesk Admin Dashboard Access(3000 invitation)", "bolt.new PRO 12m NW", "Capcut pro 1M 1600 Ai credit FW",
+  "ChatGPT - GPT K12 Edu  (W5H)", "Chatgpt plus 1M (Google pay)Gmail NW", "Claude 100$ Api 30 D warranty", "Coursera Premium 12 Months",
+  "customer.io essentials 1year FW", "Descript Creator 1 Year", "Duolingo Super 12m", "Elevenlabs - Free 10k Credits (W24H)",
+  "ElevenLabs Creator 12m FW", "ElevenLabs Creator 3 Months", "Figma Pro Edu 2yrs", "Fin ia agent +fin advanced", "Framer Pro 12m FW",
+  "Gamma AI - Plus 1M (W25D)", "Gemini 18 Months", "Gemini Pro 3 Months", "Google AI Pro 12m FW", "Granola Business 12M",
+  "Grok - Super Grok 9 Days (W3D)", "Gumloop Pro 12m FW", "HMA - Key HMA Android/PC 20-30D", "iLovePdf Premium 1Yr", "Jam Team 10 Seat 12m",
+  "JetBrains Edu  1 year", "Linear business 1 year FW", "Lovable Pro 12m FW", "Lovable Pro Lite 12 months + 300 credits",
+  "Magic Patterns Starter 12m", "Microsoft 365 Family – 1 Year Invitation", "Microsoft Office 365 Plus 1 year", "Miro Edu – Lifetime Activation Link",
+  "Miro EDU — Lifetime Access(100 members)", "Mobbin 10x Seat 12m", "Muse Ai 1B tokens", "N8N Starter 12m FW", "NordVpn 3 Months Basic",
+  "Notion Business 1 year FW", "Notion Business 3 Months", "Notion Plus 12M", "pangram", "Posthog scale 2x monthly limits",
+  "PRIME VIDEO ULTRA 6M 6 PROFILE", "Proton VPN Plus – 1 Month (10 devices)", "Quizlet - Plus 12M (FW)", "Quizlet - Plus Ultimate 12M (FW)",
+  "Railway hobby 1 year NW", "readwise 1 Year", "Replit Core 12m FW", "Scribd - Scribd Premium 1M (FW)", "SPEECHIFY PREMIUM – 12 MONTHS",
+  "Supercut Pro 10 Seat 12m", "Warp build 1 year FW", "Wispr Flow Pro 12m FW", "Wordwall - Wordwall pro 12m (FW)", "Wordwall - Wordwall pro 1m (FW)",
+  "YouTube Premium 3 Months", "Zoom - 12 months (100 people)", "Zoom - 3 months (100 people)", "Zoom - 6 months (100 people)",
+  "Zoom - Zoom Pro 1M (W25D) Ready Account",
+];

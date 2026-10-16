@@ -5,6 +5,10 @@
  * scheduled job for orders that are pending or failed with a retryable error.
  * Delivered values are encrypted before they are stored.
  *
+ * A product set to "review" (products.delivery) is bought as usual, but what the
+ * supplier delivers waits (orders.hold = 'release') until a person checks it
+ * and releases it in Admin → Orders.
+ *
  * A purchase the supplier refuses for lack of stock is refunded, and its
  * package stops selling at once (paused as "supplier_unavailable"); the price
  * check puts it back on sale when the supplier has stock again.
@@ -12,6 +16,8 @@
 import { encryptText, nextStep, type InputField, type PurchaseResult } from "@store/core";
 import type { ApiEnv, Services } from "./context";
 import { call, n, one } from "./db";
+import { alertStaff } from "./notify";
+import { store } from "@store/config";
 
 interface OrderRow {
   id: string;
@@ -27,6 +33,9 @@ interface OrderRow {
   supplier_ref: string | null;
   offer_cost_cents: string | number | null;
   supplier_expires_at: string | Date | null;
+  delivery: string;
+  name_en: string;
+  hold: string | null;
 }
 
 /** The supplier said it has none left (wording varies by supplier). */
@@ -37,13 +46,15 @@ export function isOutOfStock(result: PurchaseResult): boolean {
 export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): Promise<string> {
   const order = await one<OrderRow>(
     svc.db,
-    `select o.id, o.number, o.user_id, o.offer_id, o.status, o.quantity, o.input, o.supplier_id, o.supplier_order_id, o.attempts, o.supplier_expires_at,
-            f.supplier_ref, f.cost_cents as offer_cost_cents
-       from app.orders o join app.offers f on f.id = o.offer_id
+    `select o.id, o.number, o.user_id, o.offer_id, o.status, o.quantity, o.input, o.supplier_id, o.supplier_order_id, o.attempts, o.supplier_expires_at, o.hold,
+            f.supplier_ref, f.cost_cents as offer_cost_cents, p.delivery, p.name_en
+       from app.orders o join app.offers f on f.id = o.offer_id join app.products p on p.id = o.product_id
       where o.id = $1`,
     [orderId],
   );
   if (!order || !["paid", "processing"].includes(order.status) || !order.supplier_id) return order?.status ?? "missing";
+  // Waiting for the customer's details, or for a person: nothing to ask the supplier yet.
+  if (order.hold) return order.status;
 
   const adapter = svc.supplier(order.supplier_id);
   let result: PurchaseResult;
@@ -73,6 +84,7 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
   const step = nextStep(result, order.attempts);
   const supplierOrderId = "supplierOrderId" in result ? result.supplierOrderId ?? order.supplier_order_id : order.supplier_order_id;
   const now = svc.now().getTime();
+  const review = order.delivery === "review";
 
   await svc.db.tx(async (db) => {
     // Re-read under lock: another worker or a webhook may have finished it.
@@ -93,6 +105,16 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
 
     switch (step.next) {
       case "delivered":
+        if (review) {
+          // Bought: a person checks it before the customer gets it.
+          await db.query(
+            `update app.orders set status = 'processing', hold = 'release', supplier_order_id = $2, next_check_at = null,
+                    cost_cents = coalesce($3, cost_cents), attempts = attempts + 1, last_error = null where id = $1`,
+            [order.id, supplierOrderId, result.status === "delivered" ? result.costCents ?? null : null],
+          );
+          await db.query(`insert into app.order_events (order_id, type) values ($1, 'held_for_review')`, [order.id]);
+          break;
+        }
         await db.query(
           `update app.orders set status = 'delivered', delivered_at = now(), supplier_order_id = $2, next_check_at = null,
                   cost_cents = coalesce($3, cost_cents), attempts = attempts + 1, last_error = null where id = $1`,
@@ -136,6 +158,9 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
         break;
     }
   });
+  if (review && step.next === "delivered") {
+    await alertStaff(svc, `Order ${store.orderPrefix}${n(order.number)} (${order.name_en}) was delivered by the supplier: check it and release it in Admin → Orders → Waiting.`, ["owner", "support"]);
+  }
   return step.next;
 }
 

@@ -10,15 +10,17 @@
  * costs it reads. A failed read never marks anything as gone.
  *
  * How items become store products is each supplier's own business: the adapter
- * says which items belong together (productKey); BatStore and ProdSeller items
- * are products of their own.
+ * says which items belong together (productKey). BatStore and ProdSeller name
+ * each item in shorthand: their items are named by the name cleaner
+ * (names.ts), and items with the same clean product name are packages of one product.
  */
-import type { SupplierAdapter, SupplierProduct } from "@store/core";
+import type { CleanName, SupplierAdapter, SupplierProduct } from "@store/core";
 import { requireStaff } from "./auth";
 import type { Ctx, Services } from "./context";
 import { n } from "./db";
 import { ApiError, json, readJson } from "./http";
 import { room } from "./jobs";
+import { cleanColumns, namerFor, nameUnnamedItems } from "./names";
 
 const SUPPLIER_ID = /^[a-z0-9_]{2,32}$/;
 const GROUP_ID = /^[\p{L}\p{N}:_.\- ]{0,120}$/u;
@@ -68,16 +70,23 @@ export async function refreshGroups(svc: Services, supplierId: string): Promise<
   return rows.length;
 }
 
-function itemRow(p: SupplierProduct) {
+function itemRow(p: SupplierProduct, namer: ((name: string) => CleanName) | null) {
   const cut = (v: string | undefined, max: number) => (v ? v.slice(0, max) : null);
+  const name = p.name.slice(0, 300) || p.externalId;
   return {
     external_id: p.externalId,
-    name: p.name.slice(0, 300) || p.externalId,
-    product_key: cut(p.productKey, 160),
-    product_name: cut(p.productName, 200),
-    product_name_ar: cut(p.productNameAr, 200),
-    package_name: cut(p.packageName, 300),
-    package_name_ar: cut(p.packageNameAr, 300),
+    name,
+    ...(namer && !p.productKey
+      ? cleanColumns(namer(name))
+      : {
+          product_key: cut(p.productKey, 160),
+          product_name: cut(p.productName, 200),
+          product_name_ar: cut(p.productNameAr, 200),
+          package_name: cut(p.packageName, 300),
+          package_name_ar: cut(p.packageNameAr, 300),
+          warranty_en: null,
+          warranty_ar: null,
+        }),
     cost_cents: p.costCents,
     available: p.available,
     kind: KINDS.has(p.kind) ? p.kind : "code",
@@ -105,10 +114,11 @@ export async function refreshItems(svc: Services, supplierId: string, groupId: s
     throw err;
   }
   const byRef = new Map<string, ReturnType<typeof itemRow>>();
+  const namer = await namerFor(svc, supplierId);
   for (const p of products) {
     if (byRef.size >= MAX_ITEMS) break;
     if (typeof p.externalId === "string" && p.externalId && p.externalId.length <= 120 && Number.isSafeInteger(p.costCents) && p.costCents >= 0 && !byRef.has(p.externalId)) {
-      byRef.set(p.externalId, itemRow(p));
+      byRef.set(p.externalId, itemRow(p, namer));
     }
   }
   const rows = [...byRef.values()];
@@ -124,16 +134,16 @@ export async function refreshItems(svc: Services, supplierId: string, groupId: s
   if (rows.length) {
     await svc.db.query(
       `insert into app.supplier_items (supplier_id, external_id, group_id, name, product_key, product_name, product_name_ar, package_name, package_name_ar,
-                                       cost_cents, available, kind, fields)
+                                       warranty_en, warranty_ar, cost_cents, available, kind, fields)
        select $1, x.external_id, $2, x.name, x.product_key, x.product_name, x.product_name_ar, x.package_name, x.package_name_ar,
-              x.cost_cents, x.available, x.kind, coalesce(x.fields, '[]'::jsonb)
+              x.warranty_en, x.warranty_ar, x.cost_cents, x.available, x.kind, coalesce(x.fields, '[]'::jsonb)
          from jsonb_to_recordset($3::text::jsonb)
            as x(external_id text, name text, product_key text, product_name text, product_name_ar text, package_name text, package_name_ar text,
-                cost_cents bigint, available boolean, kind text, fields jsonb)
+                warranty_en text, warranty_ar text, cost_cents bigint, available boolean, kind text, fields jsonb)
        on conflict (supplier_id, external_id) do update
          set group_id = excluded.group_id, name = excluded.name, product_key = excluded.product_key, product_name = excluded.product_name,
              product_name_ar = excluded.product_name_ar, package_name = excluded.package_name, package_name_ar = excluded.package_name_ar,
-             cost_cents = excluded.cost_cents, available = excluded.available, kind = excluded.kind,
+             warranty_en = excluded.warranty_en, warranty_ar = excluded.warranty_ar, cost_cents = excluded.cost_cents, available = excluded.available, kind = excluded.kind,
              fields = excluded.fields, last_seen_at = now(), missing_since = null`,
       [supplierId, groupId, JSON.stringify(rows)],
     );
@@ -173,9 +183,13 @@ export async function noteSupplierPrices(svc: Services, supplierId: string, prod
 export async function refreshDueCatalogues(svc: Services, opts: { maxGroups?: number; reserve?: number } = {}): Promise<number> {
   let left = opts.maxGroups ?? 3;
   const reserve = opts.reserve ?? 8;
+  await nameUnnamedItems(svc);
   const suppliers = await svc.db.query<{ id: string; groups_due: boolean }>(
     `select id, (groups_at is null or groups_at < now() - interval '24 hours') as groups_due from app.suppliers where enabled order by id`,
   );
+  // Suppliers that list everything in one request go first: a big catalogue
+  // (G2Bulk's games, 5SIM's services) always has a group due and would starve them.
+  suppliers.sort((a, b) => Number(!!svc.supplier(a.id)?.listGroups) - Number(!!svc.supplier(b.id)?.listGroups));
   let done = 0;
   for (const s of suppliers) {
     const adapter = svc.supplier(s.id);
@@ -390,7 +404,8 @@ export async function getCatalogueItems(ctx: Ctx): Promise<Response> {
 
   const where = grouped ? "i.group_id = $2" : "i.group_id = '' and coalesce(i.product_key, '') = $2";
   const rows = await svc.db.query<Record<string, unknown>>(
-    `select i.external_id, i.name, i.product_key, i.product_name, i.package_name, i.package_name_ar, i.cost_cents, i.available, i.kind,
+    `select i.external_id, i.name, i.product_key, i.product_name, i.package_name, i.package_name_ar, i.warranty_en, i.warranty_ar,
+            i.cost_cents, i.available, i.kind,
             i.missing_since is not null as missing,
             (i.first_seen_at > g.first_items_at + interval '1 minute' and i.first_seen_at > now() - make_interval(days => $3)) as fresh,
             o.id as offer_id, o.active, o.price_cents, o.cost_cents as offer_cost_cents, o.paused_reason, o.product_id,
@@ -442,6 +457,8 @@ export async function getCatalogueItems(ctx: Ctx): Promise<Response> {
         name: r.name,
         packageName: r.package_name,
         packageNameAr: r.package_name_ar,
+        warrantyEn: r.warranty_en ?? null,
+        warrantyAr: r.warranty_ar ?? null,
         productKey: r.product_key,
         productName: r.product_name,
         costCents: n(r.cost_cents),

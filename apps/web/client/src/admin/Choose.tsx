@@ -13,7 +13,7 @@ import { errorText, pick } from "../lib/i18n";
 import { linkHandler, navigate } from "../lib/router";
 import { toast, useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
-import { CheckIcon, SearchIcon } from "../ui/icons";
+import { CheckIcon, SearchIcon, ShieldIcon } from "../ui/icons";
 import { Empty, ErrorBox, Sheet, Spinner } from "../ui/kit";
 import { ago } from "./common";
 
@@ -54,6 +54,8 @@ interface Item {
   name: string;
   packageName: string | null;
   packageNameAr?: string | null;
+  warrantyEn?: string | null;
+  warrantyAr?: string | null;
   productKey: string | null;
   productName: string | null;
   costCents: number;
@@ -503,6 +505,11 @@ function ItemRow({ item: i, on, change, price, changed, gone, replacements, onTo
         </span>
         <span className="list-row__meta wrap" style={{ gap: 6 }}>
           {badge}
+          {i.warrantyEn && (
+            <span className="option__note">
+              <ShieldIcon size={11} /> {(lang === "ar" && i.warrantyAr) || i.warrantyEn}
+            </span>
+          )}
           {i.packageName && !i.name.includes(i.packageName) && <span className="choose__ref">{i.name}</span>}
         </span>
         {gone && replacements.length > 0 && (

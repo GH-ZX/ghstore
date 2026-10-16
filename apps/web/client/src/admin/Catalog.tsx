@@ -10,7 +10,7 @@ import { dollarsToCents, usd } from "../lib/format";
 import { pick } from "../lib/i18n";
 import { toast, useT } from "../lib/state";
 import { invalidate, useApi } from "../lib/useApi";
-import type { InputField, Kind } from "../lib/types";
+import type { AfterFieldDef, AfterType, InputField, Kind } from "../lib/types";
 import { PlusIcon } from "../ui/icons";
 import { Empty, ErrorBox, Sheet, Spinner, Switch } from "../ui/kit";
 import { useAction } from "./common";
@@ -43,7 +43,11 @@ interface Prod {
   active: boolean;
   featured: boolean;
   sort: number;
+  /** auto: the supplier or stock delivers; manual: the team does; review: the supplier does, the team releases it. */
+  delivery?: Delivery;
+  after_fields?: AfterFieldDef[];
 }
+type Delivery = "auto" | "manual" | "review";
 interface Off {
   id: string;
   product_id: string;
@@ -64,6 +68,8 @@ interface Off {
   paused_reason: string | null;
   remind_after_days: number | null;
   stock_available: number;
+  warranty_ar?: string | null;
+  warranty_en?: string | null;
 }
 interface Sup {
   id: string;
@@ -151,6 +157,8 @@ function ProductBlock({ p, offers, onEdit }: { p: Prod; offers: Off[]; onEdit: (
           <span className="small muted num">/{p.slug}</span>
           <span className={p.active ? "badge badge--good" : "badge"}>{p.active ? t("active") : "—"}</span>
           {p.featured && <span className="badge">{t("featuredFlag")}</span>}
+          {p.delivery && p.delivery !== "auto" && <span className="badge badge--warn">✋ {t(`delivery_${p.delivery}`)}</span>}
+          {(p.after_fields?.length ?? 0) > 0 && <span className="badge">{t("afterCount", { n: p.after_fields!.length })}</span>}
         </div>
         <div className="wrap">
           <button type="button" className="btn btn--xs btn--ghost press" onClick={() => onEdit({ kind: "product", product: p })}>
@@ -177,12 +185,19 @@ function ProductBlock({ p, offers, onEdit }: { p: Prod; offers: Off[]; onEdit: (
             <tbody>
               {offers.map((o) => (
                 <tr key={o.id} style={{ opacity: o.active ? 1 : 0.55 }}>
-                  <td>{pick(lang, o.name_ar, o.name_en)}</td>
+                  <td>
+                    {pick(lang, o.name_ar, o.name_en)}
+                    {pick(lang, o.warranty_ar ?? "", o.warranty_en ?? "") && (
+                      <span className="small muted"> · {pick(lang, o.warranty_ar ?? "", o.warranty_en ?? "")}</span>
+                    )}
+                  </td>
                   <td className="small">
                     {o.supplier_id ? (
                       <>
                         {o.supplier_id} <span className="muted num">· {o.supplier_ref}</span>
                       </>
+                    ) : p.delivery === "manual" ? (
+                      t("delivery_manual")
                     ) : (
                       <>
                         {t("manualStock")} <span className="num">({o.stock_available})</span>
@@ -197,7 +212,7 @@ function ProductBlock({ p, offers, onEdit }: { p: Prod; offers: Off[]; onEdit: (
                       <button type="button" className="btn btn--xs btn--ghost press" onClick={() => onEdit({ kind: "offer", product: p, offer: o })}>
                         {t("edit")}
                       </button>
-                      {!o.supplier_id && (
+                      {!o.supplier_id && p.delivery !== "manual" && (
                         <button type="button" className="btn btn--xs btn--ghost press" onClick={() => onEdit({ kind: "stock", offer: o })}>
                           {t("addStock")}
                         </button>
@@ -239,6 +254,8 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
     warrantyAr: product?.warranty_ar ?? "",
     warrantyEn: product?.warranty_en ?? "",
     searchTerms: product?.search_terms ?? "",
+    delivery: product?.delivery ?? ("auto" as Delivery),
+    afterFields: product?.after_fields ?? ([] as AfterFieldDef[]),
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
 
@@ -316,6 +333,20 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
           <input className="input" dir="ltr" maxLength={24} value={f.unitEn} onChange={(e) => set("unitEn", e.target.value)} placeholder="UC" />
           <span className="hint">{t("unitHint", { example: f.unitEn.trim() ? `60 ${f.unitEn.trim()}` : "60 UC" })}</span>
         </label>
+        <label className="field span-2">
+          <span>{t("delivery")}</span>
+          <select className="select" value={f.delivery} onChange={(e) => set("delivery", e.target.value as Delivery)}>
+            {(["auto", "manual", "review"] as const).map((d) => (
+              <option key={d} value={d}>
+                {t(`delivery_${d}`)}
+              </option>
+            ))}
+          </select>
+          <span className="hint">{t(`delivery_${f.delivery}_hint`)}</span>
+        </label>
+        <div className="span-2">
+          <AfterFieldsEditor fields={f.afterFields} onChange={(v) => set("afterFields", v)} />
+        </div>
         <div className="pref-row">
           <span>{t("active")}</span>
           <Switch checked={f.active} onChange={(v) => set("active", v)} label={t("active")} />
@@ -353,6 +384,8 @@ interface OfferDraft {
   active: boolean;
   sort: string;
   fields: InputField[];
+  warrantyAr: string;
+  warrantyEn: string;
 }
 
 function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: Prod; offer: Off | null; preset?: Partial<OfferDraft>; suppliers: Sup[]; onClose: () => void }) {
@@ -375,6 +408,8 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
     active: offer?.active ?? true,
     sort: String(offer?.sort ?? 0),
     fields: offer?.input_fields ?? [],
+    warrantyAr: offer?.warranty_ar ?? "",
+    warrantyEn: offer?.warranty_en ?? "",
     ...preset,
   });
   const set = <K extends keyof OfferDraft>(k: K, v: OfferDraft[K]) => setD((x) => ({ ...x, [k]: v }));
@@ -408,6 +443,8 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
       sort: Number(d.sort) || 0,
       active: d.active,
       inputFields: d.fields.filter((x) => x.key.trim() && x.labelEn.trim()),
+      warrantyAr: d.warrantyAr.trim() || null,
+      warrantyEn: d.warrantyEn.trim() || null,
       ...pricing,
     };
     const ok = offer
@@ -532,6 +569,28 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
           <span>{t("active")}</span>
           <Switch checked={d.active} onChange={(v) => set("active", v)} label={t("active")} />
         </div>
+        <label className="field">
+          <span>{t("pkgWarrantyAr")}</span>
+          <input className="input" dir="rtl" maxLength={40} value={d.warrantyAr} onChange={(e) => set("warrantyAr", e.target.value)} placeholder="ضمان كامل" />
+        </label>
+        <label className="field">
+          <span>{t("pkgWarrantyEn")}</span>
+          <input className="input" dir="ltr" maxLength={40} value={d.warrantyEn} onChange={(e) => set("warrantyEn", e.target.value)} placeholder="Full warranty" />
+        </label>
+        <div className="wrap span-2" style={{ gap: 6 }}>
+          {(
+            [
+              ["ضمان كامل", "Full warranty"],
+              ["بدون ضمان", "No warranty"],
+              ["ضمان 30 يوماً", "30-day warranty"],
+            ] as const
+          ).map(([ar, en]) => (
+            <button key={en} type="button" className="chip chip--sm press" onClick={() => setD((x) => ({ ...x, warrantyAr: ar, warrantyEn: en }))}>
+              {pick(lang, ar, en)}
+            </button>
+          ))}
+          <span className="hint">{t("pkgWarrantyHint")}</span>
+        </div>
       </div>
 
       <div className="stack-sm">
@@ -621,5 +680,60 @@ function StockEditor({ offer, onClose }: { offer: Off; onClose: () => void }) {
         <textarea className="textarea num" dir="ltr" rows={10} value={text} onChange={(e) => setText(e.target.value)} />
       </label>
     </Sheet>
+  );
+}
+
+// ───────────────────────────── details asked after paying
+
+const AFTER_TYPES: AfterType[] = ["email", "password", "id", "username", "token", "custom"];
+
+/**
+ * What a product asks for after paying (products delivered by hand, or a
+ * supplier's activation on the customer's account). Labels default to the
+ * type's name; a hint says where to find it (where to copy the cookies from).
+ */
+function AfterFieldsEditor({ fields, onChange }: { fields: AfterFieldDef[]; onChange: (f: AfterFieldDef[]) => void }) {
+  const { t } = useT();
+  const update = (i: number, patch: Partial<AfterFieldDef>) => onChange(fields.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const add = (type: AfterType) => onChange([...fields, { type, labelEn: t(`afterType_${type}_en`), labelAr: t(`afterType_${type}_ar`), required: true }]);
+  return (
+    <div className="card card--pad stack-sm after-editor">
+      <div className="stack-sm">
+        <h3>{t("afterFields")}</h3>
+        <span className="hint">{t("afterFieldsHint")}</span>
+      </div>
+      {fields.map((fld, i) => (
+        <div key={i} className="after-editor__row">
+          <select className="select" value={fld.type} aria-label={t("afterType")} onChange={(e) => update(i, { type: e.target.value as AfterType })}>
+            {AFTER_TYPES.map((ty) => (
+              <option key={ty} value={ty}>
+                {t(`afterType_${ty}`)}
+              </option>
+            ))}
+          </select>
+          <input className="input" dir="rtl" maxLength={60} value={fld.labelAr} aria-label={t("fieldLabelAr")} placeholder={t("fieldLabelAr")} onChange={(e) => update(i, { labelAr: e.target.value })} />
+          <input className="input" dir="ltr" maxLength={60} value={fld.labelEn} aria-label={t("fieldLabelEn")} placeholder={t("fieldLabelEn")} onChange={(e) => update(i, { labelEn: e.target.value })} />
+          <input className="input after-editor__hint" dir="rtl" maxLength={300} value={fld.hintAr ?? ""} placeholder={t("afterHintAr")} onChange={(e) => update(i, { hintAr: e.target.value })} />
+          <input className="input after-editor__hint" dir="ltr" maxLength={300} value={fld.hintEn ?? ""} placeholder={t("afterHintEn")} onChange={(e) => update(i, { hintEn: e.target.value })} />
+          <div className="wrap after-editor__end">
+            <Switch checked={fld.required} onChange={(v) => update(i, { required: v })} label={t("required")} />
+            <span className="small muted">{t("required")}</span>
+            <button type="button" className="btn btn--xs btn--ghost press" aria-label={t("remove")} onClick={() => onChange(fields.filter((_, j) => j !== i))}>
+              ✕
+            </button>
+          </div>
+        </div>
+      ))}
+      {fields.length < 8 && (
+        <div className="wrap" style={{ gap: 6 }}>
+          <span className="small muted">{t("afterAdd")}</span>
+          {AFTER_TYPES.map((ty) => (
+            <button key={ty} type="button" className="chip chip--sm press" onClick={() => add(ty)}>
+              + {t(`afterType_${ty}`)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
