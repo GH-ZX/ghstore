@@ -142,9 +142,11 @@ and the website reads them from `/api/config`.
 From `apps/web`, one `npx wrangler secret put NAME` per line of the `setup:store`
 output, or in the dashboard: Workers & Pages → `ghstore` → Settings → Variables
 and Secrets → Add (type **Secret**). Required: `SESSION_SECRET`, `DATA_KEY`,
-`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `OWNER_TELEGRAM_IDS`. Then only
-the payment methods and suppliers you use (`.env.example` lists every name, and
-each adapter file explains its own keys at the top). Names already set as vars in
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `OWNER_TELEGRAM_IDS`. Payment and
+supplier keys can go here too, but are easier in **Admin → Settings → Keys**:
+stored encrypted with `DATA_KEY`, shown only by their last four characters, and a
+key saved there replaces a Worker secret of the same name (`.env.example` lists
+every name, and each adapter file explains its own keys at the top). Names already set as vars in
 `wrangler.jsonc` (`SUPABASE_PUBLISHABLE_KEY`, `G2BULK_CALLBACK_URL`) are not added
 again as secrets.
 

@@ -89,8 +89,9 @@ export default {
       return Response.redirect(url.toString(), 301);
     }
     if (url.pathname.startsWith("/api/") || url.pathname === "/telegram/webhook") {
-      const { svc, finish } = createServices(env);
+      const { svc, ready, finish } = createServices(env);
       try {
+        await ready();
         const res =
           url.pathname === "/telegram/webhook" && request.method === "POST"
             ? await handleBotWebhook(request, env, svc)
@@ -113,7 +114,7 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: WorkerEnv, ctx: ExecutionContext): Promise<void> {
-    const { svc, finish } = createServices(env);
-    ctx.waitUntil(runScheduled(svc, env).finally(finish));
+    const { svc, ready, finish } = createServices(env);
+    ctx.waitUntil(ready().then(() => runScheduled(svc, env)).finally(finish));
   },
 } satisfies ExportedHandler<WorkerEnv>;

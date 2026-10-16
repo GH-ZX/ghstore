@@ -3,7 +3,7 @@
  * supplier/payment adapters built from Worker secrets, and the Bot API client.
  */
 import { Pool, type PoolClient } from "pg";
-import type { ApiEnv, Db, Services } from "@store/api";
+import { loadStoreKeys, type ApiEnv, type Db, type Services } from "@store/api";
 import type { AdapterContext, PaymentAdapter, PaymentMethod, SupplierAdapter } from "@store/core";
 import { paymentFactories } from "@store/payments";
 import { supplierFactories } from "@store/suppliers";
@@ -47,6 +47,12 @@ function poolDb(pool: Pool): Db {
 
 export interface RequestServices {
   svc: Services;
+  /**
+   * Add the payment and supplier keys set in Admin → Settings → Keys to the
+   * adapters' settings. Call before handling a request that may use an adapter.
+   * Never fails: without the database the Worker's own secrets are used.
+   */
+  ready(): Promise<void>;
   /** Wait for background work, then close the pool. Pass to ctx.waitUntil. */
   finish(): Promise<void>;
 }
@@ -116,6 +122,17 @@ export function createServices(env: WorkerEnv): RequestServices {
 
   return {
     svc,
+    async ready() {
+      try {
+        const keys = await loadStoreKeys(svc.db, env.DATA_KEY);
+        Object.assign(config, keys);
+        // Adapters built before this point (none, when called first) would hold the old settings.
+        suppliers.clear();
+        payments.clear();
+      } catch (err) {
+        console.error("store keys not loaded:", err instanceof Error ? err.message : String(err));
+      }
+    },
     async finish() {
       while (pending.length) await Promise.allSettled(pending.splice(0));
       await pool.end().catch(() => {});

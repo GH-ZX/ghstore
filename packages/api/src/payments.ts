@@ -11,6 +11,7 @@ import { requireUser } from "./auth";
 import type { ApiEnv, Ctx, Services } from "./context";
 import { call, isUniqueViolation, n, one } from "./db";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
+import { effectiveEnv } from "./keys";
 import { starsPerUsd } from "./settings";
 
 const ALL_METHODS: PaymentMethod[] = ["sam", "nowpayments", "bep20", "stars"];
@@ -44,7 +45,8 @@ export function enabledMethods(env: ApiEnv): PaymentMethod[] {
 
 /** Methods customers can use now: switched on and configured in the Worker, and Stars only while the admin has a rate set. */
 export async function availableMethods(env: ApiEnv, svc: Pick<Services, "db">): Promise<PaymentMethod[]> {
-  const methods = enabledMethods(env);
+  // Keys can also be set in Admin → Settings → Keys.
+  const methods = enabledMethods(await effectiveEnv(env, svc.db));
   if (!methods.includes("stars")) return methods;
   return (await starsPerUsd(svc.db)) === null ? methods.filter((m) => m !== "stars") : methods;
 }
@@ -57,7 +59,7 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
   const body = await readJson(ctx.req);
   const method = str(body, "method", { max: 20 }) as PaymentMethod;
-  if (!enabledMethods(ctx.env).includes(method)) throw new ApiError("payment_method_unavailable");
+  if (!enabledMethods(await effectiveEnv(ctx.env, ctx.svc.db)).includes(method)) throw new ApiError("payment_method_unavailable");
   if (method === "stars" && user.channel !== "miniapp") throw new ApiError("payment_method_unavailable");
   const amountCents = int(body, "amountCents", MIN_TOPUP_CENTS, MAX_TOPUP_CENTS);
   // Stars: the rate is the admin's setting (Admin → Settings); none set = Stars off.

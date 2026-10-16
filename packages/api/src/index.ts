@@ -15,6 +15,7 @@ import * as payments from "./payments";
 import * as promo from "./promo";
 import * as reports from "./reports";
 import { Router } from "./router";
+import * as keys from "./keys";
 import * as telegramSetup from "./telegram-setup";
 
 export type { ApiEnv, AuthedUser, Ctx, Services } from "./context";
@@ -27,6 +28,7 @@ export { normalizeSearch, matchesQuery } from "@store/core";
 export { renderTemplate, sendOutbox } from "./notify";
 export { handleBotWebhook, handleUpdate } from "./bot";
 export { syncSupplier, syncDueSuppliers } from "./sync";
+export { loadStoreKeys, STORE_KEYS } from "./keys";
 export { daySummary, localNow, previousDay, queueDailySummary, summaryText, toCsv } from "./reports";
 export { PRODUCT_PATH, productMeta, renderProductPage, robotsTxt, sitemapXml, type ProductMeta } from "./seo";
 
@@ -75,6 +77,8 @@ const router = new Router()
   .on("POST", "/api/admin/suppliers/:id/sync", admin.runSupplierSync)
   .on("GET", "/api/admin/telegram", telegramSetup.getBotStatus)
   .on("POST", "/api/admin/telegram/connect", telegramSetup.connectBot)
+  .on("GET", "/api/admin/keys", keys.listKeys)
+  .on("PUT", "/api/admin/keys/:name", keys.putKey)
   .on("GET", "/api/admin/export/:kind", reports.exportCsv)
   .on("GET", "/api/admin/coupons", promo.listCoupons)
   .on("POST", "/api/admin/coupons", promo.createCoupon)
