@@ -158,3 +158,41 @@ describe("admin top-ups", () => {
     expect(r.data.payments.find((p: { send_amount: string | null }) => p.send_amount === "2.0137")).toBeTruthy();
   });
 });
+
+describe("a supplier's markup for its packages already on sale", () => {
+  it("previews, then reprices markup-priced packages, leaving hand-typed and under-review prices alone", async () => {
+    const manual = (await db.query<{ id: string }>(
+      `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, markup_mode, markup_value)
+       values ($1, 'Hand', 'Hand', $2, 'ref-Hand', 100, 999, 'manual', 0) returning id`,
+      [product, sup],
+    ))[0]!.id;
+    const review = (await db.query<{ id: string }>(
+      `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, paused_reason)
+       values ($1, 'Jump', 'Jump', $2, 'ref-Jump', 100, 120, 'cost_jump') returning id`,
+      [product, sup],
+    ))[0]!.id;
+    const body = { markupPct: 40, minMarginPct: 5, roundToCents: 1 };
+    expect((await h.call("POST", `/api/admin/suppliers/${sup}/pricing`, { token: customer, body })).status).toBe(403);
+    const preview = await h.call("POST", `/api/admin/suppliers/${sup}/pricing`, { token: owner, body });
+    expect(preview.status).toBe(200);
+    expect(preview.data).toMatchObject({ skippedManual: 1, skippedReview: 1 });
+    expect(preview.data.changed).toBeGreaterThanOrEqual(2); // Live and Gone, cost $1.00 -> $1.40
+    expect(preview.data.examples[0]).toMatchObject({ newCents: 140 });
+    // A preview changes nothing.
+    const price = async (id: string) => Number((await db.query<{ price_cents: string }>(`select price_cents from app.offers where id = $1`, [id]))[0]!.price_cents);
+    expect(await price(liveOffer)).not.toBe(140);
+
+    const done = await h.call("POST", `/api/admin/suppliers/${sup}/pricing`, { token: owner, body: { ...body, apply: true } });
+    expect(done.status).toBe(200);
+    expect(await price(liveOffer)).toBe(140);
+    expect(await price(supplierOffer)).toBe(140);
+    expect(await price(manual)).toBe(999);
+    expect(await price(review)).toBe(120);
+    const kept = (await db.query<{ markup_mode: string; markup_value: string }>(`select markup_mode, markup_value from app.offers where id = $1`, [liveOffer]))[0]!;
+    expect(kept).toMatchObject({ markup_mode: "percent" });
+    expect(Number(kept.markup_value)).toBe(40);
+    const defaults = (await db.query<{ import_markup_pct: string }>(`select import_markup_pct from app.suppliers where id = $1`, [sup]))[0]!;
+    expect(Number(defaults.import_markup_pct)).toBe(40);
+    expect((await db.query(`select 1 from app.price_changes where offer_id = $1 and new_price_cents = 140`, [liveOffer])).length).toBe(1);
+  });
+});

@@ -144,6 +144,7 @@ const router = new Router()
   .on("GET", "/api/admin/suppliers/:id/catalogue/items", supplierCatalogue.getCatalogueItems)
   .on("POST", "/api/admin/suppliers/:id/catalogue/refresh", supplierCatalogue.refreshCatalogue)
   .on("POST", "/api/admin/suppliers/:id/selection", selection.applySelection)
+  .on("POST", "/api/admin/suppliers/:id/pricing", adminCatalog.applySupplierPricing)
   .on("PATCH", "/api/admin/suppliers/:id", adminCatalog.updateSupplier);
 
 /** Requests that change state must come from our own pages (or carry a bearer token). */

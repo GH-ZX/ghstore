@@ -653,3 +653,83 @@ export async function acceptCost(ctx: Ctx): Promise<Response> {
   await audit(ctx, staff.id, "offer.accept_cost", "offer", id, { cost, price, selling: marginOk });
   return json({ ok: true, priceCents: price, selling: marginOk });
 }
+
+/**
+ * POST /api/admin/suppliers/:id/pricing { markupPct, minMarginPct, roundToCents, apply? }
+ *
+ * The supplier's markup for the packages already on sale, not only new imports.
+ * Without `apply`: a preview (how many prices change, a few examples). With it:
+ * every package of the supplier priced by a markup is repriced with these
+ * numbers (and keeps them for later cost changes), and they become the
+ * supplier's defaults for new imports. Packages with a price typed by hand, or
+ * waiting for review after a cost jump, are left alone. Prices never go below
+ * the minimum margin (priceFromCost).
+ */
+export async function applySupplierPricing(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "owner");
+  const id = ctx.params.id ?? "";
+  if (!SUPPLIER_ID.test(id)) throw new ApiError("not_found");
+  const body = await readJson(ctx.req);
+  const markup = optNum(body, "markupPct", 0, 1000);
+  const minMargin = optNum(body, "minMarginPct", 0, 500);
+  const round = optInt(body, "roundToCents", 1, 10_000);
+  if (markup === undefined) throw new ApiError("invalid_input", "markupPct");
+  if (minMargin === undefined) throw new ApiError("invalid_input", "minMarginPct");
+  if (round === undefined) throw new ApiError("invalid_input", "roundToCents");
+  const apply = bool(body, "apply") === true;
+  await must(ctx.svc.db, `select id from app.suppliers where id = $1`, [id], "not_found");
+
+  const offers = await ctx.svc.db.query<{
+    id: string; cost_cents: string | number | null; price_cents: string | number; markup_mode: MarkupMode; paused_reason: string | null;
+    name_ar: string; name_en: string; product_ar: string; product_en: string;
+  }>(
+    `select o.id, o.cost_cents, o.price_cents, o.markup_mode, o.paused_reason, o.name_ar, o.name_en, p.name_ar as product_ar, p.name_en as product_en
+       from app.offers o join app.products p on p.id = o.product_id
+      where o.supplier_id = $1`,
+    [id],
+  );
+  const rule = { mode: "percent" as const, value: markup, roundToCents: round, minMarginPct: minMargin };
+  const repriced: { id: string; cost: number; old: number; price: number }[] = [];
+  const examples: { productAr: string; productEn: string; nameAr: string; nameEn: string; oldCents: number; newCents: number }[] = [];
+  let unchanged = 0;
+  let skippedManual = 0;
+  let skippedReview = 0;
+  for (const o of offers) {
+    if (o.markup_mode === "manual") { skippedManual++; continue; }
+    if (o.paused_reason === "cost_jump" || o.cost_cents === null) { skippedReview++; continue; }
+    const cost = n(o.cost_cents);
+    const old = n(o.price_cents);
+    const price = priceFromCost(cost, rule);
+    repriced.push({ id: o.id, cost, old, price });
+    if (price === old) { unchanged++; continue; }
+    examples.push({ productAr: o.product_ar, productEn: o.product_en, nameAr: o.name_ar, nameEn: o.name_en, oldCents: old, newCents: price });
+  }
+  const changed = repriced.length - unchanged;
+  // The biggest moves first, so the preview shows what matters.
+  examples.sort((a, b) => Math.abs(b.newCents - b.oldCents) - Math.abs(a.newCents - a.oldCents));
+  const summary = { changed, unchanged, skippedManual, skippedReview, total: offers.length };
+  if (!apply) return json({ ...summary, examples: examples.slice(0, 6) });
+
+  if (repriced.length) {
+    await ctx.svc.db.query(
+      `update app.offers o set markup_mode = 'percent', markup_value = $2, round_to_cents = $3, min_margin_pct = $4, price_cents = x.price
+         from jsonb_to_recordset($1::text::jsonb) as x(id uuid, price bigint)
+        where o.id = x.id`,
+      [JSON.stringify(repriced.map((r) => ({ id: r.id, price: r.price }))), markup, round, minMargin],
+    );
+    const moved = repriced.filter((r) => r.price !== r.old);
+    if (moved.length) {
+      await ctx.svc.db.query(
+        `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action)
+         select x.id, x.cost, x.cost, x.old, x.price, 'manual' from jsonb_to_recordset($1::text::jsonb) as x(id uuid, cost bigint, old bigint, price bigint)`,
+        [JSON.stringify(moved)],
+      );
+    }
+  }
+  await ctx.svc.db.query(
+    `update app.suppliers set import_markup_pct = $2, import_min_margin_pct = $3, import_round_to_cents = $4 where id = $1`,
+    [id, markup, minMargin, round],
+  );
+  await audit(ctx, staff.id, "supplier.pricing", "supplier", id, { markup, minMargin, round, ...summary });
+  return json(summary);
+}

@@ -216,6 +216,12 @@ each supplier's catalogue and:
 New supplier items are never added automatically: the owner chooses them in
 **Admin → Suppliers → Choose packages**.
 
+A supplier's markup (Admin → Suppliers → Settings → New imports) applies to
+new imports; "Apply to its packages on sale too" previews and then reprices
+the supplier's existing markup-priced packages with it
+(`POST /api/admin/suppliers/:id/pricing`). Prices typed by hand and packages
+waiting for review are left alone; every price still clears the minimum margin.
+
 ## Choosing what to sell (Choose packages)
 
 - **A saved copy of each supplier's list**: `app.supplier_groups` and

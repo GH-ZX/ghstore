@@ -353,6 +353,15 @@ function SupplierCard({ s, onChanged, onSettings, onReview }: { s: Sup; onChange
   );
 }
 
+interface PricingPreview {
+  changed: number;
+  unchanged: number;
+  skippedManual: number;
+  skippedReview: number;
+  total: number;
+  examples: { productAr: string; productEn: string; nameAr: string; nameEn: string; oldCents: number; newCents: number }[];
+}
+
 function SettingsSheet({ s, categories, onClose }: { s: Sup; categories: Cat[]; onClose: (changed: boolean) => void }) {
   const { t, lang } = useT();
   const action = useAction();
@@ -367,6 +376,8 @@ function SettingsSheet({ s, categories, onClose }: { s: Sup; categories: Cat[]; 
   const [descAr, setDescAr] = useState(s.importDescriptionAr);
   const [descEn, setDescEn] = useState(s.importDescriptionEn);
 
+  const [preview, setPreview] = useState<PricingPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const lowCents = dollarsToCents(low);
   const markupN = Number(toLatinDigits(markup));
   const marginN = Number(toLatinDigits(margin));
@@ -387,6 +398,30 @@ function SettingsSheet({ s, categories, onClose }: { s: Sup; categories: Cat[]; 
       importDescriptionEn: descEn,
     };
     if (await action.run(`/api/admin/suppliers/${s.id}`, { method: "PATCH", body })) onClose(true);
+  }
+
+  const pricingBody = { markupPct: Math.round(markupN * 100) / 100, minMarginPct: Math.round(marginN * 100) / 100, roundToCents: round };
+
+  /** What the new markup would do to the packages already on sale. */
+  async function previewPricing() {
+    if (!ok) return;
+    setPreviewing(true);
+    try {
+      setPreview(await api<PricingPreview>(`/api/admin/suppliers/${s.id}/pricing`, { body: pricingBody }));
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function applyPricing() {
+    const r = await action.run(`/api/admin/suppliers/${s.id}/pricing`, { body: { ...pricingBody, apply: true } });
+    if (r) {
+      toast(t("supPricingDone", { n: preview?.changed ?? 0 }));
+      setPreview(null);
+      onClose(true);
+    }
   }
 
   const digits = (v: string) => toLatinDigits(v).replace(/[^\d.]/g, "");
@@ -460,6 +495,41 @@ function SettingsSheet({ s, categories, onClose }: { s: Sup; categories: Cat[]; 
           </select>
         </label>
       </div>
+      {/* The same markup for the packages already on sale: preview, then apply. */}
+      {!preview ? (
+        <button type="button" className="btn btn--sm btn--soft press" style={{ alignSelf: "flex-start" }} disabled={!ok || previewing} onClick={() => void previewPricing()}>
+          {previewing ? <Spinner small /> : t("supPricingPreview")}
+        </button>
+      ) : (
+        <div className="card card--pad stack-sm pricing-preview">
+          <strong>{preview.changed === 0 ? t("supPricingNone") : t("supPricingWill", { n: preview.changed })}</strong>
+          {preview.examples.length > 0 && (
+            <div className="stack-sm">
+              {preview.examples.map((x, i) => (
+                <div key={i} className="row-between small">
+                  <span className="pricing-preview__name">
+                    {pick(lang, x.productAr, x.productEn)} · <bdi>{pick(lang, x.nameAr, x.nameEn)}</bdi>
+                  </span>
+                  <span className="num" dir="ltr">
+                    <s className="muted">{usd(x.oldCents)}</s> → <b className={x.newCents > x.oldCents ? "" : "good"}>{usd(x.newCents)}</b>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <span className="small muted">
+            {t("supPricingKept", { manual: preview.skippedManual, review: preview.skippedReview, same: preview.unchanged })}
+          </span>
+          <div className="wrap" style={{ gap: 8 }}>
+            <button type="button" className="btn btn--sm press" disabled={action.busy} onClick={() => void applyPricing()}>
+              {action.busy ? <Spinner small /> : t("supPricingApply", { n: preview.changed })}
+            </button>
+            <button type="button" className="btn btn--sm btn--ghost press" disabled={action.busy} onClick={() => setPreview(null)}>
+              {t("cancel")}
+            </button>
+          </div>
+        </div>
+      )}
 
       <h3>{t("supNewProducts")}</h3>
       <p className="hint">{t("supNewProductsHint")}</p>
