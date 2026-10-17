@@ -8,7 +8,7 @@
  * and /robots.txt. The owner's settings are in Admin → SEO & pages.
  */
 import { store } from "@store/config";
-import { docPlainText, formatUsd, parseDoc, parseSpans, pictureSrcSet, pictureUrl, SLIDE_PICTURE, type PictureOptions } from "@store/core";
+import { docPlainText, formatUsd, orderPackages, parseDoc, parseSpans, pictureSrcSet, pictureUrl, SLIDE_PICTURE, type PictureOptions } from "@store/core";
 import type { Services } from "./context";
 import { n, one, type Db } from "./db";
 import { liveBanners } from "./home";
@@ -454,11 +454,16 @@ export async function productMeta(svc: Pick<Services, "db">, slug: string): Prom
     [slug],
   );
   if (!r) return null;
-  const packages = await svc.db.query<{ name_ar: string; name_en: string; price_cents: string | number }>(
-    `select o.name_ar, o.name_en, o.price_cents from app.offers o join app.products p on p.id = o.product_id
-      where p.slug = $1 and ${ON_SALE} order by o.sort, o.price_cents limit 40`,
+  const rows = await svc.db.query<{ name_ar: string; name_en: string; price_cents: string | number; sort: number; pinned: boolean; success_pct: string | number | null; kind: string }>(
+    `select o.name_ar, o.name_en, o.price_cents, o.sort, o.pinned, o.success_pct, p.kind from app.offers o join app.products p on p.id = o.product_id
+      where p.slug = $1 and ${ON_SALE} order by o.sort, o.price_cents limit 400`,
     [slug],
   );
+  // The store's own order (packages/core packages.ts), so the page lists "12 UC" before "100 UC" like the store.
+  const packages = orderPackages(
+    rows.map((o) => ({ nameAr: o.name_ar, nameEn: o.name_en, priceCents: n(o.price_cents), sort: o.sort, pinned: o.pinned, successPct: o.success_pct === null ? null : Number(o.success_pct) })),
+    { bySuccess: rows[0]?.kind === "sms" },
+  ).slice(0, 40);
   const [rating, reviews, preload] = await Promise.all([
     one<{ average: string | number | null; count: string | number }>(
       svc.db,
@@ -488,7 +493,7 @@ export async function productMeta(svc: Pick<Services, "db">, slug: string): Prom
     offers: n(r.offers),
     seoTitleAr: r.seo_title_ar, seoTitleEn: r.seo_title_en, seoDescriptionAr: r.seo_description_ar, seoDescriptionEn: r.seo_description_en,
     category: r.cat_slug ? { slug: r.cat_slug, nameAr: r.cat_ar ?? "", nameEn: r.cat_en ?? "" } : null,
-    packages: packages.map((p) => ({ nameAr: p.name_ar, nameEn: p.name_en, priceCents: n(p.price_cents) })),
+    packages: packages.map((p) => ({ nameAr: p.nameAr, nameEn: p.nameEn, priceCents: p.priceCents })),
   };
 }
 
