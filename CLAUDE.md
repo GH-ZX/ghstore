@@ -31,7 +31,9 @@ guide is `docs/launch-a-store.md`, running it (alerts, backups, rollback)
 - The design is this project's own (`packages/ui` tokens, `client/src/styles.css`,
   `ui/kit.tsx`). Do not copy anything from the old GH Store site's design.
 - Arabic and English everywhere: every string goes in `client/src/lib/i18n.ts`
-  (both languages), layouts must work right-to-left. Prices are integer cents.
+  (both languages), or `client/src/admin/messages.ts` when only the admin uses
+  it (kept out of what customers download); layouts must work right-to-left.
+  Prices are integer cents.
 - Supplier keys are encrypted at rest; never decrypt them to call a supplier by hand.
 
 ## Deploying
@@ -49,7 +51,7 @@ If no Supabase connector is available, stop and give the owner the SQL to run
 in Supabase → SQL Editor, then wait for "done" before pushing.
 Keep migrations additive (new tables/columns, `if not exists`); anything that
 drops or rewrites data needs the owner's explicit OK first. Live is at
-`0028_problems_health.sql`; check `select max(name) from app.schema_migrations`.
+`0029_loyalty_channel_push.sql`; check `select max(name) from app.schema_migrations`.
 
 ## Checking your work
 

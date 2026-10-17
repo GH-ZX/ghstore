@@ -458,6 +458,45 @@ removed and written again. Some hours after delivery (Admin → Settings → Ask
 for a review, default 3) the customer gets one request per product
 (`review_ask`, Telegram or email) opening the product at its reviews.
 
+## Loyalty levels
+
+`app.pay_cashback` (migration 0029) runs when an order becomes delivered, after
+the invite reward: the customer's level comes from what they paid from their
+wallet for delivered orders in the last 30 days (`app.loyalty_spent`, this order
+included) and `loyalty.tiers` (ascending `{ min_cents, percent }`, at most 10%);
+that percent of the order comes back as `cashback` on the ledger, capped at the
+order's margin minus any invite reward, once per order. Reaching a new level
+queues `level_up`. Profile shows the level (`GET /api/me/level`); Admin →
+Settings → Loyalty levels sets the tiers or switches it off.
+
+## Channel posts
+
+`channel.ts`: new products (announced once, `products.channel_posted_at`),
+packages back in stock (from `notifyBackInStock`) and price drops of 10% or more
+(from `app.price_changes`) are queued in `app.channel_posts`; the scheduled job
+sends one at a time, `channel.max_per_day` at most, to `channel.chat` (or the
+public channel link from Settings), with the product's picture, its price in
+both languages and buttons to the Mini App and the website. Old or switched-off
+posts are skipped. The store bot must be an admin of the channel.
+
+## Browser notifications
+
+`push.ts`: Web Push without a library. The store's VAPID key pair is made on
+first use (`push.vapid` in app.settings, the private key encrypted with
+DATA_KEY); messages are encrypted per RFC 8291 (aes128gcm). Profile → "Notifications
+on this device" registers `/sw.js` (notifications only, no caching) and stores
+the subscription (`app.push_subscriptions`, only the main browsers' push
+services accepted). The outbox sends a notification with the customer's
+messages (delivered, refunded, topped up, back in stock, answers, review
+requests, level up); subscriptions the push service says are gone are deleted.
+
+## Safer top-ups
+
+A new account (under a day old, nothing delivered) can't top up more than
+`payments.new_account_max_cents` at once (default $50), and nobody starts more
+than `payments.topups_per_hour` (default 6); `health_watch` alerts the owner
+when a customer starts 5 top-ups in an hour or reports 3 problems in a week.
+
 ## Visitor statistics
 
 Cloudflare Web Analytics (no cookies): the owner pastes the site's beacon token

@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.1.0 (2026-10-18)
+
+- **Loyalty levels**: customers move up by what they spent on delivered orders
+  in the last 30 days (Silver from $50, Gold from $200, Platinum from $500 by
+  default) and get 1–3% of every delivered order back in their wallet, never
+  more than the order's margin; a message when they reach a level; "Your level"
+  in Profile; Admin → Settings → Loyalty levels.
+- **Channel posts**: the store posts new products, packages back in stock and
+  price drops (10%+) to its Telegram channel by itself, a few a day, with the
+  picture and a button to the Mini App (Admin → Broadcast → Channel posts).
+- **Browser notifications** for website customers (Profile → Notifications on
+  this device): standard Web Push with the store's own keys, no extra service.
+- **Safer top-ups**: a smaller first top-up for brand-new accounts, a limit per
+  hour, and an alert for unusual activity (many top-ups, many problem reports).
+- **Lighter store**: the admin's strings load with the admin; customers' first
+  load is about 320 KB of code (was about 670 KB before v1.0).
+
 ## v1.0.0 (2026-10-18)
 
 The first complete version of the store: one Cloudflare Worker serving the

@@ -33,6 +33,7 @@ backups, rollback): `docs/operations.md`.
 | Cloudflare Web Analytics (token in Admin → SEO & pages) | Done |
 | Orders a supplier can't deliver wait for the owner; "Report a problem" with answers; review requests; emails for website customers | Done, tested |
 | Reliability: owner alerts (errors, suppliers, jobs), watchdog, after-deploy checks, nightly encrypted backups | Done (`docs/operations.md`) |
+| v1.1: loyalty levels with cashback, channel posts, browser notifications, safer top-ups, lighter first load | Done, tested |
 | Owner tools: daily Telegram summary, CSV exports | Done |
 | Store settings in the database: support contacts, Stars price, invite rewards (Admin → Settings) | Done, tested |
 | Scheduled jobs: fulfilment, payment re-checks, margin guard, balances, reminders, notifications | Done |

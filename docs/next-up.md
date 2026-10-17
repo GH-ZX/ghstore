@@ -9,6 +9,13 @@ English) before calling a UI change done. What is done is in `CHANGELOG.md`.
 Everything in `CHANGELOG.md` is live on gh-store.me; migrations up to
 `0028_problems_health.sql` are on the live database.
 
+## v1.1 (2026-10-18)
+
+Loyalty levels (on by default: 1/2/3% from $50/$200/$500 in 30 days), channel
+posts (off until switched on in Admin → Broadcast; make the bot a channel
+admin), browser notifications, safer top-ups, lighter first load. Migrations up
+to `0029_loyalty_channel_push.sql` are live.
+
 ## The owner's to-do
 
 - **Supplier balances**: top up 5SIM (numbers can't sell without it) and the
@@ -34,8 +41,6 @@ Everything in `CHANGELOG.md` is live on gh-store.me; migrations up to
 - **MaxStore**: a real 10¢ order ("10 ليرة MTN") before relying on it.
 - **Wide covers** for the games still without one (Mobile Legends, Genshin, Free Fire…).
 
-## Ideas for v1.1
+## Ideas for later
 
 - A second supplier per package taking over automatically when the first fails.
-- Web push notifications for website customers (email covers them today).
-- Smaller translation files (the admin's strings load with the store today).
