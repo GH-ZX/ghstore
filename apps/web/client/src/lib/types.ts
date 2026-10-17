@@ -17,6 +17,8 @@ export interface PublicConfig {
   telegram?: { bot: string; channel: string | null };
   /** The store's pages linked at the bottom (terms, privacy, refund…). */
   pages?: { slug: string; titleAr: string; titleEn: string }[];
+  /** Cloudflare Web Analytics, when the owner set its token. */
+  analytics?: { cfBeacon: string | null };
 }
 
 export interface Me {
@@ -79,8 +81,10 @@ export interface ProductCard {
   searchTerms: string;
   /** Delivered by the store's team (not instantly). */
   byHand?: boolean;
-  /** The badge the owner chose for the card. */
+  /** The owner's badge for the card. */
   badge?: ProductBadge | null;
+  /** Customers' stars (Reviews), when it has any. */
+  rating?: { average: number; count: number } | null;
 }
 
 export type ProductBadge = "instant" | "new" | "hot" | "best" | "sale";
@@ -133,6 +137,8 @@ export interface AfterFieldDef {
 
 export interface ProductDetail {
   product: {
+    /** Customers' stars (Reviews), when it has any. */
+    rating?: { average: number; count: number } | null;
     id: string;
     slug: string;
     category: string;

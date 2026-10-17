@@ -12,6 +12,7 @@ import { applyLang, applyTheme, getState, refreshMe, setState } from "./lib/stat
 import { loadTelegram } from "./lib/telegram";
 import type { PublicConfig } from "./lib/types";
 import { App } from "./App";
+import { startAnalytics } from "./lib/analytics";
 
 /**
  * www.<domain> is only an alias: send visitors to the store's own address, where
@@ -82,6 +83,7 @@ async function start() {
   if (config) {
     setState({ config });
     applyTheme();
+    startAnalytics(config.analytics?.cfBeacon);
   }
 
   if (w) {

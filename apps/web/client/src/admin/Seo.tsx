@@ -41,6 +41,7 @@ export function SeoAdmin() {
     <div className="stack">
       <SearchCard />
       <ConsoleCard />
+      <AnalyticsCard />
       <PagesCard />
     </div>
   );
@@ -224,6 +225,49 @@ function ConsoleCard() {
           </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+// ───────────────────────────── visitor statistics
+
+/** The token from Cloudflare's snippet ({"token": "…"}), or what was typed. */
+const tokenOf = (v: string) => (/"token"\s*:\s*"([a-f0-9]{32})"/.exec(v)?.[1] ?? v).trim().toLowerCase();
+
+function AnalyticsCard() {
+  const { t } = useT();
+  const action = useAction();
+  const { data } = useApi<SettingsData>("/api/admin/settings");
+  const [token, setToken] = useState<string | null>(null);
+  const saved = typeof data?.settings["analytics.cf_token"] === "string" ? (data.settings["analytics.cf_token"] as string) : "";
+  const value = token ?? saved;
+  const clean = tokenOf(value);
+  const ok = !clean || /^[a-f0-9]{32}$/.test(clean);
+
+  async function save() {
+    const r = await action.run("/api/admin/settings/analytics.cf_token", { method: "PUT", body: { value: clean || null } });
+    if (r) setToken(clean);
+  }
+
+  return (
+    <section className="card card--pad stack-sm">
+      <div>
+        <h2>{t("analyticsTitle")}</h2>
+        <p className="hint">{t("analyticsHint")}</p>
+      </div>
+      <label className="field">
+        <span>{t("analyticsToken")}</span>
+        <input className="input input--mono" dir="ltr" value={value} placeholder="0123456789abcdef0123456789abcdef" aria-invalid={!ok} onChange={(e) => setToken(e.target.value)} />
+      </label>
+      <div className="wrap" style={{ gap: 8 }}>
+        <button type="button" className="btn btn--sm press" disabled={action.busy || !ok || clean === saved} onClick={() => void save()}>
+          {action.busy ? <Spinner small /> : t("save")}
+        </button>
+        <button type="button" className="btn btn--sm btn--ghost press" onClick={() => openExternal("https://dash.cloudflare.com/?to=/:account/web-analytics")}>
+          {t("analyticsOpen")}
+        </button>
+      </div>
+      {saved && <p className="small good">{t("analyticsOn")}</p>}
     </section>
   );
 }

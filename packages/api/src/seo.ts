@@ -33,6 +33,9 @@ export interface ProductMeta {
   seoDescriptionEn?: string;
   category?: { slug: string; nameAr: string; nameEn: string } | null;
   packages?: { nameAr: string; nameEn: string; priceCents: number }[];
+  /** Customers' reviews: the average and count, and a few recent ones with a comment. */
+  rating?: { average: number; count: number } | null;
+  reviews?: { name: string; rating: number; comment: string; date: string }[];
 }
 
 export const PRODUCT_PATH = /^\/p\/([a-z0-9-]{1,80})\/?$/;
@@ -354,7 +357,26 @@ export async function productMeta(svc: Pick<Services, "db">, slug: string): Prom
       where p.slug = $1 and ${ON_SALE} order by o.sort, o.price_cents limit 40`,
     [slug],
   );
+  const [rating, reviews] = await Promise.all([
+    one<{ average: string | number | null; count: string | number }>(
+      svc.db,
+      `select avg(v.rating) as average, count(*) as count from app.reviews v join app.products p on p.id = v.product_id where p.slug = $1 and v.status = 'visible'`,
+      [slug],
+    ),
+    svc.db.query<{ display_name: string; rating: number; comment: string; created_at: string | Date }>(
+      `select u.display_name, v.rating, v.comment, v.created_at from app.reviews v join app.products p on p.id = v.product_id join app.users u on u.id = v.user_id
+        where p.slug = $1 and v.status = 'visible' and v.comment <> '' order by v.created_at desc limit 5`,
+      [slug],
+    ),
+  ]);
   return {
+    rating: rating && n(rating.count) > 0 ? { average: Math.round(Number(rating.average) * 10) / 10, count: n(rating.count) } : null,
+    reviews: reviews.map((v) => ({
+      name: (v.display_name.trim().split(/\s+/)[0] ?? "").slice(0, 24),
+      rating: Number(v.rating),
+      comment: v.comment,
+      date: new Date(v.created_at).toISOString().slice(0, 10),
+    })),
     slug: r.slug, nameAr: r.name_ar, nameEn: r.name_en, descriptionAr: r.description_ar, descriptionEn: r.description_en,
     imageUrl: r.image_url && /^https:\/\//.test(r.image_url) ? r.image_url : null,
     minCents: r.min_cents === null ? null : n(r.min_cents),
@@ -404,6 +426,20 @@ export function productHead(meta: ProductMeta, o: PageOpts): PageHead {
           },
         }
       : {}),
+    ...(meta.rating
+      ? { aggregateRating: { "@type": "AggregateRating", ratingValue: meta.rating.average, reviewCount: meta.rating.count, bestRating: 5, worstRating: 1 } }
+      : {}),
+    ...(meta.reviews?.length
+      ? {
+          review: meta.reviews.map((v) => ({
+            "@type": "Review",
+            author: { "@type": "Person", name: v.name || (ar ? "عميل" : "Customer") },
+            reviewRating: { "@type": "Rating", ratingValue: v.rating, bestRating: 5, worstRating: 1 },
+            reviewBody: v.comment,
+            datePublished: v.date,
+          })),
+        }
+      : {}),
   };
   const packages = meta.packages ?? [];
   const body = [
@@ -411,6 +447,7 @@ export function productHead(meta: ProductMeta, o: PageOpts): PageHead {
     crumbs(o, trail),
     `<h1>${escapeHtml(name)}</h1>`,
     desc ? `<p>${escapeHtml(desc)}</p>` : "",
+    meta.rating ? `<p>★ ${meta.rating.average} (${meta.rating.count})</p>` : "",
     packages.length
       ? `<h2>${WORDS[l].packages}</h2><ul>${packages.map((p) => `<li>${escapeHtml(pick(l, p.nameAr, p.nameEn))} — ${formatUsd(p.priceCents)}</li>`).join("")}</ul>`
       : "",

@@ -26,8 +26,8 @@ const SECURITY_HEADERS: Record<string, string> = {
 
 /** The page's Content-Security-Policy. Keep in step with client/public/_headers (Cloudflare does not apply that file to Worker responses). */
 const PAGE_CSP =
-  "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-  "font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://*.supabase.co; " +
+  "default-src 'self'; script-src 'self' https://telegram.org https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+  "font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://*.supabase.co https://cloudflareinsights.com; " +
   "frame-src https://oauth.telegram.org; frame-ancestors 'self' https://web.telegram.org https://*.telegram.org; base-uri 'self'; form-action 'self'";
 
 /** Resolve with null if the work takes longer than `ms` (a slow database must not hang a page). */

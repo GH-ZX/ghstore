@@ -26,6 +26,8 @@ someone else's store.
 | Catalogue import from the current site (75 products, 673 packages) | Done; dry-run on the live data, rolled back |
 | SEO: every public page server-rendered for search (both languages), sitemap, robots, settings in Admin → SEO & pages | Done |
 | Terms, privacy and refund pages (ready texts, editable in the admin), footer links, bot /terms and /paysupport | Done |
+| Product reviews (buyers only, stars on cards, Admin → Reviews, in search results' data) | Done |
+| Cloudflare Web Analytics (token in Admin → SEO & pages) | Done |
 | Owner tools: daily Telegram summary, CSV exports | Done |
 | Store settings in the database: support contacts, Stars price, invite rewards (Admin → Settings) | Done, tested |
 | Scheduled jobs: fulfilment, payment re-checks, margin guard, balances, reminders, notifications | Done |

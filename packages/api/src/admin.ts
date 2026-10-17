@@ -224,6 +224,8 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "seo.google_verification": (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(v)),
   "seo.bing_verification": (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(v)),
   "seo.indexing": (v) => typeof v === "boolean",
+  // Cloudflare Web Analytics: the site's beacon token (null = off).
+  "analytics.cf_token": (v) => v === null || (typeof v === "string" && /^[a-f0-9]{32}$/.test(v)),
   // Virtual numbers: how many times in a row a customer may report a number and get the next one.
   "numbers.max_retries": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 20,
 };

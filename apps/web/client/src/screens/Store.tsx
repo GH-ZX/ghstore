@@ -302,6 +302,11 @@ function ProductTile({ p }: { p: ProductCard }) {
           <span className="product__price">
             <span className="small">{t("from")}</span>
             <Money cents={p.fromCents} />
+            {p.rating && p.rating.count > 0 && (
+              <span className="product__rating" aria-label={t("starsLabel", { n: p.rating.average })}>
+                ★ <span className="num">{p.rating.average.toFixed(1)}</span>
+              </span>
+            )}
           </span>
         </span>
       </a>

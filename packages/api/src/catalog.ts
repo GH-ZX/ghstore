@@ -2,6 +2,7 @@
  * Public catalog. Only active products with at least one sellable offer appear.
  * Supplier names and costs are never exposed.
  */
+import { ratingsByProduct } from "./reviews";
 import { matchesQuery, type AfterField, type InputField } from "@store/core";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
@@ -45,6 +46,7 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
       order by p.featured desc, p.sort, p.name_en`,
   );
   const auto = await autoBadges(db);
+  const ratings = await ratingsByProduct(db);
   const q = ctx.url.searchParams.get("q")?.slice(0, 80) ?? "";
   const cat = ctx.url.searchParams.get("category") ?? "";
   const products = rows
@@ -67,6 +69,8 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
       byHand: r.delivery !== "auto",
       // The owner's badge, or the automatic one (New, Best seller) when left on automatic.
       badge: effectiveBadge(r.badge, auto, r.id),
+      // Customers' stars (Reviews), when it has any.
+      rating: ratings.get(r.id) ?? null,
     }));
   const home = !q && !cat;
   const banners = home ? await liveBanners(db) : [];
@@ -169,6 +173,7 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
       byHand: p.delivery !== "auto",
       badge: effectiveBadge(p.badge, p.badge === null ? await autoBadges(ctx.svc.db) : new Map(), p.id),
       afterFields: (p.after_fields ?? []).map((f) => ({ key: f.key, type: f.type, labelEn: f.labelEn, labelAr: f.labelAr, required: f.required })),
+      rating: (await ratingsByProduct(ctx.svc.db, p.id)).get(p.id) ?? null,
     },
     offers: offers.map((o) => ({
       id: o.id, nameAr: o.name_ar, nameEn: o.name_en, priceCents: n(o.price_cents),

@@ -415,6 +415,25 @@ marked "in the footer" are linked at the bottom of the store, in Profile and on
 the sign-in page ("By continuing, you agree to…"). The bot answers `/terms`
 and `/paysupport` (Telegram asks bots that take Stars for one).
 
+## Reviews
+
+A customer who received a product (a delivered order) can rate it from 1 to 5
+stars with an optional comment (`reviews.ts`, `app.reviews`, migration 0027):
+one review per customer and product, which they can change or remove; a
+delivered order offers "Rate this product". Reviews show in the product sheet
+(average, spread, the latest ones with the reviewer's first name only), as stars
+on the product's card, and in its structured data (aggregateRating and a few
+reviews). Support staff can hide a review and the owner can delete one (Admin →
+Reviews); a hidden review stays hidden when its author edits it.
+
+## Visitor statistics
+
+Cloudflare Web Analytics (no cookies): the owner pastes the site's beacon token
+in Admin → SEO & pages (`analytics.cf_token`); `/api/config` hands it to the web
+app, which loads Cloudflare's beacon (outside /admin) and lets it follow page
+changes. The page's Content-Security-Policy allows static.cloudflareinsights.com
+and cloudflareinsights.com.
+
 ## Reports
 
 - **Daily summary** (Telegram, every owner): sales, orders, profit after supplier

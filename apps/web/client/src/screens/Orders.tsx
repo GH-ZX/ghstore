@@ -204,6 +204,11 @@ function OrderView({ id }: { id: string }) {
         </div>
       )}
 
+      {o.productSlug && o.status === "delivered" && (
+        <button type="button" className="btn btn--block btn--soft press" onClick={() => navigate(`/p/${o.productSlug}?review=1`)}>
+          ★ {t("rateIt")}
+        </button>
+      )}
       {o.productSlug && !open && (
         <button type="button" className="btn btn--block btn--soft press" onClick={() => navigate(`/p/${o.productSlug}`)}>
           {t("buyAgain")}

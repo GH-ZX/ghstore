@@ -28,6 +28,7 @@ import { Router } from "./router";
 import * as keys from "./keys";
 import * as telegramSetup from "./telegram-setup";
 import * as pages from "./pages";
+import * as reviews from "./reviews";
 
 export type { ApiEnv, AuthedUser, Ctx, Services } from "./context";
 export type { Db } from "./db";
@@ -68,6 +69,9 @@ const router = new Router()
   // catalog
   .on("GET", "/api/catalog", catalog.listCatalog)
   .on("GET", "/api/products/:slug", catalog.getProduct)
+  .on("GET", "/api/products/:slug/reviews", reviews.listReviews)
+  .on("PUT", "/api/products/:slug/review", reviews.saveReview)
+  .on("DELETE", "/api/products/:slug/review", reviews.deleteReview)
   // orders
   .on("POST", "/api/orders", orders.placeOrder)
   .on("GET", "/api/orders", orders.listOrders)
@@ -101,6 +105,9 @@ const router = new Router()
   .on("POST", "/api/admin/orders/:id/deliver", adminOrders.deliverOrder)
   .on("POST", "/api/admin/orders/:id/refund", admin.refundOrder)
   .on("POST", "/api/admin/orders/:id/retry", admin.retryOrder)
+  .on("GET", "/api/admin/reviews", reviews.adminReviews)
+  .on("PATCH", "/api/admin/reviews/:id", reviews.setReviewStatus)
+  .on("DELETE", "/api/admin/reviews/:id", reviews.removeReview)
   .on("GET", "/api/admin/pages", pages.adminPages)
   .on("PUT", "/api/admin/pages/:slug", pages.savePage)
   .on("DELETE", "/api/admin/pages/:slug", pages.deletePage)

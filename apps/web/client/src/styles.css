@@ -1322,3 +1322,29 @@ textarea.input { padding: 10px 14px; min-height: 0; resize: vertical; line-heigh
 .seo-details[open] summary { margin-bottom: 8px; }
 .page-textarea { min-height: 380px; font-size: 14px; line-height: 1.7; }
 .page-preview { min-height: 200px; max-height: 60vh; overflow: auto; padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); }
+
+/* ───────────────────────────── reviews */
+.stars { display: inline-flex; gap: 1px; vertical-align: -2px; }
+.stars__one { position: relative; display: inline-block; flex: none; }
+.stars__one svg { display: block; }
+.stars__empty { fill: color-mix(in srgb, var(--muted) 30%, transparent); }
+.stars__fill { position: absolute; inset: 0 auto 0 0; overflow: hidden; }
+[dir="rtl"] .stars { transform: scaleX(-1); }
+.stars__fill path { fill: #f5b301; }
+.reviews { scroll-margin-top: 16px; }
+.reviews__avg { display: inline-flex; align-items: center; gap: 6px; }
+.reviews__bars { display: flex; flex-direction: column; gap: 4px; }
+.reviews__bar { display: grid; grid-template-columns: 30px 1fr 28px; align-items: center; gap: 8px; font-size: 12px; }
+.reviews__bar i { display: block; height: 6px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.reviews__bar b { display: block; height: 100%; border-radius: 6px; background: #f5b301; }
+.reviews__text { margin: 0; font-size: 14px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
+.reviews__rate { gap: 10px; }
+.review { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 16px; background: var(--surface-2); }
+.star-input { display: flex; gap: 4px; }
+.star-input__one { width: 44px; height: 44px; border: 0; background: transparent; padding: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.star-input__one path { fill: color-mix(in srgb, var(--muted) 28%, transparent); transition: fill .15s ease, transform .15s ease; }
+.star-input__one--on path { fill: #f5b301; }
+.badge--rating { border: 0; display: inline-flex; align-items: center; gap: 4px; background: color-mix(in srgb, #f5b301 14%, transparent); color: var(--ink); cursor: pointer; }
+.product__rating { margin-inline-start: auto; font-size: 12px; font-weight: 700; color: #d99a00; white-space: nowrap; }
+.review-admin__product { font-weight: 700; color: var(--ink); text-decoration: none; }
+.review-admin--hidden { opacity: .6; }

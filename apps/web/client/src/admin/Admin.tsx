@@ -7,13 +7,14 @@ import type { MsgKey } from "../lib/i18n";
 import { Logo, Toast } from "../ui/kit";
 import { LangButton } from "../ui/Shell";
 import {
-  BoxIcon, ChartIcon, ExitIcon, GearIcon, HomeIcon, MegaphoneIcon, OverviewIcon, ReceiptIcon, SearchIcon, TicketIcon, TopupIcon, TruckIcon, UsersIcon,
+  BoxIcon, ChartIcon, ExitIcon, GearIcon, HomeIcon, MegaphoneIcon, OverviewIcon, ReceiptIcon, SearchIcon, StarIcon, TicketIcon, TopupIcon, TruckIcon, UsersIcon,
 } from "../ui/icons";
 import { AdminOrders } from "./Orders";
 import { Broadcast } from "./Broadcast";
 import { Catalog } from "./Catalog";
 import { HomeAdmin } from "./Home";
 import { SeoAdmin } from "./Seo";
+import { ReviewsAdmin } from "./Reviews";
 import { Coupons } from "./Coupons";
 import { Overview } from "./Overview";
 import { Profit } from "./Profit";
@@ -33,6 +34,7 @@ const SECTIONS: { path: string; key: MsgKey; icon: ReactNode; owner?: boolean }[
   { path: "/admin/broadcast", key: "broadcast", icon: <MegaphoneIcon />, owner: true },
   { path: "/admin/suppliers", key: "suppliers", icon: <TruckIcon />, owner: true },
   { path: "/admin/users", key: "users", icon: <UsersIcon /> },
+  { path: "/admin/reviews", key: "reviews", icon: <StarIcon /> },
   { path: "/admin/seo", key: "seoPages", icon: <SearchIcon size={20} />, owner: true },
   { path: "/admin/settings", key: "settings", icon: <GearIcon />, owner: true },
 ];
@@ -96,6 +98,7 @@ export function Admin() {
         {section.key === "suppliers" && <Suppliers />}
         {section.key === "users" && <Users owner={owner} />}
         {section.key === "seoPages" && <SeoAdmin />}
+        {section.key === "reviews" && <ReviewsAdmin owner={owner} />}
         {section.key === "settings" && <Settings />}
       </main>
       <Toast />

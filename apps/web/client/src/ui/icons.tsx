@@ -141,6 +141,12 @@ export const ArrowOutIcon = ({ size = 18 }: P) => (
   </Svg>
 );
 
+export const StarIcon = ({ size = 20 }: P) => (
+  <Svg size={size}>
+    <path d="M12 3.2l2.7 5.6 6.1.8-4.4 4.3 1.1 6.1L12 17.1 6.5 20l1.1-6.1-4.4-4.3 6.1-.8z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+  </Svg>
+);
+
 export const AdminIcon = ({ size = 20 }: P) => (
   <Svg size={size}>
     <path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />

@@ -239,7 +239,7 @@ describe("manual USDT transfers", () => {
     expect(pa.data.action.type).toBe("address");
     expect((await h.call("GET", `/api/topups/${pa.data.paymentId}`, { token: a })).data.stage).toBe("await_hash");
     // A hash still waiting for confirmations: the app can resume "checking" after a reload.
-    const early = "0x" + "c".repeat(64);
+    const early = "0x" + Date.now().toString(16).padStart(64, "c");
     expect((await h.call("POST", `/api/topups/${pa.data.paymentId}/tx`, { token: a, body: { txHash: early } })).data.status).toBe("pending");
     const resumed = await h.call("GET", `/api/topups/${pa.data.paymentId}`, { token: a });
     expect(resumed.data.stage).toBe("checking");

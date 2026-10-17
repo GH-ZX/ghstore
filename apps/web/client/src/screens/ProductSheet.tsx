@@ -16,6 +16,7 @@ import { invalidate, useApi } from "../lib/useApi";
 import type { CouponQuote, Favorites, InputField, Offer, ProductDetail } from "../lib/types";
 import { BellIcon, CheckIcon, ChevronIcon, CloseIcon, HeartIcon, SearchIcon, ShareIcon, ShieldIcon } from "../ui/icons";
 import { ErrorBox, Sheet, Spinner, Tile } from "../ui/kit";
+import { ProductReviews, Stars } from "./Reviews";
 
 interface Placed {
   orderId: string;
@@ -56,6 +57,8 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const [couponErr, setCouponErr] = useState<string | null>(null);
   const [couponBusy, setCouponBusy] = useState(false);
   const [ready, setReady] = useState(false);
+  // From an order's "Rate this product" (/p/<slug>?review=1): open at the reviews.
+  const [focusReviews] = useState(() => new URLSearchParams(location.search).get("review") === "1");
   // The owner selling face to face: no wallet, the order is theirs to hand over.
   const [inPerson, setInPerson] = useState(false);
   const owner = me?.user.role === "owner";
@@ -329,6 +332,16 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
               )}
             </span>
             <span className="wrap" style={{ gap: 6 }}>
+              {data.product.rating && data.product.rating.count > 0 && (
+                <button
+                  type="button"
+                  className="badge badge--rating press"
+                  onClick={() => document.getElementById("reviews")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                >
+                  <Stars value={data.product.rating.average} size={12} /> <span className="num">{data.product.rating.average.toFixed(1)}</span>
+                  <span className="muted">({data.product.rating.count})</span>
+                </button>
+              )}
               {pick(lang, offer.warrantyAr ?? "", offer.warrantyEn ?? "") && (
                 <span className="badge badge--warranty">
                   <ShieldIcon size={12} /> {pick(lang, offer.warrantyAr ?? "", offer.warrantyEn ?? "")}
@@ -528,6 +541,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
               <div className="prose">{pick(lang, data.product.warrantyAr, data.product.warrantyEn)}</div>
             </div>
           )}
+          <ProductReviews slug={slug} focus={focusReviews} />
         </>
       )}
     </Sheet>
