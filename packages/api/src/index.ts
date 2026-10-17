@@ -12,7 +12,7 @@ import * as auth from "./auth";
 import * as catalog from "./catalog";
 import { publicConfig } from "./config";
 import type { ApiEnv, Services } from "./context";
-import { ApiError, errorResponse, json } from "./http";
+import { ApiError, errorResponse } from "./http";
 import * as orders from "./orders";
 import * as adminOrders from "./admin-orders";
 import * as names from "./names";

@@ -58,6 +58,7 @@ drops or rewrites data needs the owner's explicit OK first. Live is at
 ```bash
 pnpm install
 pnpm typecheck
+pnpm lint        # ESLint (floating promises, import cycles) and knip (unused exports)
 # Postgres 17 locally (apt install postgresql, or docker run postgres:17)
 DATABASE_URL=postgres://postgres@localhost:5432/store_test pnpm db:migrate
 DATABASE_URL=postgres://postgres@localhost:5432/store_test pnpm db:test

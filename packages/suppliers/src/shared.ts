@@ -323,7 +323,6 @@ function stamp(bytes: Uint8Array, version: number): Uint8Array {
 }
 
 export const NAMESPACE_DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
-export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** RFC 4122 name-based UUID (SHA-1), identical to Python's uuid.uuid5. */
 export async function uuid5(name: string, namespace = NAMESPACE_DNS): Promise<string> {

@@ -95,11 +95,6 @@ export const AUTO_BADGES = { newDays: 14, newCount: 6, bestDays: 30, bestCount: 
 const BEST_SELLERS_TTL_MS = 5 * 60_000;
 let bestSellersMemo: { at: number; ids: string[] } | null = null;
 
-/** Forget the remembered best sellers (tests; after a change that must show at once). */
-export function forgetBestSellers(): void {
-  bestSellersMemo = null;
-}
-
 async function bestSellers(db: Db): Promise<string[]> {
   if (bestSellersMemo && Date.now() - bestSellersMemo.at < BEST_SELLERS_TTL_MS) return bestSellersMemo.ids;
   const rows = await db.query<{ product_id: string }>(

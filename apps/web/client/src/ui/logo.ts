@@ -17,6 +17,7 @@ export const LOGO = {
 /**
  * The splash shown while the app starts (until the user and their balance are
  * known), as HTML for index.html: it appears before any script has loaded.
+ * @public client/build.mjs imports it while writing index.html.
  */
 export function splashHtml(): string {
   const strokes = LOGO.strokes

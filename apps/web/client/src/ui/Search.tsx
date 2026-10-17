@@ -80,7 +80,7 @@ export function SearchOverlay({ onClose, initial = "" }: { onClose: () => void; 
     };
   }, [miniApp]);
 
-  const products = data?.products ?? [];
+  const products = useMemo(() => data?.products ?? [], [data]);
   const results = useMemo(
     () => (query ? products.filter((p) => matchesQuery(`${p.nameAr} ${p.nameEn} ${p.slug} ${p.searchTerms}`, query)).slice(0, 40) : []),
     [products, query],
