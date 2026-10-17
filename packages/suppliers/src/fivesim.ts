@@ -52,7 +52,7 @@
  * catalogue), FIVESIM_OPERATOR (default "any").
  */
 import { AdapterError } from "../../core/src/adapters";
-import type { AdapterContext, DeliveredItem, PurchaseResult, SupplierAdapter, SupplierGroup, SupplierProduct } from "../../core/src/adapters";
+import type { AdapterContext, DeliveredItem, SupplierAdapter, SupplierGroup, SupplierProduct } from "../../core/src/adapters";
 import {
   accountFacts, arr, baseUrl, caught, cfg, csv, failed, http, httpError, isObj, mapLimit, num, obj, refusal, str, supplierMessage,
   type HttpResult, type Obj,

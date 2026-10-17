@@ -4,6 +4,8 @@ packages:
 
 # pnpm 11 runs no dependency install scripts unless allowed here.
 # wrangler needs these two (its bundler and the local Workers runtime).
+# unrs-resolver (the linter's import resolver) ships prebuilt binaries: no script.
 allowBuilds:
   esbuild: true
+  unrs-resolver: false
   workerd: true

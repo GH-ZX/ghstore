@@ -1,7 +1,7 @@
 /** Admin → Broadcast: one message to all customers or to a product's buyers, sent through the outbox. */
 import { afterAll, describe, expect, it } from "vitest";
 import { sendOutbox } from "../src/notify";
-import { connectTestDb, env, Harness } from "./helpers";
+import { connectTestDb, env, Harness, holdOtherMessages } from "./helpers";
 
 const conn = await connectTestDb();
 const db = conn.db;
@@ -80,7 +80,12 @@ describe("broadcasts", () => {
     // Receipts go before broadcasts.
     await db.query(`insert into app.outbox (user_id, template, data) values ($1, 'payment_credited', '{"amount_cents": 500}')`, [buyer]);
     h.telegramCalls = [];
-    await sendOutbox(h.svc, env, 500);
+    const release = await holdOtherMessages(db, [buyer]);
+    try {
+      await sendOutbox(h.svc, env, 500);
+    } finally {
+      await release();
+    }
     const toBuyer = h.telegramCalls.filter((c) => c.payload.chat_id === String(base + 3));
     expect(toBuyer.map((c) => c.payload.text)).toEqual(["$5.00 was added to your balance.", "New deal on this product"]);
     const markup = toBuyer[1]!.payload.reply_markup as { inline_keyboard: { text: string; web_app: { url: string } }[][] };

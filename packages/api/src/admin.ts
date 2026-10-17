@@ -3,27 +3,19 @@
  * app.audit_log. `support` can review top-ups and handle orders; only `owner`
  * can change settings, balances and roles.
  */
-import { requireStaff } from "./auth";
-import { EMAIL_FROM, sendTestEmail } from "./email";
+import { audit } from "./audit";
+import { room } from "./budget";
+import { sendTestEmail } from "./email";
+import { requireStaff } from "./guard";
 import { TIME_ZONE } from "./reports";
-import { CHANNEL_URL, EMAIL, PICTURE_MODES, SHOWCASE_AUTOPLAY, SHOWCASE_STYLES, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
+import { EMAIL, isSettingKey, SETTINGS } from "./settings-registry";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder } from "./fulfilment";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { settlePayment } from "./payments";
 import { openProblems } from "./problems";
-import { validTiers } from "./loyalty";
-import { CHANNEL_CHAT } from "./channel";
-import { room } from "./jobs";
 import { syncSupplier } from "./sync";
-
-async function audit(ctx: Ctx, actor: string, action: string, targetType: string, targetId: string, data: Record<string, unknown> = {}) {
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, $2, $3, $4, $5::text::jsonb)`,
-    [actor, action, targetType, targetId, JSON.stringify(data)],
-  );
-}
 
 export async function overview(ctx: Ctx): Promise<Response> {
   await requireStaff(ctx, "monitor");
@@ -125,7 +117,7 @@ export async function approvePayment(ctx: Ctx): Promise<Response> {
   const rows = await call<{ credited: boolean; balance_cents: string | number }>(
     ctx.svc.db, `select * from app.credit_payment($1, $2, null, null, $3)`, [id, amountCents, staff.id],
   );
-  await audit(ctx, staff.id, "payment.approve", "payment", id, { amountCents, note });
+  await audit(ctx.svc.db, { actor: staff.id, action: "payment.approve", targetType: "payment", targetId: id, data: { amountCents, note } });
   return json({ credited: rows[0]?.credited ?? false, balanceCents: n(rows[0]?.balance_cents) });
 }
 
@@ -136,7 +128,7 @@ export async function rejectPayment(ctx: Ctx): Promise<Response> {
   const note = str(body, "note", { min: 3, max: 300 });
   const res = await ctx.svc.db.query(`update app.payments set status = 'rejected', note = $2 where id = $1 and status in ('created','pending','review','partial') returning id`, [id, note]);
   if (!res.length) throw new ApiError("bad_state");
-  await audit(ctx, staff.id, "payment.reject", "payment", id, { note });
+  await audit(ctx.svc.db, { actor: staff.id, action: "payment.reject", targetType: "payment", targetId: id, data: { note } });
   return json({ ok: true });
 }
 
@@ -144,7 +136,7 @@ export async function recheckPayment(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx);
   const id = uuid(ctx.params.id);
   const status = await settlePayment(ctx.svc, id);
-  await audit(ctx, staff.id, "payment.recheck", "payment", id, { status });
+  await audit(ctx.svc.db, { actor: staff.id, action: "payment.recheck", targetType: "payment", targetId: id, data: { status } });
   return json({ status });
 }
 
@@ -192,7 +184,7 @@ export async function refundOrder(ctx: Ctx): Promise<Response> {
     }
   }
   const rows = await call<{ refunded: boolean; balance_cents: string | number }>(ctx.svc.db, `select * from app.refund_order($1, $2, $3)`, [id, note, staff.id]);
-  await audit(ctx, staff.id, "order.refund", "order", id, { note, ...(supplierCancel ? { supplierCancel } : {}) });
+  await audit(ctx.svc.db, { actor: staff.id, action: "order.refund", targetType: "order", targetId: id, data: { note, ...(supplierCancel ? { supplierCancel } : {}) } });
   return json({ refunded: rows[0]?.refunded ?? false, supplierCancel });
 }
 
@@ -201,88 +193,15 @@ export async function retryOrder(ctx: Ctx): Promise<Response> {
   const id = uuid(ctx.params.id);
   await ctx.svc.db.query(`update app.orders set next_check_at = now() where id = $1 and status in ('paid','processing')`, [id]);
   const result = await fulfilOrder(ctx.svc, ctx.env, id);
-  await audit(ctx, staff.id, "order.retry", "order", id, { result });
+  await audit(ctx.svc.db, { actor: staff.id, action: "order.retry", targetType: "order", targetId: id, data: { result } });
   return json({ result });
 }
 
 /**
- * Settings the admin may change, with a validator each. Unknown keys are refused.
- * Provider settings (rates, confirmations, keys) are Worker vars/secrets, not here.
+ * Admin → Settings. The keys, what each accepts and its default are in
+ * settings-registry.ts; unknown keys are refused. Provider settings (rates,
+ * confirmations, keys) are Worker vars/secrets, not here.
  */
-const SETTINGS: Record<string, (v: unknown) => boolean> = {
-  "theme.preset": (v) => typeof v === "string" && ["calm", "energetic", "minimal", "warm"].includes(v),
-  "theme.default_mode": (v) => typeof v === "string" && ["system", "light", "dark"].includes(v),
-  "fx.syp_per_usd": (v) => v === null || (typeof v === "number" && v > 0 && v < 1000),
-  "orders.max_pending_hours": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 168,
-  "referral.enabled": (v) => typeof v === "boolean",
-  "referral.percent": (v) => typeof v === "number" && v >= 0 && v <= 20 && Math.abs(Math.round(v * 100) - v * 100) < 1e-9,
-  "referral.days": (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 3650,
-  "reports.daily": (v) => typeof v === "boolean",
-  // Support contacts customers see in the app and the bot (null hides one).
-  "support.telegram": (v) => v === null || (typeof v === "string" && TELEGRAM_USERNAME.test(v)),
-  "support.whatsapp": (v) => v === null || (typeof v === "string" && WHATSAPP_NUMBER.test(v)),
-  "support.email": (v) => v === null || (typeof v === "string" && v.length <= 120 && EMAIL.test(v)),
-  // Telegram Stars charged per US dollar of balance (null = Stars top-ups off).
-  "payments.stars_per_usd": (v) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 1000),
-  // Top-up limits for customers, in cents: $0.10 to $1,000 smallest, up to $10,000 largest.
-  "payments.min_topup_cents": (v) => typeof v === "number" && Number.isInteger(v) && v >= 10 && v <= 100_000,
-  "payments.max_topup_cents": (v) => typeof v === "number" && Number.isInteger(v) && v >= 100 && v <= 1_000_000,
-  "reports.daily_hour": (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 23,
-  // The store's Telegram channel (null = none). The bot's own username is learned from Telegram, not typed.
-  "telegram.channel_url": (v) => v === null || (typeof v === "string" && CHANNEL_URL.test(v)),
-  "telegram.bot_username": () => false,
-  // Tell owners and support staff about each new order.
-  "notify.new_orders": (v) => typeof v === "boolean",
-  "login.email": (v) => typeof v === "boolean",
-  "email.receipts": (v) => typeof v === "boolean",
-  "email.from": (v) => v === null || (typeof v === "string" && EMAIL_FROM.test(v)),
-  "login.google": (v) => typeof v === "boolean",
-  // How the home page's showcase looks (Admin → Home): a poster per slide, or a deal with its packages.
-  "home.showcase_style": (v) => typeof v === "string" && (SHOWCASE_STYLES as readonly string[]).includes(v),
-  // The showcase's badges, autoplay (seconds per slide, 0 = off) and packages per deal slide.
-  "home.badge_instant": (v) => typeof v === "boolean",
-  "home.badge_label": (v) => typeof v === "boolean",
-  "home.autoplay_seconds": (v) => typeof v === "number" && (SHOWCASE_AUTOPLAY as readonly number[]).includes(v),
-  "home.deal_packages": (v) => typeof v === "number" && Number.isInteger(v) && v >= 2 && v <= 4,
-  "home.picture_mode": (v) => typeof v === "string" && (PICTURE_MODES as readonly string[]).includes(v),
-  // Automatic badges on products left on "automatic": New (the newest) and Best seller (the most sold lately).
-  "badges.auto_new": (v) => typeof v === "boolean",
-  "badges.auto_best": (v) => typeof v === "boolean",
-  // Search engines (Admin → SEO & pages). null = the built-in title / description / picture.
-  "seo.title_ar": (v) => v === null || (typeof v === "string" && v.trim().length >= 1 && v.length <= 70),
-  "seo.title_en": (v) => v === null || (typeof v === "string" && v.trim().length >= 1 && v.length <= 70),
-  "seo.description_ar": (v) => v === null || (typeof v === "string" && v.trim().length >= 1 && v.length <= 320),
-  "seo.description_en": (v) => v === null || (typeof v === "string" && v.trim().length >= 1 && v.length <= 320),
-  "seo.image_url": (v) => v === null || (typeof v === "string" && v.length <= 500 && /^https:\/\/[^\s"<>]{4,}$/.test(v)),
-  "seo.google_verification": (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(v)),
-  "seo.bing_verification": (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(v)),
-  "seo.indexing": (v) => typeof v === "boolean",
-  // A supplier can't deliver: keep the order for the owner to finish by hand (true) or refund it at once (false).
-  "orders.failed_to_owner": (v) => typeof v === "boolean",
-  // Ask for a review this many hours after delivery (0 = never).
-  "reviews.ask_hours": (v) => typeof v === "number" && [0, 1, 3, 6, 12, 24, 48].includes(v),
-  // Product pictures resized by Cloudflare (Images → Transformations on for the domain).
-  "images.resize": (v) => typeof v === "boolean",
-  // Safer top-ups: a new account's largest top-up, and top-ups per hour per customer.
-  "payments.new_account_max_cents": (v) => typeof v === "number" && Number.isInteger(v) && v >= 100 && v <= 1_000_000,
-  "payments.topups_per_hour": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 50,
-  // Loyalty levels: cashback on delivered orders by what was spent in 30 days.
-  "loyalty.enabled": (v) => typeof v === "boolean",
-  "loyalty.tiers": (v) => validTiers(v),
-  // Posts to the store's channel: where (a public @name or a -100… id; null = the channel link), what, how many a day.
-  "channel.chat": (v) => v === null || (typeof v === "string" && CHANNEL_CHAT.test(v)),
-  "channel.post_new": (v) => typeof v === "boolean",
-  "channel.post_back": (v) => typeof v === "boolean",
-  "channel.post_drops": (v) => typeof v === "boolean",
-  "channel.max_per_day": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 30,
-  // Cloudflare Web Analytics: the site's beacon token (null = off).
-  "analytics.cf_token": (v) => v === null || (typeof v === "string" && /^[a-f0-9]{32}$/.test(v)),
-  // Virtual numbers: how many times in a row a customer may report a number and get the next one.
-  "numbers.max_retries": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 20,
-  // Browser notifications for website customers (off when unset: each one is a request on the free plan).
-  "push.enabled": (v) => typeof v === "boolean",
-};
-
 export async function getSettings(ctx: Ctx): Promise<Response> {
   await requireStaff(ctx, "monitor");
   const rows = await ctx.svc.db.query<{ key: string; value: unknown }>(`select key, value from app.settings where key = any(string_to_array($1::text, ','))`, [Object.keys(SETTINGS).join(",")]);
@@ -292,8 +211,8 @@ export async function getSettings(ctx: Ctx): Promise<Response> {
 export async function putSetting(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx, "owner");
   const key = ctx.params.key ?? "";
-  const check = SETTINGS[key];
-  if (!check) throw new ApiError("not_found");
+  if (!isSettingKey(key)) throw new ApiError("not_found");
+  const check = SETTINGS[key].check;
   const body = await readJson(ctx.req);
   if (!("value" in body) || !check(body.value)) throw new ApiError("invalid_input", "value");
   const before = await one<{ value: unknown }>(ctx.svc.db, `select value from app.settings where key = $1`, [key]);
@@ -302,7 +221,7 @@ export async function putSetting(ctx: Ctx): Promise<Response> {
      on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
     [key, JSON.stringify(body.value), staff.id],
   );
-  await audit(ctx, staff.id, "setting.update", "setting", key, { before: before?.value ?? null, after: body.value });
+  await audit(ctx.svc.db, { actor: staff.id, action: "setting.update", targetType: "setting", targetId: key, data: { before: before?.value ?? null, after: body.value } });
   return json({ key, value: body.value });
 }
 
@@ -334,7 +253,7 @@ export async function setUserRole(ctx: Ctx): Promise<Response> {
       where id = $1`,
     [userId, role, status ?? null],
   );
-  await audit(ctx, staff.id, "user.update", "user", userId, { role, status });
+  await audit(ctx.svc.db, { actor: staff.id, action: "user.update", targetType: "user", targetId: userId, data: { role, status } });
   return json({ ok: true });
 }
 
@@ -344,7 +263,7 @@ export async function runSupplierSync(ctx: Ctx): Promise<Response> {
   if (!/^[a-z0-9_]{2,32}$/.test(id)) throw new ApiError("not_found");
   // A big catalogue is checked as far as this request's budget allows; the cron does the rest.
   const report = await syncSupplier(ctx.svc, id, { maxGroups: room(ctx.svc, 3), retryNow: true });
-  await audit(ctx, staff.id, "supplier.sync", "supplier", id, { ...report });
+  await audit(ctx.svc.db, { actor: staff.id, action: "supplier.sync", targetType: "supplier", targetId: id, data: { ...report } });
   return json(report);
 }
 
@@ -367,7 +286,7 @@ export async function checkAllSuppliers(ctx: Ctx): Promise<Response> {
   if (later.length) {
     await ctx.svc.db.query(`update app.suppliers set last_sync_at = null where id in (select jsonb_array_elements_text($1::text::jsonb))`, [JSON.stringify(later)]);
   }
-  await audit(ctx, staff.id, "supplier.sync_all", "supplier", "*", { checked: [...checked], later });
+  await audit(ctx.svc.db, { actor: staff.id, action: "supplier.sync_all", targetType: "supplier", targetId: "*", data: { checked: [...checked], later } });
   return json({ reports, later });
 }
 

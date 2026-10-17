@@ -56,6 +56,10 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Floating promises, import cycles, unused imports (ESLint); unused exports and files (knip).
+      - name: Lint
+        run: pnpm lint
+
       - name: Build the web app
         run: pnpm build
 

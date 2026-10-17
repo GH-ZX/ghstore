@@ -15,7 +15,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["packages/*/test/**/*.test.ts"],
+    include: ["packages/*/test/**/*.test.ts", "apps/web/test/**/*.test.ts"],
     // API tests share one database; run files one after another.
     fileParallelism: false,
   },

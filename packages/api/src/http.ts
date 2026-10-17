@@ -138,6 +138,15 @@ export function uuid(value: string | undefined, field = "id"): string {
   return value;
 }
 
+/** A supplier id (app.suppliers.id): lowercase letters, digits and underscores. */
+export const SUPPLIER_ID = /^[a-z0-9_]{2,32}$/;
+
+/** A supplier id from the path, or 404. */
+export function checkSupplierId(id: string | undefined): string {
+  if (!id || !SUPPLIER_ID.test(id)) throw new ApiError("not_found");
+  return id;
+}
+
 export function setCookie(name: string, value: string, maxAgeSeconds: number): string {
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAgeSeconds}`;
 }

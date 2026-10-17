@@ -1,0 +1,35 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.ts"],
+      "project": ["store.config.ts", "scripts/**/*.ts"]
+    },
+    "packages/*": {
+      "entry": ["test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/payments": {
+      "entry": ["test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignoreDependencies": ["@store/core"]
+    },
+    "packages/suppliers": {
+      "entry": ["test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignoreDependencies": ["@store/core"]
+    },
+    "packages/ui": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/db": {
+      "entry": ["scripts/*.ts"],
+      "project": ["scripts/**/*.ts"]
+    },
+    "apps/web": {
+      "entry": ["client/src/main.tsx", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts", "client/src/**/*.{ts,tsx}", "client/*.mjs"]
+    }
+  },
+  "ignoreExportsUsedInFile": true
+}

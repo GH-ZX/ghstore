@@ -16,8 +16,10 @@
  * it, links work as before and uploads answer "not_allowed".
  * Files are named by their content's hash: the same picture is stored once.
  */
-import { requireStaff } from "./auth";
+import { audit } from "./audit";
+import { room } from "./budget";
 import type { ApiEnv, Ctx, Services } from "./context";
+import { requireStaff } from "./guard";
 import { ApiError, json, readJson } from "./http";
 import { effectiveEnv } from "./keys";
 
@@ -149,10 +151,7 @@ export async function uploadImage(ctx: Ctx): Promise<Response> {
     picture = { bytes: await readCapped(ctx.req.body), type };
   }
   const url = await storeImage(ctx.svc, env, picture.bytes, picture.type);
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'image.upload', 'image', $2, '{}'::jsonb)`,
-    [staff.id, url.slice(-80)],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "image.upload", targetType: "image", targetId: url.slice(-80) });
   return json({ url }, { status: 201 });
 }
 
@@ -179,7 +178,7 @@ export async function copyLinkedImages(svc: Services, env: ApiEnv, max = 4): Pro
   );
   let copied = 0;
   for (const { url } of links) {
-    if (svc.budget && svc.budget.left() < 4) break;
+    if (room(svc) < 4) break;
     try {
       const picture = await fetchImage(svc, url);
       const stored = await storeImage(svc, full, picture.bytes, picture.type);

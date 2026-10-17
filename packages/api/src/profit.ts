@@ -10,9 +10,9 @@
  * difference, less the invite rewards paid in the range. Sales made in person
  * (paid by hand to the owner) are counted like the others, and also shown apart.
  */
-import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
+import { requireStaff } from "./guard";
 import { ApiError, json } from "./http";
 import { localNow, TIME_ZONE } from "./reports";
 

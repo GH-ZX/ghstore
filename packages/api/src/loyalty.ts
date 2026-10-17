@@ -5,45 +5,22 @@
  * their wallet. The paying is done by the database (app.pay_cashback, migration
  * 0029), never more than the order's margin; this file shows the level.
  */
-import { requireUser } from "./auth";
 import type { Ctx } from "./context";
 import { n, one, type Db } from "./db";
+import { requireUser } from "./guard";
 import { json } from "./http";
 import { readSettings } from "./settings";
+import { settingValue } from "./settings-registry";
 
 export interface Tier {
   minCents: number;
   percent: number;
 }
 
-export const DEFAULT_TIERS: Tier[] = [
-  { minCents: 5000, percent: 1 },
-  { minCents: 20000, percent: 2 },
-  { minCents: 50000, percent: 3 },
-];
-
-/** The tiers as stored ({ min_cents, percent }), checked: 1 to 5, ascending, 0–10 %. */
-export function validTiers(v: unknown): boolean {
-  if (!Array.isArray(v) || v.length < 1 || v.length > 5) return false;
-  let last = -1;
-  for (const t of v) {
-    if (!t || typeof t !== "object") return false;
-    const min = (t as Record<string, unknown>).min_cents;
-    const pct = (t as Record<string, unknown>).percent;
-    if (typeof min !== "number" || !Number.isInteger(min) || min < 0 || min > 10_000_000 || min <= last) return false;
-    if (typeof pct !== "number" || pct < 0 || pct > 10 || Math.round(pct * 100) !== pct * 100) return false;
-    last = min;
-  }
-  return true;
-}
-
 export async function loyaltySettings(db: Db): Promise<{ enabled: boolean; tiers: Tier[] }> {
   const s = await readSettings(db, ["loyalty.enabled", "loyalty.tiers"]);
-  const raw = s["loyalty.tiers"];
-  const tiers = validTiers(raw)
-    ? (raw as { min_cents: number; percent: number }[]).map((t) => ({ minCents: t.min_cents, percent: t.percent }))
-    : DEFAULT_TIERS;
-  return { enabled: s["loyalty.enabled"] === true, tiers };
+  const tiers = settingValue(s, "loyalty.tiers").map((t) => ({ minCents: t.min_cents, percent: t.percent }));
+  return { enabled: settingValue(s, "loyalty.enabled"), tiers };
 }
 
 /** GET /api/me/level — the customer's level, what they spent, and the next level. */

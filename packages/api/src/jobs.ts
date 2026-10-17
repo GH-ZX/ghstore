@@ -3,6 +3,7 @@
  * leases its rows with SKIP LOCKED and records a heartbeat, so overlapping runs
  * are harmless and the admin can see when a job last succeeded.
  */
+import { room } from "./budget";
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
 import { fulfilOrder } from "./fulfilment";
@@ -15,15 +16,8 @@ import { queueChannelPosts, sendChannelPosts } from "./channel";
 import { refreshDueCatalogues } from "./supplier-catalogue";
 import { syncDueSuppliers } from "./sync";
 import { housekeepingDue, runHousekeeping } from "./housekeeping";
-
-/**
- * How many more outgoing requests this run may make, keeping `reserve` back
- * (Infinity without a budget). One scheduled run shares Cloudflare's limit
- * (50 on the free plan) between all the jobs below.
- */
-export function room(svc: Services, reserve = 0): number {
-  return svc.budget ? Math.max(0, svc.budget.left() - reserve) : Number.POSITIVE_INFINITY;
-}
+import { readSettings } from "./settings";
+import { SETTINGS, settingValue } from "./settings-registry";
 
 /** Failed runs in a row before the owner hears about it on Telegram. */
 export const JOB_ALERT_AFTER = 3;
@@ -93,8 +87,9 @@ export async function flagStuckOrders(svc: Services): Promise<void> {
   const stuck = await svc.db.query<{ id: string; number: string | number }>(
     `update app.orders set next_check_at = null, last_error = coalesce(last_error, 'stuck: needs review')
       where status in ('paid','processing') and next_check_at is not null
-        and created_at < now() - make_interval(hours => coalesce((select (value #>> '{}')::int from app.settings where key = 'orders.max_pending_hours'), 24))
+        and created_at < now() - make_interval(hours => coalesce((select (value #>> '{}')::int from app.settings where key = 'orders.max_pending_hours'), $1::int))
      returning id, number`,
+    [SETTINGS["orders.max_pending_hours"].fallback],
   );
   if (stuck.length) await alertStaff(svc, `${stuck.length} order(s) stuck: ${stuck.map((s) => "#" + n(s.number)).join(", ")}`);
 }
@@ -241,8 +236,7 @@ export async function eraseOldDetails(svc: Services): Promise<number> {
  * last week, not for virtual numbers, and not when they already reviewed it.
  */
 export async function queueReviewAsks(svc: Services, limit = 50): Promise<number> {
-  const v = (await svc.db.query<{ value: unknown }>(`select value from app.settings where key = 'reviews.ask_hours'`))[0]?.value;
-  const hours = typeof v === "number" ? v : 3;
+  const hours = settingValue(await readSettings(svc.db, ["reviews.ask_hours"]), "reviews.ask_hours");
   if (hours <= 0) return 0;
   const due = await svc.db.query<{ id: string; user_id: string; number: string | number; slug: string; name_ar: string; name_en: string }>(
     `select distinct on (o.user_id, o.product_id) o.id, o.user_id, o.number, p.slug, p.name_ar, p.name_en

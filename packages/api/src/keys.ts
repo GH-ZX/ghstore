@@ -14,9 +14,10 @@
  * - A key set in the admin wins over a Worker secret of the same name.
  */
 import { decryptText, encryptText } from "@store/core";
-import { requireStaff } from "./auth";
+import { audit } from "./audit";
 import type { ApiEnv, Ctx } from "./context";
 import type { Db } from "./db";
+import { requireStaff } from "./guard";
 import { ApiError, json, readJson } from "./http";
 
 export interface KeySpec {
@@ -122,15 +123,9 @@ export async function putKey(ctx: Ctx): Promise<Response> {
   if (!spec) throw new ApiError("not_found");
   const body = await readJson(ctx.req);
   if (!("value" in body)) throw new ApiError("invalid_input", "value");
-  const audit = (action: string, data: Record<string, unknown>) =>
-    ctx.svc.db.query(
-      `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, $2, 'key', $3, $4::text::jsonb)`,
-      [staff.id, action, name, JSON.stringify(data)],
-    );
-
   if (body.value === null || body.value === "") {
     await ctx.svc.db.query(`delete from app.store_keys where name = $1`, [name]);
-    await audit("key.remove", {});
+    await audit(ctx.svc.db, { actor: staff.id, action: "key.remove", targetType: "key", targetId: name });
   } else {
     const value = typeof body.value === "string" ? body.value.trim() : "";
     if (!spec.pattern.test(value)) throw new ApiError("invalid_input", "value");
@@ -140,7 +135,7 @@ export async function putKey(ctx: Ctx): Promise<Response> {
        on conflict (name) do update set value_enc = excluded.value_enc, hint = excluded.hint, updated_at = now(), updated_by = excluded.updated_by`,
       [name, await encryptText(seal(name, value), ctx.env.DATA_KEY), hint, staff.id],
     );
-    await audit("key.set", { hint });
+    await audit(ctx.svc.db, { actor: staff.id, action: "key.set", targetType: "key", targetId: name, data: { hint } });
   }
   clearStoreKeysCache();
   return listKeys(ctx);

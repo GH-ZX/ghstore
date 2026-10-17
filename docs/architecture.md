@@ -403,7 +403,7 @@ The owner sets the home page's search title and description, the share picture
 (default `client/public/promo/share.jpg`), Search Console / Bing verification
 codes and an "indexing" switch in Admin → SEO & pages; a product can have its
 own search title and description (Catalog → product → Search engines).
-`/sitemap.xml` lists the home page, categories, products on sale and published
+`/sitemap.xml` (`sitemap.ts`, with `/robots.txt` and `/llms.txt`) lists the home page, categories, products on sale and published
 pages, each language version with its alternates; `/robots.txt` keeps the
 private screens (`/admin`, `/api`, `/tg`, `/login`, `/wallet`, `/orders`,
 `/profile`) out, or everything when indexing is off.

@@ -27,6 +27,7 @@ import type { ApiEnv, Services } from "./context";
 import { call, n, one } from "./db";
 import { alertStaff } from "./notify";
 import { readSettings } from "./settings";
+import { settingValue } from "./settings-registry";
 import { store } from "@store/config";
 
 interface OrderRow {
@@ -145,7 +146,7 @@ async function fulfilLeased(svc: Services, env: ApiEnv, order: OrderRow): Promis
 
   // Can't be bought: the owner finishes it by hand (not a virtual number: it lives minutes).
   const toOwner = step.next === "refund" && order.kind !== "sms" &&
-    (await readSettings(svc.db, ["orders.failed_to_owner"]))["orders.failed_to_owner"] !== false;
+    settingValue(await readSettings(svc.db, ["orders.failed_to_owner"]), "orders.failed_to_owner");
   // What the supplier charged, when it says (a reported 0 tells nothing: the known cost stays).
   const cost = result.status !== "failed" && typeof result.costCents === "number" && result.costCents > 0 ? result.costCents : null;
 

@@ -4,11 +4,13 @@
  */
 import { store } from "@store/config";
 import { formatUsd } from "@store/core";
+import { room } from "./budget";
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
 import { EMAIL_INSTEAD, emailReady, emailSettings, RECEIPT_TEMPLATES, renderReceipt, sendEmail } from "./email";
 import { effectiveEnv } from "./keys";
 import { botUsername, readSettings, supportContacts } from "./settings";
+import { settingValue } from "./settings-registry";
 import { PUSH_MAX_BROWSERS, pushToUser, vapidKeys, type Vapid } from "./push";
 import { summaryText, type DaySummary } from "./reports";
 
@@ -108,7 +110,7 @@ export function renderTemplate(template: string, locale: "ar" | "en", data: Data
 
 /** Browser notifications are off until the owner turns them on (Admin → Settings: push.enabled). */
 export async function pushEnabled(db: Services["db"]): Promise<boolean> {
-  return (await readSettings(db, ["push.enabled"]))["push.enabled"] === true;
+  return settingValue(await readSettings(db, ["push.enabled"]), "push.enabled");
 }
 
 /**
@@ -173,7 +175,7 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25, reserve
   }
   // The store's push key and contact, read once per batch.
   let pushFrom: { vapid: Vapid; subject: string } | null = null;
-  const left = () => (svc.budget ? svc.budget.left() - reserve : Number.POSITIVE_INFINITY);
+  const left = () => room(svc, reserve);
 
   for (const [i, r] of rows.entries()) {
     const locale = r.locale ?? "ar";

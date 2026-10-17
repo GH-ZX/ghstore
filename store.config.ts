@@ -32,4 +32,5 @@ export const store = {
   orderPrefix: "GH-",
 } as const;
 
+/** @public The shape a store copy fills in (this repo is a template). */
 export type StoreConfig = typeof store;

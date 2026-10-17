@@ -8,8 +8,8 @@ import type { Ctx } from "./context";
 import { n, one } from "./db";
 import { liveBanners } from "./home";
 import { autoBadges, effectiveBadge, showcaseSettings } from "./settings";
-import { SOLD_OUT_SQL } from "./favorites";
 import { ApiError, json } from "./http";
+import { LISTED, ON_SALE, SOLD_OUT } from "./sql-fragments";
 
 interface ProductRow {
   id: string;
@@ -38,9 +38,8 @@ export async function listCatalog(ctx: Ctx): Promise<Response> {
             min(o.price_cents) as min_price_cents, count(o.id) as offer_count
        from app.products p
        join app.categories c on c.id = p.category_id and c.active
-       join app.offers o on o.product_id = p.id and o.active and o.paused_reason is null
-            -- a package whose supplier is switched off in Admin → Suppliers is not for sale
-            and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))
+       -- a package whose supplier is switched off in Admin → Suppliers is not for sale
+       join app.offers o on o.product_id = p.id and ${ON_SALE}
       where p.active
       group by p.id, c.slug
       order by p.featured desc, p.sort, p.name_en`,
@@ -120,8 +119,7 @@ async function showcase(db: Ctx["svc"]["db"], banners: Awaited<ReturnType<typeof
     const rows = await db.query<{ product_id: string; id: string; name_ar: string; name_en: string; price_cents: string | number }>(
       `select o.product_id, o.id, o.name_ar, o.name_en, o.price_cents
          from app.offers o
-        where o.product_id in (select jsonb_array_elements_text($1::text::jsonb)::uuid) and o.active and o.paused_reason is null
-          and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))
+        where o.product_id in (select jsonb_array_elements_text($1::text::jsonb)::uuid) and ${ON_SALE}
         order by o.price_cents, o.sort`,
       [JSON.stringify(ids.map((p) => p.id))],
     );
@@ -154,13 +152,12 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
     warranty_ar: string | null; warranty_en: string | null; success_pct: string | number | null; pinned: boolean; sold_out: boolean; sort: number;
   }>(
     `select o.id, o.name_ar, o.name_en, o.price_cents, o.input_fields, o.max_quantity, o.warranty_ar, o.warranty_en, o.success_pct, o.pinned, o.sort,
-            ${SOLD_OUT_SQL} as sold_out
+            ${SOLD_OUT} as sold_out
        from app.offers o join app.products p on p.id = o.product_id
-      where o.product_id = $1 and o.active and (o.paused_reason is null or o.paused_reason = 'supplier_unavailable')
-        and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))
+      where o.product_id = $1 and ${LISTED}
       -- Sold-out packages last (customers can ask to be told when they are back).
       -- Virtual numbers: the countries whose numbers get their SMS most often first.
-      order by ${SOLD_OUT_SQL}, o.pinned desc, case when $2 = 'sms' then -coalesce(o.success_pct, -1) end, o.sort, o.price_cents`,
+      order by ${SOLD_OUT}, o.pinned desc, case when $2 = 'sms' then -coalesce(o.success_pct, -1) end, o.sort, o.price_cents`,
     [p.id, p.kind],
   );
   if (!offers.length) throw new ApiError("not_found");

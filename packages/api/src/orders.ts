@@ -6,9 +6,9 @@
  * for a person to deliver a product sold by hand, 'release' for a person to
  * check what the supplier delivered (hidden from the customer until then).
  */
+import { requireUser } from "./guard";
 import { orderProblem } from "./problems";
 import { AFTER_SECRET, checkAnswers, decryptText, encryptText, type AfterField, type InputField } from "@store/core";
-import { requireUser } from "./auth";
 import { LIMITS, throttle } from "./ratelimit";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
@@ -17,11 +17,11 @@ import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { alertNewOrder, alertStaff } from "./notify";
 import { couponCode } from "./promo";
 import { readSettings } from "./settings";
+import { settingValue } from "./settings-registry";
+import { SUPPLIER_ON } from "./sql-fragments";
 import { store } from "@store/config";
 
 const CHANNELS = new Set(["web", "miniapp", "bot"]);
-/** "Try another number" in a row, unless Admin → Settings says otherwise. */
-const DEFAULT_MAX_RETRIES = 5;
 
 export async function placeOrder(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
@@ -38,7 +38,7 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
   const offer = await one<{ input_fields: InputField[]; supplier_on: boolean }>(
     ctx.svc.db,
     `select o.input_fields,
-            (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled)) as supplier_on
+            ${SUPPLIER_ON} as supplier_on
        from app.offers o where o.id = $1`,
     [offerId],
   );
@@ -251,8 +251,7 @@ export async function closeNumber(ctx: Ctx): Promise<Response> {
   if (body.again !== true) return json({ closed: true });
   // At most `numbers.max_retries` numbers of the same package in a row (half an hour), so a
   // country that delivers nothing does not burn through the wallet: then try another country.
-  const limit = await readSettings(ctx.svc.db, ["numbers.max_retries"]);
-  const max = typeof limit["numbers.max_retries"] === "number" ? (limit["numbers.max_retries"] as number) : DEFAULT_MAX_RETRIES;
+  const max = settingValue(await readSettings(ctx.svc.db, ["numbers.max_retries"]), "numbers.max_retries");
   const tries = await one<{ n: string | number }>(
     ctx.svc.db,
     `select count(*) as n from app.orders where user_id = $1 and offer_id = $2 and idempotency_key like 'again-%' and created_at > now() - interval '30 minutes'`,

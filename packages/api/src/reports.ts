@@ -5,11 +5,13 @@
  */
 import { store } from "@store/config";
 import { formatUsd } from "@store/core";
-import { requireStaff } from "./auth";
+import { audit } from "./audit";
 import type { Services } from "./context";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
+import { requireStaff } from "./guard";
 import { ApiError } from "./http";
+import { settingValue } from "./settings-registry";
 
 export const TIME_ZONE: string = store.timeZone;
 
@@ -121,8 +123,8 @@ export async function queueDailySummary(svc: Services): Promise<boolean> {
     `select key, value from app.settings where key in ('reports.daily', 'reports.daily_hour')`,
   );
   const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  if (s["reports.daily"] === false) return false;
-  const hour = typeof s["reports.daily_hour"] === "number" ? s["reports.daily_hour"] : 9;
+  if (!settingValue(s, "reports.daily")) return false;
+  const hour = settingValue(s, "reports.daily_hour");
   const now = localNow(svc.now());
   if (now.hour !== hour) return false;
   return svc.db.tx(async (db) => {
@@ -232,10 +234,7 @@ export async function exportCsv(ctx: Ctx): Promise<Response> {
   );
   const rows = await ctx.svc.db.query<Record<string, unknown>>(spec.sql, [range!.a, range!.b]);
   const truncated = rows.length > MAX_ROWS;
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'export', 'report', $2, $3::text::jsonb)`,
-    [staff.id, kind, JSON.stringify({ from, to, rows: Math.min(rows.length, MAX_ROWS) })],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "export", targetType: "report", targetId: kind, data: { from, to, rows: Math.min(rows.length, MAX_ROWS) } });
   return new Response(toCsv(spec.header, rows.slice(0, MAX_ROWS).map(spec.row)), {
     headers: {
       "content-type": "text/csv; charset=utf-8",

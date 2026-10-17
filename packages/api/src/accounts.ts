@@ -7,11 +7,11 @@
  * GET /api/admin/accounts/:kind/:id    one account (kind: supplier | payment)
  */
 import type { AccountInfo, PaymentMethod } from "@store/core";
-import { requireStaff } from "./auth";
+import { audit } from "./audit";
 import type { Ctx } from "./context";
-import { ApiError, json } from "./http";
+import { requireStaff } from "./guard";
+import { ApiError, checkSupplierId, json } from "./http";
 import { effectiveEnv } from "./keys";
-import { checkSupplierId } from "./supplier-catalogue";
 
 /** Payment providers with an account to show (Stars has none to read). */
 const PAYMENTS: { id: PaymentMethod; name: string; key: string }[] = [
@@ -69,9 +69,6 @@ export async function getAccount(ctx: Ctx): Promise<Response> {
     // The provider refused or is down: say why (adapters never put keys in messages).
     return json({ error: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
   }
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'account.view', $2, $3, '{}'::jsonb)`,
-    [staff.id, kind, id],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "account.view", targetType: kind, targetId: id });
   return json({ info });
 }

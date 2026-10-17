@@ -14,10 +14,10 @@
  * already on sale keep the names they have.
  */
 import { cleanSupplierName, DEFAULT_NAME_WORDS, parseNameWords, type CleanName, type NameWord } from "@store/core";
-import { requireStaff } from "./auth";
+import { audit } from "./audit";
 import type { Ctx, Services } from "./context";
-import { ApiError, json, readJson } from "./http";
-import { checkSupplierId } from "./supplier-catalogue";
+import { requireStaff } from "./guard";
+import { ApiError, checkSupplierId, json, readJson } from "./http";
 
 const SETTING = "catalog.name_words";
 /** Items shown in the preview, at most. */
@@ -153,9 +153,6 @@ export async function putNames(ctx: Ctx): Promise<Response> {
   const suppliers = await ctx.svc.db.query<{ id: string }>(`select id from app.suppliers where clean_names`);
   let renamed = 0;
   for (const s of suppliers) renamed += await renameSavedItems(ctx.svc, s.id);
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'names.update', 'setting', $2, $3::text::jsonb)`,
-    [staff.id, SETTING, JSON.stringify({ words: words?.length ?? "default", renamed })],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "names.update", targetType: "setting", targetId: SETTING, data: { words: words?.length ?? "default", renamed } });
   return json({ ok: true, renamed });
 }

@@ -6,9 +6,10 @@
  * order; once answered, the customer can report again.
  */
 import { store } from "@store/config";
-import { requireStaff, requireUser } from "./auth";
+import { audit } from "./audit";
 import type { Ctx } from "./context";
 import { n, one, type Db } from "./db";
+import { requireStaff, requireUser } from "./guard";
 import { ApiError, json, readJson, uuid } from "./http";
 import { alertStaff } from "./notify";
 import { LIMITS, throttle } from "./ratelimit";
@@ -109,10 +110,7 @@ export async function resolveProblem(ctx: Ctx): Promise<Response> {
     r.user_id,
     JSON.stringify({ order_id: r.order_id, number: n(r.number), reply }),
   ]);
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'problem.resolve', 'order', $2, '{}'::jsonb)`,
-    [staff.id, r.order_id],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "problem.resolve", targetType: "order", targetId: r.order_id });
   return json({ ok: true });
 }
 

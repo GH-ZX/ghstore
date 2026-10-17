@@ -13,18 +13,14 @@
  * waiting gets one Telegram message (`back_in_stock`) and the request is done.
  */
 import { queueBackInStockPosts } from "./channel";
-import { requireUser } from "./auth";
 import type { Ctx, Services } from "./context";
 import { n } from "./db";
+import { requireUser } from "./guard";
 import { ApiError, json, uuid } from "./http";
+import { ON_SALE, SOLD_OUT } from "./sql-fragments";
 
 const MAX_FAVORITES = 200;
 const MAX_ALERTS = 50;
-
-/** SQL: this offer (alias o, product p) cannot be bought right now for lack of stock. */
-export const SOLD_OUT_SQL = `(coalesce(o.paused_reason = 'supplier_unavailable', false)
-  or (o.supplier_id is null and p.delivery = 'auto'
-      and not exists (select 1 from app.stock_items s where s.offer_id = o.id and s.status = 'available')))`;
 
 export async function listFavorites(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
@@ -33,8 +29,7 @@ export async function listFavorites(ctx: Ctx): Promise<Response> {
   }>(
     `select p.id, p.slug, p.name_ar, p.name_en, p.image_url, c.slug as category,
             (select min(o.price_cents) from app.offers o
-              where o.product_id = p.id and o.active and o.paused_reason is null
-                and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))) as from_cents
+              where o.product_id = p.id and ${ON_SALE}) as from_cents
        from app.favorites f join app.products p on p.id = f.product_id join app.categories c on c.id = p.category_id
       where f.user_id = $1 and p.active and c.active
       order by f.created_at desc`,
@@ -81,7 +76,7 @@ export async function addStockAlert(ctx: Ctx): Promise<Response> {
   const offerId = uuid(ctx.params.offerId);
   // Only for a package that is sold out right now (an available one can simply be bought).
   const soldOut = await ctx.svc.db.query<{ sold_out: boolean }>(
-    `select ${SOLD_OUT_SQL} as sold_out from app.offers o join app.products p on p.id = o.product_id
+    `select ${SOLD_OUT} as sold_out from app.offers o join app.products p on p.id = o.product_id
       where o.id = $1 and o.active and p.active and (o.paused_reason is null or o.paused_reason = 'supplier_unavailable')`,
     [offerId],
   );
@@ -112,9 +107,8 @@ export async function notifyBackInStock(svc: Pick<Services, "db">, offerIds: str
     `with back as (
        select o.id, o.name_ar, o.name_en, p.slug, p.name_ar as product_ar, p.name_en as product_en
          from app.offers o join app.products p on p.id = o.product_id
-        where o.id = any(string_to_array($1::text, ',')::uuid[]) and o.active and p.active and o.paused_reason is null
-          and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))
-          and not ${SOLD_OUT_SQL}
+        where o.id = any(string_to_array($1::text, ',')::uuid[]) and p.active and ${ON_SALE}
+          and not ${SOLD_OUT}
      ), gone as (
        delete from app.stock_alerts a using back where a.offer_id = back.id
        returning a.user_id, back.slug, back.product_ar, back.product_en, back.name_ar, back.name_en

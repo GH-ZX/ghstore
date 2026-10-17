@@ -60,9 +60,48 @@ export async function connectTestDb(): Promise<{ db: Db; close: () => Promise<vo
   await db.query(`insert into app.settings (key, value) values ('payments.topups_per_hour', '50') on conflict (key) do nothing`);
   // Each test file starts with fresh throttles: the suite signs the same test accounts in many times.
   await db.query(`delete from app.rate_limits`);
+  // Only the owner is staff when a file starts: tests promote accounts of their own, and on a reused
+  // database every earlier run's helpers would otherwise get each staff message too.
+  await db.query(`update app.users set role = 'customer' where role in ('monitor', 'support')`);
   const app = postgres(TEST_DATABASE_URL, { max: 4, onnotice: () => {}, connection: { role: APP_ROLE } });
   (db as Db & { app?: Db }).app = makeDb(app as SqlLike);
   return { db, close: async () => void (await Promise.all([sql.end(), app.end()])) };
+}
+
+/**
+ * A reused test database keeps what earlier runs left: messages still waiting,
+ * test suppliers switched on. These hold everything but the test's own rows
+ * back (as if another run had them), so a job a test runs sees only its rows;
+ * the function they return lets the rest go again.
+ */
+export async function holdOtherMessages(db: Db, userIds: string[]): Promise<() => Promise<void>> {
+  const held = await db.query<{ id: string }>(
+    `update app.outbox set available_at = now() + interval '1 hour'
+      where status = 'pending' and available_at <= now()
+        and (user_id is null or not (user_id = any(string_to_array($1::text, ',')::uuid[])))
+     returning id::text as id`,
+    [userIds.join(",")],
+  );
+  return async () => {
+    if (!held.length) return;
+    await db.query(`update app.outbox set available_at = now() where status = 'pending' and id = any(string_to_array($1::text, ',')::bigint[])`, [
+      held.map((r) => r.id).join(","),
+    ]);
+  };
+}
+
+/** Other suppliers due for a price check are leased for an hour, so syncDueSuppliers picks only `keep`. */
+export async function holdOtherSuppliers(db: Db, keep: string[]): Promise<() => Promise<void>> {
+  const held = await db.query<{ id: string }>(
+    `update app.suppliers set sync_lease_until = now() + interval '1 hour'
+      where enabled and not (id = any(string_to_array($1::text, ','))) and (sync_lease_until is null or sync_lease_until < now())
+     returning id`,
+    [keep.join(",")],
+  );
+  return async () => {
+    if (!held.length) return;
+    await db.query(`update app.suppliers set sync_lease_until = null where id = any(string_to_array($1::text, ','))`, [held.map((r) => r.id).join(",")]);
+  };
 }
 
 export function makeDb(sql: SqlLike, inTx = false): Db {

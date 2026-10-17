@@ -7,7 +7,7 @@ import type { SupplierAdapter } from "@store/core";
 import { handleBotWebhook, sendOutbox } from "../src/index";
 import { clearStoreKeysCache } from "../src/keys";
 import { queueBuyAgain } from "../src/jobs";
-import { connectTestDb, env, Harness } from "./helpers";
+import { connectTestDb, env, Harness, holdOtherMessages } from "./helpers";
 
 const conn = await connectTestDb();
 const db = conn.db;
@@ -236,7 +236,12 @@ describe("buy again", () => {
     expect(await queueBuyAgain(h.svc)).toBeGreaterThanOrEqual(1);
     expect(await queueBuyAgain(h.svc)).toBe(0);
     h.telegramCalls.length = 0;
-    await sendOutbox(h.svc, env, 1000);
+    const release = await holdOtherMessages(db, [(await h.call("GET", "/api/me", { token })).data.user.id]);
+    try {
+      await sendOutbox(h.svc, env, 1000);
+    } finally {
+      await release();
+    }
     const msg = h.telegramCalls.find((c) => c.method === "sendMessage" && c.payload.chat_id === String(id) && String(c.payload.text).startsWith("Time to renew"));
     expect(String(msg?.payload.text)).toContain("Time to renew? You bought Netflix (1 month)");
     expect(JSON.stringify(msg?.payload.reply_markup)).toContain(`startapp=p_netflix-${run}`);

@@ -12,9 +12,10 @@
  * Only the push services of the main browsers are called (no other address).
  */
 import { decryptText, encryptText, fromBase64Url, toBase64Url, utf8 } from "@store/core";
-import { requireUser } from "./auth";
+import { room } from "./budget";
 import type { ApiEnv, Ctx, Services } from "./context";
 import { one } from "./db";
+import { requireUser } from "./guard";
 import { ApiError, json, readJson } from "./http";
 
 /** The push services of Chrome/Edge/Android, Firefox, Windows and Safari. */
@@ -150,7 +151,7 @@ export async function pushToUser(
   let sent = 0;
   for (const s of subs) {
     if (!pushEndpointAllowed(s.endpoint)) continue;
-    if (svc.budget && svc.budget.left() <= (opts.reserve ?? 1)) break;
+    if (room(svc, opts.reserve ?? 1) <= 0) break;
     try {
       const res = await svc.fetch(s.endpoint, {
         method: "POST",

@@ -3,11 +3,13 @@
  * (packages/db/migrations/0004): rewards are paid by a trigger when an invited
  * customer's order is delivered, and coupons are applied inside place_order.
  */
-import { requireStaff, requireUser } from "./auth";
+import { audit } from "./audit";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
+import { requireStaff, requireUser } from "./guard";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { LIMITS, throttle } from "./ratelimit";
+import { settingValue } from "./settings-registry";
 
 const CODE_RE = /^[A-Za-z0-9_-]{3,32}$/;
 const REF_RE = /^[A-Za-z2-9]{6,12}$/;
@@ -31,9 +33,9 @@ export async function referralSettings(ctx: Pick<Ctx, "svc">): Promise<ReferralS
   );
   const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   return {
-    enabled: s["referral.enabled"] === true,
-    percent: typeof s["referral.percent"] === "number" ? s["referral.percent"] : 0,
-    days: typeof s["referral.days"] === "number" ? s["referral.days"] : 0,
+    enabled: settingValue(s, "referral.enabled"),
+    percent: settingValue(s, "referral.percent"),
+    days: settingValue(s, "referral.days"),
   };
 }
 
@@ -201,13 +203,6 @@ function couponFields(body: Record<string, unknown>, partial: boolean): Record<s
   return out;
 }
 
-async function audit(ctx: Ctx, actor: string, action: string, id: string, data: Record<string, unknown>) {
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, $2, 'coupon', $3, $4::text::jsonb)`,
-    [actor, action, id, JSON.stringify(data)],
-  );
-}
-
 export async function createCoupon(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx, "owner");
   const body = await readJson(ctx.req);
@@ -223,7 +218,7 @@ export async function createCoupon(ctx: Ctx): Promise<Response> {
   );
   const id = rows[0]?.id;
   if (!id) throw new ApiError("internal");
-  await audit(ctx, staff.id, "coupon.create", id, { code, ...fields });
+  await audit(ctx.svc.db, { actor: staff.id, action: "coupon.create", targetType: "coupon", targetId: id, data: { code, ...fields } });
   const row = await one<CouponRow>(ctx.svc.db, `${COUPON_SELECT} where c.id = $1`, [id]);
   return json({ coupon: row ? publicCoupon(row) : null }, { status: 201 });
 }
@@ -248,7 +243,7 @@ export async function updateCoupon(ctx: Ctx): Promise<Response> {
     throw err;
   });
   if (!rows.length) throw new ApiError("not_found");
-  await audit(ctx, staff.id, "coupon.update", id, fields);
+  await audit(ctx.svc.db, { actor: staff.id, action: "coupon.update", targetType: "coupon", targetId: id, data: fields });
   const row = await one<CouponRow>(ctx.svc.db, `${COUPON_SELECT} where c.id = $1`, [id]);
   return json({ coupon: row ? publicCoupon(row) : null });
 }

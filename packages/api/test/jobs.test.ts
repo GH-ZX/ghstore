@@ -1,6 +1,7 @@
 /** Scheduled jobs tell the owner when one keeps failing, once, and again when it recovers. */
 import { afterAll, describe, expect, it } from "vitest";
-import { heartbeat, JOB_ALERT_AFTER, room } from "../src/jobs";
+import { room } from "../src/budget";
+import { heartbeat, JOB_ALERT_AFTER } from "../src/jobs";
 import { connectTestDb, env, Harness } from "./helpers";
 
 const conn = await connectTestDb();

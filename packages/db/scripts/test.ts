@@ -1,6 +1,7 @@
 /**
  * Run the SQL tests against a database that already has the migrations applied.
- * Every test file wraps itself in a transaction and rolls back, so it leaves no data.
+ * Every test file wraps itself in a transaction and rolls back, so it leaves no data,
+ * and runs on its own connection, so no session state carries over to the next.
  *
  *   DATABASE_URL=postgres://... pnpm db:test
  *
@@ -16,19 +17,18 @@ if (!url) {
   process.exit(1);
 }
 const dir = join(import.meta.dirname, "..", "tests");
-const sql = postgres(url, { max: 1, prepare: false, onnotice: (n) => console.log(`  ${n.message}`) });
 let failed = false;
-try {
-  for (const file of (await readdir(dir)).filter((f) => f.endsWith(".test.sql")).sort()) {
-    console.log(file);
-    try {
-      await sql.unsafe(await readFile(join(dir, file), "utf8"));
-    } catch (err) {
-      failed = true;
-      console.error(`  FAILED: ${(err as Error).message}`);
-    }
+for (const file of (await readdir(dir)).filter((f) => f.endsWith(".test.sql")).sort()) {
+  console.log(file);
+  // A fresh connection per file: a role, search_path or temp table one file sets can not leak into the next.
+  const sql = postgres(url, { max: 1, prepare: false, onnotice: (n) => console.log(`  ${n.message}`) });
+  try {
+    await sql.unsafe(await readFile(join(dir, file), "utf8"));
+  } catch (err) {
+    failed = true;
+    console.error(`  FAILED: ${(err as Error).message}`);
+  } finally {
+    await sql.end();
   }
-} finally {
-  await sql.end();
 }
 process.exit(failed ? 1 : 0);

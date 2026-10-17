@@ -5,13 +5,14 @@
  */
 import * as admin from "./admin";
 import * as adminCatalog from "./admin-catalog";
+import * as adminSuppliers from "./admin-suppliers";
 import * as broadcast from "./broadcast";
 import * as home from "./home";
 import * as auth from "./auth";
 import * as catalog from "./catalog";
 import { publicConfig } from "./config";
 import type { ApiEnv, Services } from "./context";
-import { ApiError, errorResponse, json } from "./http";
+import { ApiError, errorResponse } from "./http";
 import * as orders from "./orders";
 import * as adminOrders from "./admin-orders";
 import * as names from "./names";
@@ -49,9 +50,10 @@ export { refreshDueCatalogues, refreshGroups, refreshItems } from "./supplier-ca
 export { loadStoreKeys, STORE_KEYS } from "./keys";
 export { daySummary, localNow, previousDay, queueDailySummary, summaryText, toCsv } from "./reports";
 export {
-  CATEGORY_PATH, PRODUCT_PATH, categoryHead, homeHead, legalHead, llmsTxt, productHead, productMeta, renderPage, renderProductPage, robotsTxt, seoSettings, sitemapXml,
+  CATEGORY_PATH, PRODUCT_PATH, categoryHead, homeHead, legalHead, productHead, productMeta, renderPage, renderProductPage, seoSettings,
   type PageHead, type PageOpts, type ProductMeta, type SeoSettings,
 } from "./seo";
+export { llmsTxt, robotsTxt, sitemapXml } from "./sitemap";
 export { LEGAL_PATH } from "./pages";
 
 const router = new Router()
@@ -167,16 +169,16 @@ const router = new Router()
   .on("POST", "/api/admin/products/:id/offers", adminCatalog.createOffer)
   .on("PATCH", "/api/admin/offers/:id", adminCatalog.updateOffer)
   .on("POST", "/api/admin/offers/:id/relink", adminCatalog.relinkOffer)
-  .on("POST", "/api/admin/offers/:id/accept-cost", adminCatalog.acceptCost)
-  .on("GET", "/api/admin/suppliers", adminCatalog.listSuppliers)
-  .on("GET", "/api/admin/suppliers/:id/review", adminCatalog.supplierReview)
+  .on("POST", "/api/admin/offers/:id/accept-cost", adminSuppliers.acceptCost)
+  .on("GET", "/api/admin/suppliers", adminSuppliers.listSuppliers)
+  .on("GET", "/api/admin/suppliers/:id/review", adminSuppliers.supplierReview)
   .on("POST", "/api/admin/offers/:id/stock", adminCatalog.addStock)
   .on("GET", "/api/admin/suppliers/:id/catalogue", supplierCatalogue.getCatalogue)
   .on("GET", "/api/admin/suppliers/:id/catalogue/items", supplierCatalogue.getCatalogueItems)
   .on("POST", "/api/admin/suppliers/:id/catalogue/refresh", supplierCatalogue.refreshCatalogue)
   .on("POST", "/api/admin/suppliers/:id/selection", selection.applySelection)
-  .on("POST", "/api/admin/suppliers/:id/pricing", adminCatalog.applySupplierPricing)
-  .on("PATCH", "/api/admin/suppliers/:id", adminCatalog.updateSupplier);
+  .on("POST", "/api/admin/suppliers/:id/pricing", adminSuppliers.applySupplierPricing)
+  .on("PATCH", "/api/admin/suppliers/:id", adminSuppliers.updateSupplier);
 
 /** Requests that change state must come from our own pages (or carry a bearer token). */
 function sameOriginOrBearer(req: Request, env: ApiEnv, path: string): boolean {

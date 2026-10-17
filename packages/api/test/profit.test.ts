@@ -70,20 +70,27 @@ beforeAll(async () => {
   h.suppliers.set(sup, supplier);
   h.payments.set("bep20", usdt);
   h.payments.set("sam", sam);
-  await db.query(`insert into app.suppliers (id, name, enabled, max_jump_pct, balance_cents) values ($1, 'Profit Codes', true, null, 7000)`, [sup]);
+  await db.query(`insert into app.suppliers (id, name, enabled, max_jump_pct, balance_cents) values ($1, 'Profit Codes', true, null, 700000)`, [sup]);
   const cat = (await db.query<{ id: string }>(`select id from app.categories where slug = 'games'`))[0]!.id;
   product = (await db.query<{ id: string }>(
     `insert into app.products (slug, category_id, name_ar, name_en, kind, active) values ($1, $2, 'x', 'Profit Gift', 'code', true) returning id`,
     [`pgift-${run}`, cat],
   ))[0]!.id;
   offer = (await db.query<{ id: string }>(
-    `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents) values ($1, 'x', '$10', $2, 'p10', 800, 1000) returning id`,
+    `insert into app.offers (product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents) values ($1, 'x', '$1000', $2, 'p1000', 80000, 100000) returning id`,
     [product, sup],
   ))[0]!.id;
+  // Earlier runs of a reused test database sold the same gift: their orders move out of the report's 30 days.
+  await db.query(
+    `update app.orders set created_at = created_at - interval '60 days'
+      where created_at > now() - interval '40 days' and product_id in (select id from app.products where slug like 'pgift-%' and id <> $1)`,
+    [product],
+  );
   owner = await h.login(900001, "Owner");
   customer = await h.login(customerTg, "Buyer");
-  await fund(customer, 10_000);
-  // 8 + 1 in person: more than any other test's product sells, so it is the best seller.
+  await fund(customer, 1_000_000);
+  // 8 + 1 in person: more than any other test's product sells, so it is the best seller; and at $1000
+  // each it makes the most profit, so it heads the report whatever else a reused database holds.
   for (let i = 0; i < 8; i++) {
     expect((await h.call("POST", "/api/orders", { token: customer, body: { offerId: offer, idempotencyKey: `pf-${i}-${run}` } })).status).toBe(201);
   }
@@ -100,12 +107,12 @@ describe("profit report", () => {
     const r = await h.call("GET", "/api/admin/reports/profit", { token: owner });
     expect(r.status).toBe(200);
     const mine = r.data.bySupplier.find((s: { id: string }) => s.id === sup);
-    expect(mine).toMatchObject({ name: "Profit Codes", salesCents: 9000, costCents: 7200, profitCents: 1800, orders: 9 });
-    expect(r.data.byProduct.find((p: { id: string }) => p.id === product)).toMatchObject({ salesCents: 9000, profitCents: 1800, orders: 9 });
-    expect(r.data.totals.inPersonCents).toBeGreaterThanOrEqual(1000);
+    expect(mine).toMatchObject({ name: "Profit Codes", salesCents: 900_000, costCents: 720_000, profitCents: 180_000, orders: 9 });
+    expect(r.data.byProduct.find((p: { id: string }) => p.id === product)).toMatchObject({ salesCents: 900_000, profitCents: 180_000, orders: 9 });
+    expect(r.data.totals.inPersonCents).toBeGreaterThanOrEqual(100_000);
     expect(r.data.days).toHaveLength(30);
     const today = r.data.days.at(-1);
-    expect(today.salesCents).toBeGreaterThanOrEqual(9000);
+    expect(today.salesCents).toBeGreaterThanOrEqual(900_000);
     expect((await h.call("GET", "/api/admin/reports/profit?from=2026-02-31", { token: owner })).status).toBe(400);
     expect((await h.call("GET", "/api/admin/reports/profit", { token: customer })).status).toBe(403);
   });
@@ -113,8 +120,8 @@ describe("profit report", () => {
   it("tells how long each supplier's balance lasts at last week's pace", async () => {
     const o = await h.call("GET", "/api/admin/overview", { token: owner });
     const s = o.data.suppliers.find((x: { id: string }) => x.id === sup);
-    // $72 spent this week (9 × $8) → $10.29 a day; $70 lasts 6 days.
-    expect(s).toMatchObject({ balanceCents: 7000, spent7dCents: 7200, daysLeft: 6 });
+    // $7200 spent this week (9 × $800) → $1028.57 a day; $7000 lasts 6 days.
+    expect(s).toMatchObject({ balanceCents: 700_000, spent7dCents: 720_000, daysLeft: 6 });
   });
 
   it("puts the in-person sales in the daily summary", async () => {
