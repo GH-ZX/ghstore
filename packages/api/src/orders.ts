@@ -17,6 +17,7 @@ import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { alertNewOrder, alertStaff } from "./notify";
 import { couponCode } from "./promo";
 import { readSettings } from "./settings";
+import { SUPPLIER_ON } from "./sql-fragments";
 import { store } from "@store/config";
 
 const CHANNELS = new Set(["web", "miniapp", "bot"]);
@@ -38,7 +39,7 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
   const offer = await one<{ input_fields: InputField[]; supplier_on: boolean }>(
     ctx.svc.db,
     `select o.input_fields,
-            (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled)) as supplier_on
+            ${SUPPLIER_ON} as supplier_on
        from app.offers o where o.id = $1`,
     [offerId],
   );

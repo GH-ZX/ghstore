@@ -14,6 +14,7 @@ import { n, one, type Db } from "./db";
 import { liveBanners } from "./home";
 import { allPages, publishedPage } from "./pages";
 import { channelUrl, readSettings, showcaseSettings } from "./settings";
+import { ON_SALE } from "./sql-fragments";
 
 type Locale = "ar" | "en";
 
@@ -45,10 +46,6 @@ export interface ProductMeta {
 
 export const PRODUCT_PATH = /^\/p\/([a-z0-9-]{1,80})\/?$/;
 export const CATEGORY_PATH = /^\/c\/([a-z0-9-]{1,48})\/?$/;
-
-/** A package on sale: active, not paused, and its supplier (if any) switched on. */
-const ON_SALE = `o.active and o.paused_reason is null
-  and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))`;
 
 // ─────────────────────────────────────────────────────────────── settings
 

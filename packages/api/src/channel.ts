@@ -13,6 +13,7 @@ import { n, one, type Db } from "./db";
 import { requireStaff } from "./guard";
 import { ApiError, json } from "./http";
 import { botUsername, channelUrl, readSettings } from "./settings";
+import { ON_SALE } from "./sql-fragments";
 
 /** A public channel's @name, or a numeric chat id (-100…). */
 export const CHANNEL_CHAT = /^(@[A-Za-z][A-Za-z0-9_]{4,31}|-100\d{6,15})$/;
@@ -20,9 +21,6 @@ export const CHANNEL_CHAT = /^(@[A-Za-z][A-Za-z0-9_]{4,31}|-100\d{6,15})$/;
 const DROP_RATIO = 0.9;
 /** Pending posts older than this are dropped (old news). */
 const STALE_DAYS = 2;
-
-const ON_SALE = `o.active and o.paused_reason is null
-  and (o.supplier_id is null or exists (select 1 from app.suppliers s where s.id = o.supplier_id and s.enabled))`;
 
 export interface ChannelSettings {
   chat: string | null;
