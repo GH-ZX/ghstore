@@ -29,6 +29,10 @@ interface Prod {
   name_ar: string;
   name_en: string;
   description_ar: string;
+  seo_title_ar?: string;
+  seo_title_en?: string;
+  seo_description_ar?: string;
+  seo_description_en?: string;
   description_en: string;
   instructions_ar: string;
   instructions_en: string;
@@ -260,6 +264,10 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
     warrantyAr: product?.warranty_ar ?? "",
     warrantyEn: product?.warranty_en ?? "",
     searchTerms: product?.search_terms ?? "",
+    seoTitleAr: product?.seo_title_ar ?? "",
+    seoTitleEn: product?.seo_title_en ?? "",
+    seoDescriptionAr: product?.seo_description_ar ?? "",
+    seoDescriptionEn: product?.seo_description_en ?? "",
     delivery: product?.delivery ?? ("auto" as Delivery),
     badge: (product?.badge ?? "") as ProductBadge | "none" | "",
     afterFields: product?.after_fields ?? ([] as AfterFieldDef[]),
@@ -384,6 +392,28 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
         {text("instructionsEn", `${t("instructions")} (EN)`, { dir: "ltr", area: true })}
         {text("warrantyAr", `${t("warranty")} (AR)`, { dir: "rtl", area: true })}
         {text("warrantyEn", `${t("warranty")} (EN)`, { dir: "ltr", area: true })}
+        <details className="span-2 seo-details" open={!!(f.seoTitleAr || f.seoTitleEn || f.seoDescriptionAr || f.seoDescriptionEn)}>
+          <summary>{t("prodSeoTitle")}</summary>
+          <p className="small muted">{t("prodSeoHint")}</p>
+          <div className="form-grid">
+            <label className="field">
+              <span>{t("seoTitleAr")}</span>
+              <input className="input" dir="rtl" maxLength={70} value={f.seoTitleAr} onChange={(e) => set("seoTitleAr", e.target.value)} />
+            </label>
+            <label className="field">
+              <span>{t("seoTitleEn")}</span>
+              <input className="input" dir="ltr" maxLength={70} value={f.seoTitleEn} onChange={(e) => set("seoTitleEn", e.target.value)} />
+            </label>
+            <label className="field">
+              <span>{t("seoDescAr")}</span>
+              <textarea className="textarea" dir="rtl" maxLength={320} value={f.seoDescriptionAr} onChange={(e) => set("seoDescriptionAr", e.target.value)} />
+            </label>
+            <label className="field">
+              <span>{t("seoDescEn")}</span>
+              <textarea className="textarea" dir="ltr" maxLength={320} value={f.seoDescriptionEn} onChange={(e) => set("seoDescriptionEn", e.target.value)} />
+            </label>
+          </div>
+        </details>
       </div>
     </Sheet>
   );

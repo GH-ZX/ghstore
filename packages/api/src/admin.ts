@@ -215,6 +215,15 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   // Automatic badges on products left on "automatic": New (the newest) and Best seller (the most sold lately).
   "badges.auto_new": (v) => typeof v === "boolean",
   "badges.auto_best": (v) => typeof v === "boolean",
+  // Search engines (Admin → SEO & pages). null = the built-in title / description / picture.
+  "seo.title_ar": (v) => v === null || (typeof v === "string" && v.trim().length >= 1 && v.length <= 70),
+  "seo.title_en": (v) => v === null || (typeof v === "string" && v.trim().length >= 1 && v.length <= 70),
+  "seo.description_ar": (v) => v === null || (typeof v === "string" && v.trim().length >= 1 && v.length <= 320),
+  "seo.description_en": (v) => v === null || (typeof v === "string" && v.trim().length >= 1 && v.length <= 320),
+  "seo.image_url": (v) => v === null || (typeof v === "string" && v.length <= 500 && /^https:\/\/[^\s"<>]{4,}$/.test(v)),
+  "seo.google_verification": (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(v)),
+  "seo.bing_verification": (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(v)),
+  "seo.indexing": (v) => typeof v === "boolean",
   // Virtual numbers: how many times in a row a customer may report a number and get the next one.
   "numbers.max_retries": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 20,
 };

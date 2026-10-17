@@ -602,6 +602,7 @@ function LoginFrame({ back, children }: { back?: { href: string; label: string }
             )}
           </div>
           {children}
+          <Agreement />
           <p className="login__safe small muted">
             <ShieldIcon size={13} /> {t("loginSafe")}
           </p>
@@ -709,6 +710,28 @@ function LoginArt() {
         </ul>
       </div>
     </aside>
+  );
+}
+
+/** "By continuing, you agree to the Terms and the Privacy policy", linked, when those pages are published. */
+function Agreement() {
+  const { t, lang } = useT();
+  const { config } = useApp();
+  const page = (slug: string) => config?.pages?.find((p) => p.slug === slug);
+  const terms = page("terms");
+  const privacy = page("privacy");
+  if (!terms || !privacy) return null;
+  const link = (p: { slug: string; titleAr: string; titleEn: string }) => (
+    <a href={`/legal/${p.slug}`} onClick={(e) => { e.preventDefault(); navigate(`/legal/${p.slug}`); }}>
+      {pick(lang, p.titleAr, p.titleEn)}
+    </a>
+  );
+  return (
+    <p className="login__agree small muted">
+      {t("loginAgree").split(/(\{terms\}|\{privacy\})/).map((part, i) =>
+        part === "{terms}" ? <span key={i}>{link(terms)}</span> : part === "{privacy}" ? <span key={i}>{link(privacy)}</span> : <span key={i}>{part}</span>,
+      )}
+    </p>
   );
 }
 

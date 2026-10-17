@@ -41,11 +41,23 @@ function writePref(key: string, value: string): void {
   }
 }
 
+/** ?lang=en or ?lang=ar in the address (search results link each language): that language, remembered. */
+function langFromLink(): Lang | null {
+  try {
+    const q = new URLSearchParams(location.search).get("lang");
+    if (q !== "ar" && q !== "en") return null;
+    writePref("gh.lang", q);
+    return q;
+  } catch {
+    return null;
+  }
+}
+
 let state: AppState = {
   config: null,
   me: null,
   authChecked: false,
-  lang: readPref<Lang>("gh.lang", ["ar", "en"], storeConfig.defaultLocale),
+  lang: langFromLink() ?? readPref<Lang>("gh.lang", ["ar", "en"], storeConfig.defaultLocale),
   mode: readPref<Mode>("gh.mode", ["system", "light", "dark"], "system"),
   miniApp: false,
   toast: null,
@@ -85,6 +97,16 @@ export function applyLang(lang: Lang): void {
 
 export function setLang(lang: Lang): void {
   writePref("gh.lang", lang);
+  // A ?lang= from a search result would bring the old language back on reload.
+  try {
+    const url = new URL(location.href);
+    if (url.searchParams.has("lang")) {
+      url.searchParams.delete("lang");
+      history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+    }
+  } catch {
+    /* keep the address as it is */
+  }
   applyLang(lang);
   setState({ lang });
   if (state.me) void api("/api/me", { method: "PATCH", body: { locale: lang } }).catch(() => {});

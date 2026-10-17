@@ -15,6 +15,8 @@ export interface PublicConfig {
   supabase: { url: string; key: string } | null;
   /** The store bot's username (from Connect bot) and the store's Telegram channel. */
   telegram?: { bot: string; channel: string | null };
+  /** The store's pages linked at the bottom (terms, privacy, refund…). */
+  pages?: { slug: string; titleAr: string; titleEn: string }[];
 }
 
 export interface Me {

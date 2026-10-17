@@ -27,6 +27,7 @@ import * as supplierCatalogue from "./supplier-catalogue";
 import { Router } from "./router";
 import * as keys from "./keys";
 import * as telegramSetup from "./telegram-setup";
+import * as pages from "./pages";
 
 export type { ApiEnv, AuthedUser, Ctx, Services } from "./context";
 export type { Db } from "./db";
@@ -41,11 +42,16 @@ export { syncSupplier, syncDueSuppliers } from "./sync";
 export { refreshDueCatalogues, refreshGroups, refreshItems } from "./supplier-catalogue";
 export { loadStoreKeys, STORE_KEYS } from "./keys";
 export { daySummary, localNow, previousDay, queueDailySummary, summaryText, toCsv } from "./reports";
-export { PRODUCT_PATH, productMeta, renderProductPage, robotsTxt, sitemapXml, type ProductMeta } from "./seo";
+export {
+  CATEGORY_PATH, PRODUCT_PATH, categoryHead, homeHead, legalHead, productHead, productMeta, renderPage, renderProductPage, robotsTxt, seoSettings, sitemapXml,
+  type PageHead, type PageOpts, type ProductMeta, type SeoSettings,
+} from "./seo";
+export { LEGAL_PATH } from "./pages";
 
 const router = new Router()
   .on("GET", "/api/health", async () => json({ ok: true }))
   .on("GET", "/api/config", publicConfig)
+  .on("GET", "/api/pages/:slug", pages.getPage)
   // auth
   .on("POST", "/api/auth/telegram", auth.telegramLogin)
   .on("POST", "/api/auth/telegram-widget", auth.telegramWidgetLogin)
@@ -95,6 +101,9 @@ const router = new Router()
   .on("POST", "/api/admin/orders/:id/deliver", adminOrders.deliverOrder)
   .on("POST", "/api/admin/orders/:id/refund", admin.refundOrder)
   .on("POST", "/api/admin/orders/:id/retry", admin.retryOrder)
+  .on("GET", "/api/admin/pages", pages.adminPages)
+  .on("PUT", "/api/admin/pages/:slug", pages.savePage)
+  .on("DELETE", "/api/admin/pages/:slug", pages.deletePage)
   .on("GET", "/api/admin/settings", admin.getSettings)
   .on("PUT", "/api/admin/settings/:key", admin.putSetting)
   .on("GET", "/api/admin/users", admin.listUsers)

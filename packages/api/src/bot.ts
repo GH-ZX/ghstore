@@ -44,6 +44,9 @@ const TEXT = {
     inviteOff: "الدعوات غير متاحة حالياً.",
     share: "مشاركة الرابط",
     shareText: "تسوّق ألعاب واشتراكات وبطاقات من هنا:",
+    terms: "سياسات المتجر:",
+    paySupport: "لمشاكل الدفع أو الاسترداد أرسل لنا رقم الطلب أو تفاصيل الدفع، وسنرد عادةً خلال يوم.",
+    pageNames: { terms: "الشروط والأحكام", privacy: "سياسة الخصوصية", refund: "سياسة الاسترداد" } as Record<string, string>,
   },
   en: {
     welcome: (name: string) => `Hi ${name} 👋\nGames, subscriptions, gift cards and more, all in one place.\nTap the button to open the store.`,
@@ -70,6 +73,9 @@ const TEXT = {
     inviteOff: "Invites are not available right now.",
     share: "Share link",
     shareText: "Games, subscriptions and gift cards:",
+    terms: "The store's policies:",
+    paySupport: "For a payment problem or a refund, send us your order number or the payment details. We usually answer within a day.",
+    pageNames: { terms: "Terms of service", privacy: "Privacy policy", refund: "Refund policy" } as Record<string, string>,
   },
 };
 
@@ -84,6 +90,8 @@ export const BOT_COMMANDS = {
     { command: "orders", description: "Your latest orders" },
     { command: "invite", description: "Invite friends" },
     { command: "help", description: "Help" },
+    { command: "terms", description: "Terms and policies" },
+    { command: "paysupport", description: "Payment support" },
   ],
   ar: [
     { command: "start", description: "افتح المتجر" },
@@ -91,6 +99,8 @@ export const BOT_COMMANDS = {
     { command: "orders", description: "آخر طلباتك" },
     { command: "invite", description: "ادعُ أصدقاءك" },
     { command: "help", description: "المساعدة" },
+    { command: "terms", description: "الشروط والسياسات" },
+    { command: "paysupport", description: "دعم المدفوعات" },
   ],
 };
 
@@ -171,6 +181,21 @@ async function command(cmd: string, userId: string, chatId: unknown, l: "ar" | "
       text: T.invite(link, s.percent, s.days),
       link_preview_options: { is_disabled: true },
       reply_markup: { inline_keyboard: [[{ text: T.share, url: share }], [{ text: T.open, web_app: { url: webAppUrl(env, "invite") } }]] },
+    });
+    return true;
+  }
+  if (cmd === "/terms") {
+    const lines = (["terms", "privacy", "refund"] as const).map((s) => `${T.pageNames[s]}: ${env.PUBLIC_BASE_URL}/legal/${s}${l === store.defaultLocale ? "" : `?lang=${l}`}`);
+    await svc.telegram("sendMessage", { chat_id: chatId, text: `${T.terms}\n${lines.join("\n")}`, link_preview_options: { is_disabled: true } });
+    return true;
+  }
+  if (cmd === "/paysupport") {
+    const contact = supportLines(await supportContacts(svc.db), l);
+    const refund = `${T.pageNames.refund}: ${env.PUBLIC_BASE_URL}/legal/refund${l === store.defaultLocale ? "" : `?lang=${l}`}`;
+    await svc.telegram("sendMessage", {
+      chat_id: chatId,
+      text: [T.paySupport, contact, refund].filter(Boolean).join("\n\n"),
+      link_preview_options: { is_disabled: true },
     });
     return true;
   }

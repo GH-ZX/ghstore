@@ -1,6 +1,8 @@
 /** Link previews (product pages), sitemap and robots. */
 import { afterAll, describe, expect, it } from "vitest";
-import { productMeta, renderProductPage, robotsTxt, sitemapXml } from "../src/index";
+import { categoryHead, homeHead, legalHead, productMeta, renderPage, renderProductPage, robotsTxt, sitemapXml } from "../src/index";
+import { publishedPage } from "../src/pages";
+import { docHtml } from "../src/seo";
 import { connectTestDb } from "./helpers";
 
 const conn = await connectTestDb();
@@ -93,5 +95,65 @@ describe("product link previews", () => {
     expect(xml).not.toContain(`seo-off-${run}`);
     expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
     expect(robotsTxt("https://gh-store.me")).toContain("Sitemap: https://gh-store.me/sitemap.xml");
+  });
+});
+
+describe("store pages and search engines", () => {
+  const o = { baseUrl: "https://gh-store.me", storeName: "GH Store", locale: "en" as const, defaultLocale: "ar" as const, seo: null };
+
+  it("shows the built-in legal pages with their placeholders filled in", async () => {
+    await db.query(`delete from app.pages where slug in ('terms', 'privacy', 'refund')`);
+    const p = await publishedPage(db, "https://gh-store.me", "refund");
+    expect(p?.titleEn).toBe("Refund policy");
+    expect(p?.bodyEn).toContain("GH Store wallet");
+    expect(p?.bodyEn).not.toMatch(/\{(store|site|url|contact)\}/);
+    const head = await legalHead({ db }, "terms", o);
+    expect(head?.title).toBe("Terms of service | GH Store");
+    expect(head?.body).toContain('<a href="https://gh-store.me/legal/refund">refund policy</a>');
+    expect(await legalHead({ db }, `nope-${run}`, o)).toBeNull();
+  });
+
+  it("uses the owner's version of a page, and hides an unpublished one", async () => {
+    await db.query(
+      `insert into app.pages (slug, title_ar, title_en, body_ar, body_en, published) values ($1, 'من نحن', 'About', 'نص', $2, true)`,
+      [`about-${run}`, "## Who\n- **{store}** $& <b>"],
+    );
+    const head = await legalHead({ db }, `about-${run}`, o);
+    expect(head?.body).toContain("<h2>Who</h2>");
+    expect(head?.body).toContain("<li><strong>GH Store</strong> $&amp; &lt;b&gt;</li>");
+    await db.query(`update app.pages set published = false where slug = $1`, [`about-${run}`]);
+    expect(await legalHead({ db }, `about-${run}`, o)).toBeNull();
+  });
+
+  it("keeps page text from becoming markup or odd links", () => {
+    const html = docHtml(`[x](javascript:alert(1)) [y](https://a.example/"onmouseover=1) <script>`);
+    // Only https: and mailto: become links; the rest stays text.
+    expect(html).not.toContain("<a ");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("gives the home page and categories their own head, with both languages", async () => {
+    const home = await homeHead({ db }, o);
+    const html = renderPage(INDEX, home, o);
+    expect(html).toContain('<html lang="en" dir="ltr">');
+    expect(html).toContain('<link rel="canonical" href="https://gh-store.me/?lang=en">');
+    expect(html).toContain('<link rel="alternate" hreflang="ar" href="https://gh-store.me/">');
+    expect(html).toContain('<link rel="alternate" hreflang="x-default" href="https://gh-store.me/">');
+    expect(html).toContain('"@type":"Organization"');
+    expect(html).toContain('<div id="root"><main>');
+    const cat = await categoryHead({ db }, "games", { ...o, locale: "ar" });
+    expect(cat?.title).toMatch(/ \| GH Store$/);
+    expect(await categoryHead({ db }, `nope-${run}`, o)).toBeNull();
+  });
+
+  it("lists categories, pages and the English versions in the sitemap; robots follows the switch", async () => {
+    const xml = await sitemapXml({ db }, "https://gh-store.me", "ar");
+    expect(xml).toContain("<loc>https://gh-store.me/legal/terms</loc>");
+    expect(xml).toContain("<loc>https://gh-store.me/legal/terms?lang=en</loc>");
+    expect(xml).toContain('hreflang="en" href="https://gh-store.me/?lang=en"');
+    expect(xml).not.toContain(`about-${run}`);
+    expect(robotsTxt("https://gh-store.me", { indexing: false })).toBe("User-agent: *\nDisallow: /\n");
+    expect(robotsTxt("https://gh-store.me")).toContain("Disallow: /wallet");
   });
 });

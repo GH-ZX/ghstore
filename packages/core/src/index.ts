@@ -10,3 +10,4 @@ export * from "./search";
 export * from "./units";
 export * from "./names";
 export * from "./after-fields";
+export * from "./doc";

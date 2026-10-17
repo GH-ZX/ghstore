@@ -5,6 +5,7 @@
  */
 import type { Ctx } from "./context";
 import { json } from "./http";
+import { footerPages } from "./pages";
 import { availableMethods } from "./payments";
 import { botUsername, channelUrl, starsPerUsd, supportContacts, topupLimits } from "./settings";
 
@@ -51,6 +52,8 @@ export async function publicConfig(ctx: Ctx): Promise<Response> {
       // The store bot (as Telegram reported it at Connect bot) and the store's channel.
       telegram: { bot: await botUsername(ctx.svc.db), channel: await channelUrl(ctx.svc.db) },
       login,
+      // The store's pages linked at the bottom (terms, privacy, refund…).
+      pages: await footerPages(ctx.svc.db),
       supabase: supabaseReady ? { url: ctx.env.SUPABASE_URL, key: ctx.env.SUPABASE_PUBLISHABLE_KEY } : null,
     },
     { headers: { "cache-control": "public, max-age=60" } },

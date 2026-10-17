@@ -1280,3 +1280,45 @@ textarea.input { padding: 10px 14px; min-height: 0; resize: vertical; line-heigh
 .facts > div { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; border-bottom: 1px dashed var(--line); padding-bottom: 6px; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; font-weight: 600; text-align: end; word-break: break-word; }
+
+/* ───────────────────────────── store pages (terms, privacy, refund) and the footer */
+.legal { max-width: 820px; margin-inline: auto; width: 100%; }
+.legal__doc { display: flex; flex-direction: column; gap: 6px; padding: 22px; }
+.legal__doc h1 { font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+.doc { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; font-size: 15px; line-height: 1.85; }
+.doc h2 { font-size: 18px; margin-top: 14px; }
+.doc h3 { font-size: 16px; margin-top: 8px; }
+.doc p { margin: 0; }
+.doc ul { margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 6px; }
+.doc a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
+.doc a:hover { text-decoration: underline; }
+.site-footer { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 8px 8px; text-align: center; }
+.site-footer__links { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; }
+.site-footer__links a { color: var(--muted); font-size: 13px; font-weight: 600; text-decoration: none; }
+.site-footer__links a:hover { color: var(--accent-text); }
+.site-footer__copy { font-size: 12px; color: var(--muted); opacity: .8; margin: 0; }
+.login__agree { text-align: center; line-height: 1.7; }
+.login__agree a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
+
+/* admin → SEO & pages */
+.stack-xs { display: flex; flex-direction: column; gap: 2px; }
+.seo-count { font-size: 11.5px; font-weight: 600; color: var(--muted); font-family: var(--font-mono); }
+.seo-count--over { color: var(--warn); }
+.seo-preview {
+  display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 16px; background: #fff; color: #202124;
+  border: 1px solid var(--line); font-family: Arial, sans-serif;
+}
+.seo-preview__site { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.seo-preview__site b { display: block; font-weight: 400; color: #202124; }
+.seo-preview__site small { display: block; color: #4d5156; font-size: 12px; }
+.seo-preview__icon {
+  width: 28px; height: 28px; border-radius: 50%; background: #f1f3f4; color: #5f6368; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; flex: none;
+}
+.seo-preview__title { font-size: 19px; line-height: 1.3; color: #1a0dab; }
+.seo-preview__desc { font-size: 13.5px; line-height: 1.55; color: #4d5156; }
+.seo-details { border: 1px dashed var(--line); border-radius: 16px; padding: 10px 14px; }
+.seo-details summary { cursor: pointer; font-weight: 700; font-size: 14px; }
+.seo-details[open] summary { margin-bottom: 8px; }
+.page-textarea { min-height: 380px; font-size: 14px; line-height: 1.7; }
+.page-preview { min-height: 200px; max-height: 60vh; overflow: auto; padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); }

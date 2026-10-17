@@ -11,6 +11,7 @@ import type { Favorites, Referral } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { ChevronIcon, ContactMark, GiftIcon, HeartIcon, WalletIcon } from "../ui/icons";
 import { Seg, Sheet, Switch, Tile } from "../ui/kit";
+import { SiteFooter } from "../ui/Footer";
 import { AdminLink, Shell } from "../ui/Shell";
 import { EmailCode, linkWebLogin, RequireUser, startLink } from "./Login";
 
@@ -172,6 +173,7 @@ function ProfileView() {
           </a>
         )}
       </div>
+      <SiteFooter />
     </div>
   );
 }

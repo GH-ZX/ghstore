@@ -7,12 +7,13 @@ import type { MsgKey } from "../lib/i18n";
 import { Logo, Toast } from "../ui/kit";
 import { LangButton } from "../ui/Shell";
 import {
-  BoxIcon, ChartIcon, ExitIcon, GearIcon, HomeIcon, MegaphoneIcon, OverviewIcon, ReceiptIcon, TicketIcon, TopupIcon, TruckIcon, UsersIcon,
+  BoxIcon, ChartIcon, ExitIcon, GearIcon, HomeIcon, MegaphoneIcon, OverviewIcon, ReceiptIcon, SearchIcon, TicketIcon, TopupIcon, TruckIcon, UsersIcon,
 } from "../ui/icons";
 import { AdminOrders } from "./Orders";
 import { Broadcast } from "./Broadcast";
 import { Catalog } from "./Catalog";
 import { HomeAdmin } from "./Home";
+import { SeoAdmin } from "./Seo";
 import { Coupons } from "./Coupons";
 import { Overview } from "./Overview";
 import { Profit } from "./Profit";
@@ -32,6 +33,7 @@ const SECTIONS: { path: string; key: MsgKey; icon: ReactNode; owner?: boolean }[
   { path: "/admin/broadcast", key: "broadcast", icon: <MegaphoneIcon />, owner: true },
   { path: "/admin/suppliers", key: "suppliers", icon: <TruckIcon />, owner: true },
   { path: "/admin/users", key: "users", icon: <UsersIcon /> },
+  { path: "/admin/seo", key: "seoPages", icon: <SearchIcon size={20} />, owner: true },
   { path: "/admin/settings", key: "settings", icon: <GearIcon />, owner: true },
 ];
 
@@ -93,6 +95,7 @@ export function Admin() {
         {section.key === "broadcast" && <Broadcast />}
         {section.key === "suppliers" && <Suppliers />}
         {section.key === "users" && <Users owner={owner} />}
+        {section.key === "seoPages" && <SeoAdmin />}
         {section.key === "settings" && <Settings />}
       </main>
       <Toast />

@@ -1,6 +1,7 @@
 /** Routes: the store screens for everyone, /admin for staff. */
 import { lazy, Suspense } from "react";
 import { match, usePath } from "./lib/router";
+import { LegalPage } from "./screens/Legal";
 import { Login } from "./screens/Login";
 import { OrderPage, Orders } from "./screens/Orders";
 import { Profile } from "./screens/Profile";
@@ -24,6 +25,8 @@ export function App() {
   if (order) return <OrderPage id={order.id!} />;
   if (path === "/wallet") return <Wallet />;
   if (path === "/profile") return <Profile />;
+  const legal = match("/legal/:slug", path);
+  if (legal) return <LegalPage slug={legal.slug!} />;
   // "/", "/p/:slug" and anything unknown show the store.
   return <Store />;
 }

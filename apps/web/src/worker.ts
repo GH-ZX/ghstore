@@ -2,14 +2,19 @@
  * Entry point of the single GH Store Worker.
  *   /api/*             JSON API used by the website, the Mini App and the admin
  *   /telegram/webhook  Telegram bot updates (secret-header protected)
- *   /p/<slug>          the web app with the product's link-preview tags
+ *   /, /c/<slug>, /p/<slug>, /legal/<slug>
+ *                      the web app with that page's title, description, picture,
+ *                      language versions and content for search engines (seo.ts)
  *   /sitemap.xml, /robots.txt
  *   everything else    the web app: static files from dist/ (website, /tg Mini App,
  *                      /admin), served by Cloudflare without running this code
  * Cron (every minute): fulfilment, payment re-checks, supplier sync, notifications.
  */
 import { store } from "@store/config";
-import { handle, handleBotWebhook, PRODUCT_PATH, productMeta, renderProductPage, robotsTxt, runScheduled, sitemapXml } from "@store/api";
+import {
+  CATEGORY_PATH, categoryHead, handle, handleBotWebhook, homeHead, LEGAL_PATH, legalHead, PRODUCT_PATH, productHead, productMeta, renderPage, robotsTxt,
+  runScheduled, seoSettings, sitemapXml, type PageHead, type PageOpts, type Services,
+} from "@store/api";
 import { createServices, type WorkerEnv } from "./services";
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -41,24 +46,54 @@ function shell(request: Request, env: WorkerEnv): Promise<Response> {
   return env.ASSETS.fetch(new Request(new URL("/", request.url)));
 }
 
-/** index.html with the product's title, picture and price for link previews. Never fails the page. */
-async function productPage(request: Request, slug: string, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+type HeadFor = (svc: Services, o: PageOpts) => Promise<PageHead | null>;
+
+/**
+ * index.html with a public page's title, description, picture, language versions
+ * and content for search engines (?lang=en for English). An unknown page answers
+ * 404 with the app. A slow database never holds the page: the plain app instead.
+ */
+async function seoPage(request: Request, env: WorkerEnv, ctx: ExecutionContext, headFor: HeadFor): Promise<Response> {
   const page = await shell(request, env);
   if (!page.ok || !(page.headers.get("content-type") ?? "").includes("text/html")) return page;
   const { svc, finish } = createServices(env);
   try {
-    const meta = await within(1500, productMeta(svc, slug));
-    if (!meta) return page;
-    const html = renderProductPage(await page.text(), meta, { baseUrl: env.PUBLIC_BASE_URL, storeName: store.name, locale: store.defaultLocale });
+    const q = new URL(request.url).searchParams.get("lang");
+    const locale = q === "en" || q === "ar" ? q : store.defaultLocale;
+    const work = async () => {
+      const o: PageOpts = {
+        baseUrl: env.PUBLIC_BASE_URL, storeName: store.name, locale, defaultLocale: store.defaultLocale,
+        seo: await seoSettings(svc.db), shareImage: `${env.PUBLIC_BASE_URL}/promo/share.jpg`,
+      };
+      return { o, head: await headFor(svc, o) };
+    };
+    const r = await within(1500, work());
+    if (!r) return page;
     const headers = new Headers(page.headers);
     headers.delete("content-length");
     headers.delete("etag");
     headers.set("cache-control", "no-cache");
     headers.set("content-security-policy", PAGE_CSP);
-    return withSecurityHeaders(new Response(html, { status: 200, headers }));
+    if (!r.head) {
+      headers.set("x-robots-tag", "noindex");
+      return withSecurityHeaders(new Response(await page.text(), { status: 404, headers }));
+    }
+    return withSecurityHeaders(new Response(renderPage(await page.text(), r.head, r.o), { status: 200, headers }));
   } catch (err) {
-    console.error("product page meta failed", err instanceof Error ? err.message : String(err));
+    console.error("page head failed", err instanceof Error ? err.message : String(err));
     return shell(request, env);
+  } finally {
+    ctx.waitUntil(finish());
+  }
+}
+
+async function robots(env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+  const { svc, finish } = createServices(env);
+  try {
+    const seo = await within(1000, seoSettings(svc.db)).catch(() => null);
+    return new Response(robotsTxt(env.PUBLIC_BASE_URL, { indexing: seo?.indexing ?? true }), {
+      headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=600" },
+    });
   } finally {
     ctx.waitUntil(finish());
   }
@@ -102,12 +137,18 @@ export default {
       }
     }
     if (request.method === "GET" || request.method === "HEAD") {
-      if (url.pathname === "/robots.txt") {
-        return new Response(robotsTxt(env.PUBLIC_BASE_URL), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
-      }
+      if (url.pathname === "/robots.txt") return robots(env, ctx);
       if (url.pathname === "/sitemap.xml") return sitemap(env, ctx);
-      const m = PRODUCT_PATH.exec(url.pathname);
-      if (m?.[1]) return productPage(request, m[1], env, ctx);
+      if (url.pathname === "/") return seoPage(request, env, ctx, (svc, o) => homeHead(svc, o));
+      const product = PRODUCT_PATH.exec(url.pathname)?.[1];
+      if (product) return seoPage(request, env, ctx, async (svc, o) => {
+        const meta = await productMeta(svc, product);
+        return meta ? productHead(meta, o) : null;
+      });
+      const category = CATEGORY_PATH.exec(url.pathname)?.[1];
+      if (category) return seoPage(request, env, ctx, (svc, o) => categoryHead(svc, category, o));
+      const legal = LEGAL_PATH.exec(url.pathname)?.[1];
+      if (legal) return seoPage(request, env, ctx, (svc, o) => legalHead(svc, legal, o));
     }
     // Only reached for paths listed in run_worker_first that are not ours; let assets answer.
     return env.ASSETS.fetch(request);

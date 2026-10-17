@@ -351,7 +351,7 @@ admin overview.
 | Admin (staff) | overview; payments list/approve/reject/recheck; orders list/refund/retry; settings |
 | Promotions | `POST /api/coupons/quote`, `GET/POST /api/me/referral` |
 | Reports (owner) | `GET /api/admin/export/{orders,topups,wallet}.csv?from=&to=` (local days, up to 366 days, 5,000 rows) |
-| Pages (Worker) | `/p/<slug>` with link-preview tags, `/sitemap.xml`, `/robots.txt` |
+| Pages (Worker) | `/`, `/c/<slug>`, `/p/<slug>`, `/legal/<slug>` with their head tags and content for crawlers, `/sitemap.xml`, `/robots.txt` |
 | Admin (owner) | wallet adjust, user role/ban, supplier sync, catalogue (`/api/admin/catalog`, categories, products, offers, stock, supplier settings), coupons (`GET/POST /api/admin/coupons`, `PATCH /api/admin/coupons/:id`) |
 
 Errors are `{ "error": { "code": "...", "field": "..." } }` with stable codes the
@@ -383,15 +383,37 @@ optionally a fixed list of `options` (a game server, a region) shown as chips or
 a menu. Keys stay exactly as the supplier names them ("Player_ID", Arabic names),
 because the supplier reads them back. Orders accept only a listed option.
 
-## Link previews and search
+## Link previews and search (SEO)
 
-The web app is one page, so the Worker adds what scrapers need: `/p/<slug>`
-returns index.html with the product's title, description, picture and price
-range (Open Graph, Twitter card, schema.org Product JSON-LD) in the store's
-default language. A database hiccup falls back to the plain page.
-`/sitemap.xml` lists every product on sale; `/robots.txt` keeps `/admin`, `/api`,
-`/tg` and `/login` out of search. The store's URL and tagline for the home page
-are in `store.config.ts`.
+The web app is one page, so the Worker (`run_worker_first` in `wrangler.jsonc`)
+answers the public pages itself (`seo.ts`): `/`, `/c/<slug>`, `/p/<slug>` and
+`/legal/<slug>` come back as index.html with that page's title, description,
+picture (Open Graph, Twitter card), structured data (Organization and WebSite,
+ItemList, Product with its price range, BreadcrumbList) and the page's content
+as plain HTML inside `#root` for crawlers; the app replaces it when it starts
+(the splash covers it). Each page exists in both languages: the default
+(Arabic) at its plain address and English at `?lang=en`, linked to each other
+with hreflang; the web app opens in the language of `?lang=`. A database
+hiccup falls back to the plain page; an unknown page answers 404.
+
+The owner sets the home page's search title and description, the share picture
+(default `client/public/promo/share.jpg`), Search Console / Bing verification
+codes and an "indexing" switch in Admin → SEO & pages; a product can have its
+own search title and description (Catalog → product → Search engines).
+`/sitemap.xml` lists the home page, categories, products on sale and published
+pages, each language version with its alternates; `/robots.txt` keeps the
+private screens (`/admin`, `/api`, `/tg`, `/login`, `/wallet`, `/orders`,
+`/profile`) out, or everything when indexing is off.
+
+**Store pages.** `/legal/<slug>` shows the terms, privacy and refund policies
+(built-in texts in `legal-defaults.ts`, written for how this store works) or
+the owner's edited version (`app.pages`, migration 0026), plus pages the owner
+adds. The text uses a few marks parsed by `parseDoc` in `@store/core` (headings,
+lists, bold, https/mailto links) for both the server's HTML and the app; `{store}`,
+`{site}`, `{url}` and `{contact}` are filled in when shown. Published pages
+marked "in the footer" are linked at the bottom of the store, in Profile and on
+the sign-in page ("By continuing, you agree to…"). The bot answers `/terms`
+and `/paysupport` (Telegram asks bots that take Stars for one).
 
 ## Reports
 

@@ -15,6 +15,7 @@ import { Empty, ErrorBox, Money, PageLoading, Tile } from "../ui/kit";
 import { Shell } from "../ui/Shell";
 import { Showcase, type ShowcaseOptions, type ShowcaseStyle, type SlideData, type SlidePackage } from "../ui/Showcase";
 import { ProductSheet } from "./ProductSheet";
+import { SiteFooter } from "../ui/Footer";
 
 interface Catalog {
   categories: Category[];
@@ -47,6 +48,7 @@ export function Store() {
 
         {data && catPage && <CategoryPage slug={catPage.slug!} category={category} products={data.products} />}
         {data && !catPage && <Home data={data} categories={categories} />}
+        {data && <SiteFooter />}
       </div>
       {open && <ProductSheet slug={open.slug!} onClose={() => back("/")} />}
     </Shell>

@@ -117,6 +117,8 @@ const PRODUCT_TEXT: Array<[string, string, number]> = [
   ["instructionsAr", "instructions_ar", 2000], ["instructionsEn", "instructions_en", 2000],
   ["warrantyAr", "warranty_ar", 1000], ["warrantyEn", "warranty_en", 1000],
   ["searchTerms", "search_terms", 500],
+  ["seoTitleAr", "seo_title_ar", 70], ["seoTitleEn", "seo_title_en", 70],
+  ["seoDescriptionAr", "seo_description_ar", 320], ["seoDescriptionEn", "seo_description_en", 320],
 ];
 
 function productChanges(body: Record<string, unknown>): Record<string, unknown> {
@@ -206,7 +208,7 @@ export async function getCatalog(ctx: Ctx): Promise<Response> {
   const products = await db.query(
     `select id, slug, category_id, name_ar, name_en, description_ar, description_en, instructions_ar, instructions_en,
             warranty_ar, warranty_en, search_terms, image_url, cover_url, unit_ar, unit_en, kind, active, featured, sort,
-            delivery, after_fields, badge
+            delivery, after_fields, badge, seo_title_ar, seo_title_en, seo_description_ar, seo_description_en
        from app.products order by sort, name_en`,
   );
   const offers = await db.query<Record<string, unknown> & { cost_cents: unknown; price_cents: unknown }>(
