@@ -206,6 +206,11 @@ export interface PaymentEvent {
   amountCents?: number;
   /** For on-chain transfers: the transaction hash, used to block reuse. */
   txHash?: string;
+  /**
+   * For on-chain transfers: what the chain says about it, for staff to judge a
+   * transfer that does not settle by itself (why, how much arrived, from whom, when).
+   */
+  detail?: { reason?: string; receivedCents?: number; senders?: string[]; minedAt?: string };
 }
 
 export interface PaymentAdapter {

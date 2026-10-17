@@ -11,6 +11,7 @@ import { formatUsd, verifyBotWebhook } from "@store/core";
 import { parsePreCheckoutQuery, parseSuccessfulPayment } from "@store/payments";
 import type { ApiEnv, Services } from "./context";
 import { n, one } from "./db";
+import { logError } from "./health";
 import { json } from "./http";
 import { creditStarsPayment, expectedStars, TOPUP_WINDOW_MS } from "./payments";
 import { referralSettings } from "./promo";
@@ -225,8 +226,17 @@ export async function handleBotWebhook(req: Request, env: ApiEnv, svc: Services)
   try {
     await handleUpdate(update, env, svc);
   } catch (err) {
-    // Always 200 so Telegram doesn't retry forever; the error is logged.
-    console.error("bot update failed", err instanceof Error ? err.message : String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("bot update failed", msg);
+    // A paid Stars invoice that could not be credited (the database blinked...): the
+    // customer's Stars are already spent, so Telegram must deliver it again. Crediting
+    // is idempotent per payment (app.credit_payment), so a repeat never pays twice.
+    if (parseSuccessfulPayment(update)) {
+      await logError(svc.db, "bot.successful_payment", msg);
+      return json({ ok: false }, { status: 500 });
+    }
+    // Anything else: 200, so Telegram doesn't retry it forever; the error is logged.
+    await logError(svc.db, "bot.update", msg);
   }
   return json({ ok: true });
 }

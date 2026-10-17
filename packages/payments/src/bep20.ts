@@ -365,6 +365,14 @@ export async function verifyTransfer(
     const receivedCents = extra.receivedCents ?? 0;
     const event: PaymentEvent = { providerRef: hash, status, txHash: hash };
     if (receivedCents > 0 && Number.isSafeInteger(receivedCents)) event.amountCents = receivedCents;
+    if (status !== "paid") {
+      event.detail = {
+        ...(reason ? { reason } : {}),
+        ...(receivedCents > 0 ? { receivedCents } : {}),
+        ...(extra.senders?.length ? { senders: extra.senders } : {}),
+        ...(extra.blockTimestamp ? { minedAt: extra.blockTimestamp } : {}),
+      };
+    }
     return {
       ok: status === "paid",
       status,

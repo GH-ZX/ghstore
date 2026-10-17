@@ -35,17 +35,34 @@ const STATUS_LABEL: Record<Status, MsgKey> = {
   review: "tst_review", pending: "tst_pending", paid: "tst_paid", failed: "tst_failed", expired: "tst_expired", rejected: "tst_rejected",
 };
 
-/** What to suggest crediting: what arrived when less than asked did, else the request. */
-function suggested(p: Payment): number {
+/** A manual USDT check's note: why it did not settle, what arrived, from whom, when (payments.ts usdtCheckNote). */
+const USDT_NOTE = /^usdt (\w+): received (\d+) cents from (\S+) at (\S+)$/;
+
+/**
+ * What to suggest crediting: what arrived when a provider reports less than asked,
+ * else the request. Nothing for a pasted USDT hash that did not settle by itself:
+ * it may be another customer's public transfer, so the amount is typed after checking.
+ */
+function suggested(p: Payment): number | null {
+  if (p.note && USDT_NOTE.test(p.note)) return null;
   const partial = p.note ? /^partial: (\d+) cents received$/.exec(p.note) : null;
   return partial ? Number(partial[1]) : p.amountCents;
 }
 
 /** The server's notes, in the owner's words. */
-function noteText(t: ReturnType<typeof useT>["t"], note: string | null): string | null {
+function noteText(t: ReturnType<typeof useT>["t"], note: string | null, lang: "ar" | "en"): string | null {
   if (!note) return null;
   const partial = /^partial: (\d+) cents received$/.exec(note);
   if (partial) return t("tnote_partial", { amount: usd(Number(partial[1])) });
+  const usdt = USDT_NOTE.exec(note);
+  if (usdt) {
+    const [, why = "", cents = "0", from = "-", at = "-"] = usdt;
+    const whyKey = `tnote_usdtWhy_${why}` as MsgKey;
+    const whyText = why === "underpaid" || why === "amount_mismatch" ? t(whyKey) : why;
+    const sender = from === "-" ? "—" : from.split(",").map((a) => `${a.slice(0, 8)}…${a.slice(-4)}`).join(", ");
+    const time = at === "-" || Number.isNaN(Date.parse(at)) ? "—" : dateTime(at, lang);
+    return t("tnote_usdt", { why: whyText, amount: usd(Number(cents)), from: sender, time });
+  }
   const known: Record<string, MsgKey> = {
     "transfer did not match": "tnote_mismatch",
     "needs review": "tnote_review",
@@ -54,6 +71,8 @@ function noteText(t: ReturnType<typeof useT>["t"], note: string | null): string 
     "cancelled by the customer": "tnote_cancelled",
     "send window closed": "tnote_closed",
     "paid after it closed": "tnote_late",
+    "paid after it expired": "tnote_paidAfterExpired",
+    "hash never confirmed": "tnote_neverConfirmed",
   };
   return known[note] ? t(known[note]!) : note;
 }
@@ -89,7 +108,8 @@ export function Topups({ canAct = true }: { canAct?: boolean }) {
       {data && data.payments.length > 0 && (
         <div className="pay-cards">
           {data.payments.map((p) => {
-            const why = noteText(t, p.note);
+            const why = noteText(t, p.note, lang);
+            const suggest = suggested(p);
             return (
               <div key={p.id} className={p.status === "review" ? "pay-card pay-card--review" : "pay-card"}>
                 <div className="pay-card__top">
@@ -123,7 +143,7 @@ export function Topups({ canAct = true }: { canAct?: boolean }) {
                   <div className="wrap" style={{ gap: 8 }}>
                     {["review", "pending", "created", "partial", "expired"].includes(p.status) && (
                       <button type="button" className="btn btn--xs press" onClick={() => setOpen(p)}>
-                        {t("creditAmount", { amount: usd(suggested(p)) })}
+                        {suggest === null ? t("creditChecked") : t("creditAmount", { amount: usd(suggest) })}
                       </button>
                     )}
                     {["review", "pending"].includes(p.status) && (
@@ -152,8 +172,10 @@ export function Topups({ canAct = true }: { canAct?: boolean }) {
 }
 
 function ReviewSheet({ payment, onClose }: { payment: Payment; onClose: () => void }) {
-  const { t } = useT();
-  const [amount, setAmount] = useState((suggested(payment) / 100).toFixed(2));
+  const { t, lang } = useT();
+  const suggest = suggested(payment);
+  const [amount, setAmount] = useState(suggest === null ? "" : (suggest / 100).toFixed(2));
+  const why = noteText(t, payment.note, lang);
   // Filled in, so crediting what was checked is one more tap.
   const [note, setNote] = useState(t("checkedByHand"));
   const action = useAction();
@@ -196,6 +218,7 @@ function ReviewSheet({ payment, onClose }: { payment: Payment; onClose: () => vo
         </p>
       )}
       {(payment.tx_hash || payment.provider_ref) && <p className="small muted num pay-card__ref">{payment.tx_hash ?? payment.provider_ref}</p>}
+      {why && <p className="pay-card__why">{why}</p>}
       <label className="field">
         <span>{t("amountReceived")}</span>
         <input className="input num" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />

@@ -95,7 +95,7 @@ export interface SamAdapter extends PaymentAdapter {
   readonly id: "sam";
   createPayment(input: CreatePaymentInput): Promise<CreatedPayment>;
   verifyWebhook(req: Request): Promise<PaymentEvent | null>;
-  checkPayment(providerRef: string): Promise<PaymentEvent>;
+  checkPayment(providerRef: string, expected?: { amountCents: number }): Promise<PaymentEvent>;
   /**
    * For a customer whose transfer has not landed on its own: ask SAM to match the
    * wallet transaction reference they paste in (POST /pay/{id}/verify).
@@ -299,11 +299,23 @@ export function createSam(ctx: AdapterContext): SamAdapter {
     return paid && invoice.currency === "SYP" ? readSypRate(ctx) : undefined;
   }
 
-  async function checkPayment(providerRef: string): Promise<PaymentEvent> {
+  async function checkPayment(providerRef: string, expected?: { amountCents: number }): Promise<PaymentEvent> {
     const invoiceId = providerRef.trim();
     if (!invoiceId) throw new AdapterError(ID, "empty invoice id");
     const invoice = await getInvoice(invoiceId);
-    return samInvoiceToEvent(invoice, rateFor(invoice, invoice.status === "paid"));
+    return creditRequested(samInvoiceToEvent(invoice, rateFor(invoice, invoice.status === "paid")), invoice, expected);
+  }
+
+  /**
+   * A SYP invoice paid in full is worth the dollars it was issued for: the top-up's
+   * own amount is credited, not today's conversion of the pounds (the rate may have
+   * moved since the invoice was made). Partial payments keep the converted figure,
+   * for staff to judge.
+   */
+  function creditRequested(event: PaymentEvent, invoice: SamInvoice, expected?: { amountCents: number }): PaymentEvent {
+    if (event.status !== "paid" || (invoice.currency ?? "").toUpperCase() !== "SYP") return event;
+    if (!expected || !Number.isSafeInteger(expected.amountCents) || expected.amountCents <= 0) return event;
+    return { ...event, amountCents: expected.amountCents };
   }
 
   async function createPayment(input: CreatePaymentInput): Promise<CreatedPayment> {
