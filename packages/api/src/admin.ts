@@ -249,6 +249,8 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "analytics.cf_token": (v) => v === null || (typeof v === "string" && /^[a-f0-9]{32}$/.test(v)),
   // Virtual numbers: how many times in a row a customer may report a number and get the next one.
   "numbers.max_retries": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 20,
+  // Browser notifications for website customers (off when unset: each one is a request on the free plan).
+  "push.enabled": (v) => typeof v === "boolean",
 };
 
 export async function getSettings(ctx: Ctx): Promise<Response> {

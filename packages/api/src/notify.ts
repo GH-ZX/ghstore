@@ -8,8 +8,8 @@ import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
 import { EMAIL_INSTEAD, emailReady, emailSettings, RECEIPT_TEMPLATES, renderReceipt, sendEmail } from "./email";
 import { effectiveEnv } from "./keys";
-import { botUsername, supportContacts } from "./settings";
-import { pushToUser } from "./push";
+import { botUsername, readSettings, supportContacts } from "./settings";
+import { PUSH_MAX_BROWSERS, pushToUser, vapidKeys, type Vapid } from "./push";
 import { summaryText, type DaySummary } from "./reports";
 
 type Data = Record<string, unknown>;
@@ -106,8 +106,19 @@ export function renderTemplate(template: string, locale: "ar" | "en", data: Data
   return t ? t[locale](data) : null;
 }
 
-/** Send up to `limit` pending messages (Telegram and email). Returns how many were sent. */
-export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promise<number> {
+/** Browser notifications are off until the owner turns them on (Admin → Settings: push.enabled). */
+export async function pushEnabled(db: Services["db"]): Promise<boolean> {
+  return (await readSettings(db, ["push.enabled"]))["push.enabled"] === true;
+}
+
+/**
+ * Send up to `limit` pending messages (Telegram and email). Returns how many
+ * were sent. Each message needs one request, plus one per browser for a push
+ * notification: the batch stops while `reserve` requests are still left for
+ * the jobs after it, and what it did not reach goes back in the queue without
+ * counting as an attempt.
+ */
+export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25, reserve = 0): Promise<number> {
   const claimed = await svc.db.query<{
     id: string | number;
     user_id: string;
@@ -149,8 +160,32 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
   const staffBot = rows.some((r) => STAFF_TEMPLATES.has(r.template)) && !!(await effectiveEnv(env, svc.db)).NOTIFY_BOT_TOKEN;
   const storeBot = staffBot ? await botUsername(svc.db) : "";
 
-  for (const r of rows) {
+  // Browser notifications: only when switched on, and only for messages picked up the first time.
+  const pushes = (r: (typeof rows)[number]) => r.channel !== "email" && r.attempts === 1 && r.notify && PUSH_TEMPLATES.has(r.template);
+  const pushOn = rows.some(pushes) && (await pushEnabled(svc.db));
+  const browsers = new Map<string, number>();
+  if (pushOn) {
+    const counts = await svc.db.query<{ user_id: string; c: string | number }>(
+      `select user_id, count(*) as c from app.push_subscriptions where user_id = any(string_to_array($1::text, ',')::uuid[]) group by user_id`,
+      [[...new Set(rows.filter(pushes).map((r) => r.user_id))].join(",")],
+    );
+    for (const c of counts) browsers.set(c.user_id, Math.min(PUSH_MAX_BROWSERS, n(c.c)));
+  }
+  // The store's push key and contact, read once per batch.
+  let pushFrom: { vapid: Vapid; subject: string } | null = null;
+  const left = () => (svc.budget ? svc.budget.left() - reserve : Number.POSITIVE_INFINITY);
+
+  for (const [i, r] of rows.entries()) {
     const locale = r.locale ?? "ar";
+    const push = pushOn && pushes(r) ? browsers.get(r.user_id) ?? 0 : 0;
+    if (left() < 1 + push) {
+      // Out of requests for this run: back in the queue as it was (not a failed attempt).
+      await svc.db.query(
+        `update app.outbox set attempts = greatest(attempts - 1, 0), available_at = now() where id = any(string_to_array($1::text, ',')::bigint[]) and status = 'pending'`,
+        [rows.slice(i).map((x) => String(x.id)).join(",")],
+      );
+      break;
+    }
     if (r.channel === "email") {
       if (!mail || !emailReady(mail) || !r.email || !r.notify) {
         await skip(r.id);
@@ -181,12 +216,22 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
     }
 
     // Browser notifications, once per message, for the devices the customer turned them on for.
-    if (r.attempts === 1 && r.notify && PUSH_TEMPLATES.has(r.template)) {
+    if (push > 0) {
       const body = renderTemplate(r.template, locale, r.data ?? {});
       if (body) {
-        const contact = (await supportContacts(svc.db)).email;
-        await pushToUser(svc, env, r.user_id, { title: store.name, body: body.slice(0, 240), url: pushUrl(r.template, r.data ?? {}), lang: locale }, contact ? `mailto:${contact}` : env.PUBLIC_BASE_URL)
-          .catch((e) => console.error("push failed", e instanceof Error ? e.message : String(e)));
+        try {
+          if (!pushFrom) {
+            const contact = (await supportContacts(svc.db)).email;
+            pushFrom = { vapid: await vapidKeys(svc, env), subject: contact ? `mailto:${contact}` : env.PUBLIC_BASE_URL };
+          }
+          await pushToUser(svc, env, r.user_id, { title: store.name, body: body.slice(0, 240), url: pushUrl(r.template, r.data ?? {}), lang: locale }, pushFrom.subject, {
+            vapid: pushFrom.vapid,
+            max: push,
+            reserve: reserve + 1, // the message itself still goes
+          });
+        } catch (e) {
+          console.error("push failed", e instanceof Error ? e.message : String(e));
+        }
       }
     }
 
