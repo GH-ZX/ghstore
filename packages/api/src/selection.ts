@@ -28,6 +28,7 @@
  */
 import { priceFromCost, withUnit, type InputField } from "@store/core";
 import { parseInputFields } from "./admin-catalog";
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import type { Db } from "./db";
@@ -349,10 +350,7 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
           ],
         );
         productId = rows[0]!.id;
-        await db.query(
-          `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'product.create', 'product', $2, $3::text::jsonb)`,
-          [staff.id, productId, JSON.stringify({ slug, supplierId, from: d.key })],
-        );
+        await audit(db, { actor: staff.id, action: "product.create", targetType: "product", targetId: productId, data: { slug, supplierId, from: d.key } });
       }
       for (const i of d.items) {
         if (i.reactivate) {
@@ -385,10 +383,7 @@ export async function applySelection(ctx: Ctx): Promise<Response> {
     if (show.length) await db.query(`update app.products set active = true where id in (select jsonb_array_elements_text($1::text::jsonb)::uuid)`, [JSON.stringify(show)]);
     const next = version + 1;
     await db.query(`update app.suppliers set selection_version = $2 where id = $1`, [supplierId, next]);
-    await db.query(
-      `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'supplier.selection', 'supplier', $2, $3::text::jsonb)`,
-      [staff.id, supplierId, JSON.stringify({ ...counts, add: add.slice(0, 100), remove: remove.slice(0, 100) })],
-    );
+    await audit(db, { actor: staff.id, action: "supplier.selection", targetType: "supplier", targetId: supplierId, data: { ...counts, add: add.slice(0, 100), remove: remove.slice(0, 100) } });
     return { plan, counts, version: next };
   };
 

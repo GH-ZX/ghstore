@@ -16,6 +16,7 @@
  * it, links work as before and uploads answer "not_allowed".
  * Files are named by their content's hash: the same picture is stored once.
  */
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import type { ApiEnv, Ctx, Services } from "./context";
 import { ApiError, json, readJson } from "./http";
@@ -149,10 +150,7 @@ export async function uploadImage(ctx: Ctx): Promise<Response> {
     picture = { bytes: await readCapped(ctx.req.body), type };
   }
   const url = await storeImage(ctx.svc, env, picture.bytes, picture.type);
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'image.upload', 'image', $2, '{}'::jsonb)`,
-    [staff.id, url.slice(-80)],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "image.upload", targetType: "image", targetId: url.slice(-80) });
   return json({ url }, { status: 201 });
 }
 

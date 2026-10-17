@@ -5,6 +5,7 @@
  * {url} and {contact} in a page's text are filled in when it is shown.
  */
 import { store } from "@store/config";
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import type { Db } from "./db";
@@ -129,10 +130,7 @@ export async function savePage(ctx: Ctx): Promise<Response> {
        published = excluded.published, in_footer = excluded.in_footer, sort = excluded.sort`,
     [slug, titleAr, titleEn, bodyAr, bodyEn, flag("published", true), flag("inFooter", true), sort],
   );
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'page.save', 'page', $2, '{}'::jsonb)`,
-    [staff.id, slug],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "page.save", targetType: "page", targetId: slug });
   return json({ pages: await allPages(ctx.svc.db) });
 }
 
@@ -142,9 +140,6 @@ export async function deletePage(ctx: Ctx): Promise<Response> {
   const slug = ctx.params.slug ?? "";
   if (!PAGE_SLUG.test(slug)) throw new ApiError("invalid_input", "slug");
   await ctx.svc.db.query(`delete from app.pages where slug = $1`, [slug]);
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'page.delete', 'page', $2, '{}'::jsonb)`,
-    [staff.id, slug],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "page.delete", targetType: "page", targetId: slug });
   return json({ pages: await allPages(ctx.svc.db) });
 }

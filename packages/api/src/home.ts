@@ -2,6 +2,7 @@
  * The home page (Admin → Home): the banners of the carousel at the top, and
  * the order, icon and visibility of the category sections below it.
  */
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import type { Db } from "./db";
@@ -150,13 +151,6 @@ function bannerChanges(body: Record<string, unknown>, creating: boolean): Record
   return c;
 }
 
-async function audit(ctx: Ctx, actor: string, action: string, targetType: string, id: string, data: Record<string, unknown>) {
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, $2, $3, $4, $5::text::jsonb)`,
-    [actor, action, targetType, id, JSON.stringify(data)],
-  );
-}
-
 function adminBanner(b: BannerRow) {
   return { ...publicBanner(b), linkType: b.link_type, linkValue: b.link_value, sort: b.sort, active: b.active, startsAt: b.starts_at, endsAt: b.ends_at };
 }
@@ -191,7 +185,7 @@ export async function createBanner(ctx: Ctx): Promise<Response> {
     `insert into app.banners (${cols.join(", ")}) values (${cols.map((_, i) => `$${i + 1}`).join(", ")}) returning ${BANNER_COLS}`,
     cols.map((k) => c[k]),
   );
-  await audit(ctx, staff.id, "banner.create", "banner", row.id, { title: row.title_en });
+  await audit(ctx.svc.db, { actor: staff.id, action: "banner.create", targetType: "banner", targetId: row.id, data: { title: row.title_en } });
   return json({ banner: adminBanner(row) }, { status: 201 });
 }
 
@@ -209,7 +203,7 @@ export async function updateBanner(ctx: Ctx): Promise<Response> {
     `update app.banners set ${cols.map((k, i) => `${k} = $${i + 2}`).join(", ")} where id = $1 returning ${BANNER_COLS}`,
     [id, ...cols.map((k) => c[k])],
   );
-  await audit(ctx, staff.id, "banner.update", "banner", id, { fields: cols });
+  await audit(ctx.svc.db, { actor: staff.id, action: "banner.update", targetType: "banner", targetId: id, data: { fields: cols } });
   return json({ banner: adminBanner(row) });
 }
 
@@ -218,7 +212,7 @@ export async function deleteBanner(ctx: Ctx): Promise<Response> {
   const id = uuid(ctx.params.id);
   const gone = await ctx.svc.db.query(`delete from app.banners where id = $1 returning id`, [id]);
   if (!gone.length) throw new ApiError("not_found");
-  await audit(ctx, staff.id, "banner.delete", "banner", id, {});
+  await audit(ctx.svc.db, { actor: staff.id, action: "banner.delete", targetType: "banner", targetId: id });
   return json({ ok: true });
 }
 
@@ -248,6 +242,6 @@ export async function updateCategory(ctx: Ctx): Promise<Response> {
     ...cols.map((k) => c[k]),
   ]);
   if (!rows.length) throw new ApiError("not_found");
-  await audit(ctx, staff.id, "category.update", "category", id, c);
+  await audit(ctx.svc.db, { actor: staff.id, action: "category.update", targetType: "category", targetId: id, data: c });
   return json({ ok: true });
 }

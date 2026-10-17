@@ -9,6 +9,7 @@
  * updates (a bot has one webhook, and polling stops working once it is set).
  */
 import { store } from "@store/config";
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import { BOT_COMMANDS, OPEN_STORE } from "./bot";
 import type { Ctx } from "./context";
@@ -120,10 +121,7 @@ export async function connectBot(ctx: Ctx): Promise<Response> {
   } catch (err) {
     error = telegramError(err);
   }
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'telegram.connect', 'bot', $2, $3::text::jsonb)`,
-    [staff.id, url, JSON.stringify({ error })],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "telegram.connect", targetType: "bot", targetId: url, data: { error } });
   const status = await botStatus(ctx);
   return json({ ...status, error: error ?? status.error });
 }

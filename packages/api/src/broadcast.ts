@@ -9,6 +9,7 @@
  * interpreted. A double tap on Send is harmless: the client's idempotency key
  * makes the second request return the first broadcast.
  */
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
@@ -123,10 +124,7 @@ export async function createBroadcast(ctx: Ctx): Promise<Response> {
   );
   const row = await one<{ id: string }>(ctx.svc.db, `select id from app.broadcasts where idempotency_key = $1`, [key]);
   if (!row) throw new ApiError("internal");
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'broadcast.send', 'broadcast', $2, $3::text::jsonb)`,
-    [staff.id, row.id, JSON.stringify({ audience: audience.kind, productId, button, recipients })],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "broadcast.send", targetType: "broadcast", targetId: row.id, data: { audience: audience.kind, productId, button, recipients } });
   return json({ broadcast: await loadBroadcast(ctx, row.id) }, { status: 201 });
 }
 
@@ -140,10 +138,7 @@ export async function cancelBroadcast(ctx: Ctx): Promise<Response> {
     `update app.outbox set status = 'failed', last_error = 'cancelled' where broadcast_id = $1 and status = 'pending' returning id`,
     [id],
   );
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'broadcast.cancel', 'broadcast', $2, $3::text::jsonb)`,
-    [staff.id, id, JSON.stringify({ dropped: dropped.length })],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "broadcast.cancel", targetType: "broadcast", targetId: id, data: { dropped: dropped.length } });
   return json({ broadcast: await loadBroadcast(ctx, id) });
 }
 

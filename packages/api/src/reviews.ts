@@ -5,6 +5,7 @@
  * Reviews). Reviews show on the product, as stars on its card, and in the
  * product's structured data for search engines.
  */
+import { audit } from "./audit";
 import { optionalUser, requireStaff, requireUser } from "./auth";
 import type { Ctx } from "./context";
 import { n, one, type Db } from "./db";
@@ -161,10 +162,7 @@ export async function setReviewStatus(ctx: Ctx): Promise<Response> {
   if (body.status !== "visible" && body.status !== "hidden") throw new ApiError("invalid_input", "status");
   const rows = await ctx.svc.db.query(`update app.reviews set status = $2 where id = $1 returning id`, [id, body.status]);
   if (!rows.length) throw new ApiError("not_found");
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'review.status', 'review', $2, $3::text::jsonb)`,
-    [staff.id, id, JSON.stringify({ status: body.status })],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "review.status", targetType: "review", targetId: id, data: { status: body.status } });
   return json({ ok: true });
 }
 
@@ -173,9 +171,6 @@ export async function removeReview(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx, "owner");
   const id = uuid(ctx.params.id);
   await ctx.svc.db.query(`delete from app.reviews where id = $1`, [id]);
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'review.delete', 'review', $2, '{}'::jsonb)`,
-    [staff.id, id],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "review.delete", targetType: "review", targetId: id });
   return json({ ok: true });
 }

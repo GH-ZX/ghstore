@@ -21,6 +21,7 @@
  * Refunds stay on POST /api/admin/orders/:id/refund.
  */
 import { AFTER_SECRET, decryptText, encryptText, type AfterField, type InputField } from "@store/core";
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
@@ -30,13 +31,6 @@ import { ApiError, int, json, readJson, str, uuid } from "./http";
 const KINDS = new Set(["account", "code", "link", "id"]);
 const MAX_ITEMS = 20;
 const MAX_VALUE = 4000;
-
-async function audit(ctx: Ctx, actor: string, action: string, id: string, data: Record<string, unknown> = {}) {
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, $2, 'order', $3, $4::text::jsonb)`,
-    [actor, action, id, JSON.stringify(data)],
-  );
-}
 
 export async function getAdminOrder(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx, "support");
@@ -61,7 +55,7 @@ export async function getAdminOrder(ctx: Ctx): Promise<Response> {
   );
   if (!o) throw new ApiError("not_found");
   const given = o.answers_enc ? (JSON.parse(await decryptText(o.answers_enc, ctx.env.DATA_KEY)) as Record<string, string>) : {};
-  if (o.answers_enc) await audit(ctx, staff.id, "order.details_view", id);
+  if (o.answers_enc) await audit(ctx.svc.db, { actor: staff.id, action: "order.details_view", targetType: "order", targetId: id });
   // What was delivered stays hidden here (codes are money): "Show" asks for each
   // one on its own (revealDeliveries), and every look is audit logged.
   const dels = await ctx.svc.db.query<{ id: string | number; kind: string; label: string | null; created_at: string }>(
@@ -109,7 +103,7 @@ export async function revealDeliveries(ctx: Ctx): Promise<Response> {
   );
   if (!dels.length) throw new ApiError("not_found");
   // Logged before anything is decrypted, so a look is never missing from the log.
-  await audit(ctx, staff.id, "order.deliveries_view", id, { deliveries: dels.map((d) => String(d.id)) });
+  await audit(ctx.svc.db, { actor: staff.id, action: "order.deliveries_view", targetType: "order", targetId: id, data: { deliveries: dels.map((d) => String(d.id)) } });
   const deliveries = [];
   for (const d of dels) {
     deliveries.push({ id: String(d.id), kind: d.kind, label: d.label, value: await decryptText(d.value_enc, ctx.env.DATA_KEY), at: d.created_at });
@@ -159,7 +153,7 @@ export async function deliverOrder(ctx: Ctx): Promise<Response> {
     ]);
     number = n(o.number);
   });
-  await audit(ctx, staff.id, "order.deliver", id, { items: items.length });
+  await audit(ctx.svc.db, { actor: staff.id, action: "order.deliver", targetType: "order", targetId: id, data: { items: items.length } });
   return json({ ok: true, number });
 }
 
@@ -187,7 +181,7 @@ export async function placeInPersonOrder(ctx: Ctx): Promise<Response> {
   const r = rows[0];
   if (!r) throw new ApiError("internal");
   if (r.created) {
-    await audit(ctx, staff.id, "order.in_person", r.order_id, { offerId, quantity, totalCents: n(r.total_cents) });
+    await audit(ctx.svc.db, { actor: staff.id, action: "order.in_person", targetType: "order", targetId: r.order_id, data: { offerId, quantity, totalCents: n(r.total_cents) } });
     if (r.status === "paid") ctx.svc.waitUntil(fulfilOrder(ctx.svc, ctx.env, r.order_id).catch((e) => console.error("fulfil failed", r.order_id, String(e))));
   }
   return json({ orderId: r.order_id, number: n(r.order_number), status: r.status, totalCents: n(r.total_cents), created: r.created }, { status: r.created ? 201 : 200 });

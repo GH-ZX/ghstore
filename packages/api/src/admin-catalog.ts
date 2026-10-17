@@ -6,6 +6,7 @@
  * (supplier-catalogue.ts, selection.ts). The sync keeps cost and price in line.
  */
 import { encryptText, minimumPrice, parseAfterFields, priceFromCost, withUnit, type InputField, type MarkupMode } from "@store/core";
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { call, must, n, one } from "./db";
@@ -21,13 +22,6 @@ const MODES: MarkupMode[] = ["percent", "fixed", "manual"];
 const BADGES = ["none", "instant", "new", "hot", "best", "sale"] as const;
 /** auto: the supplier or the stock delivers; manual: a person does; review: the supplier does, a person releases it. */
 const DELIVERY = ["auto", "manual", "review"] as const;
-
-async function audit(ctx: Ctx, actor: string, action: string, targetType: string, targetId: string, data: Record<string, unknown> = {}) {
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, $2, $3, $4, $5::text::jsonb)`,
-    [actor, action, targetType, targetId, JSON.stringify(data)],
-  );
-}
 
 function bool(body: Record<string, unknown>, key: string): boolean | undefined {
   const v = body[key];
@@ -248,7 +242,7 @@ export async function createCategory(ctx: Ctx): Promise<Response> {
     [slug, str(body, "nameAr", { max: 40 }), str(body, "nameEn", { max: 40 }), optInt(body, "sort", -10_000, 10_000) ?? 0],
   );
   const id = rows[0]!.id;
-  await audit(ctx, staff.id, "category.create", "category", id, { slug });
+  await audit(ctx.svc.db, { actor: staff.id, action: "category.create", targetType: "category", targetId: id, data: { slug } });
   return json({ id }, { status: 201 });
 }
 
@@ -265,7 +259,7 @@ export async function createProduct(ctx: Ctx): Promise<Response> {
     cols.map((k) => (k === "after_fields" ? JSON.stringify(c[k]) : c[k])),
   );
   const id = rows[0]!.id;
-  await audit(ctx, staff.id, "product.create", "product", id, { slug: c.slug });
+  await audit(ctx.svc.db, { actor: staff.id, action: "product.create", targetType: "product", targetId: id, data: { slug: c.slug } });
   return json({ id }, { status: 201 });
 }
 
@@ -277,7 +271,7 @@ export async function updateProduct(ctx: Ctx): Promise<Response> {
   const before = await one<{ unit_ar: string; unit_en: string }>(ctx.svc.db, `select unit_ar, unit_en from app.products where id = $1`, [id]);
   await updateRow(ctx, "products", id, changes);
   const renamed = before ? await applyUnits(ctx, id, before, changes) : 0;
-  await audit(ctx, staff.id, "product.update", "product", id, { fields: Object.keys(changes), renamed });
+  await audit(ctx.svc.db, { actor: staff.id, action: "product.update", targetType: "product", targetId: id, data: { fields: Object.keys(changes), renamed } });
   return json({ ok: true, renamed });
 }
 
@@ -355,7 +349,7 @@ export async function createOffer(ctx: Ctx): Promise<Response> {
     ],
   );
   const id = rows[0]!.id;
-  await audit(ctx, staff.id, "offer.create", "offer", id, { productId, supplierId, supplierRef, price });
+  await audit(ctx.svc.db, { actor: staff.id, action: "offer.create", targetType: "offer", targetId: id, data: { productId, supplierId, supplierRef, price } });
   return json({ id, priceCents: price }, { status: 201 });
 }
 
@@ -410,7 +404,7 @@ export async function updateOffer(ctx: Ctx): Promise<Response> {
     }
   }
   await updateRow(ctx, "offers", id, changes);
-  await audit(ctx, staff.id, "offer.update", "offer", id, { fields: Object.keys(changes) });
+  await audit(ctx.svc.db, { actor: staff.id, action: "offer.update", targetType: "offer", targetId: id, data: { fields: Object.keys(changes) } });
   if (changes.paused_reason === null || changes.active === true) await notifyBackInStock(ctx.svc, [id]);
   return json({ ok: true, priceCents: (changes.price_cents as number | undefined) ?? n(cur.price_cents) });
 }
@@ -434,7 +428,7 @@ export async function addStock(ctx: Ctx): Promise<Response> {
     `insert into app.stock_items (offer_id, payload_enc) select $1, x from unnest(string_to_array($2::text, chr(10))) as x`,
     [id, sealed.join("\n")],
   );
-  await audit(ctx, staff.id, "stock.add", "offer", id, { count: clean.length });
+  await audit(ctx.svc.db, { actor: staff.id, action: "stock.add", targetType: "offer", targetId: id, data: { count: clean.length } });
   // Codes again: tell whoever waited for this package.
   await notifyBackInStock(ctx.svc, [id]);
   return json({ added: clean.length }, { status: 201 });
@@ -480,7 +474,7 @@ export async function updateSupplier(ctx: Ctx): Promise<Response> {
   await updateRow(ctx, "suppliers", id, changes);
   // The saved list (Choose packages) follows at once; the store's products keep their names.
   const renamed = cleanNames !== undefined ? await renameSavedItems(ctx.svc, id) : 0;
-  await audit(ctx, staff.id, "supplier.update", "supplier", id, changes);
+  await audit(ctx.svc.db, { actor: staff.id, action: "supplier.update", targetType: "supplier", targetId: id, data: changes });
   return json({ ok: true, renamed });
 }
 
@@ -521,7 +515,7 @@ export async function relinkOffer(ctx: Ctx): Promise<Response> {
       [id, cur.cost_cents === null ? null : n(cur.cost_cents), cost, n(cur.price_cents), price],
     );
   }
-  await audit(ctx, staff.id, "offer.relink", "offer", id, { supplierId: cur.supplier_id, from: cur.supplier_ref, to: supplierRef, cost, price });
+  await audit(ctx.svc.db, { actor: staff.id, action: "offer.relink", targetType: "offer", targetId: id, data: { supplierId: cur.supplier_id, from: cur.supplier_ref, to: supplierRef, cost, price } });
   return json({ ok: true, priceCents: price });
 }
 
@@ -652,7 +646,7 @@ export async function acceptCost(ctx: Ctx): Promise<Response> {
     `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $5, 'manual')`,
     [id, cur.cost_cents === null ? null : n(cur.cost_cents), cost, old, price],
   );
-  await audit(ctx, staff.id, "offer.accept_cost", "offer", id, { cost, price, selling: marginOk });
+  await audit(ctx.svc.db, { actor: staff.id, action: "offer.accept_cost", targetType: "offer", targetId: id, data: { cost, price, selling: marginOk } });
   return json({ ok: true, priceCents: price, selling: marginOk });
 }
 
@@ -732,6 +726,6 @@ export async function applySupplierPricing(ctx: Ctx): Promise<Response> {
     `update app.suppliers set import_markup_pct = $2, import_min_margin_pct = $3, import_round_to_cents = $4 where id = $1`,
     [id, markup, minMargin, round],
   );
-  await audit(ctx, staff.id, "supplier.pricing", "supplier", id, { markup, minMargin, round, ...summary });
+  await audit(ctx.svc.db, { actor: staff.id, action: "supplier.pricing", targetType: "supplier", targetId: id, data: { markup, minMargin, round, ...summary } });
   return json(summary);
 }

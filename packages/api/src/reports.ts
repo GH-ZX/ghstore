@@ -5,6 +5,7 @@
  */
 import { store } from "@store/config";
 import { formatUsd } from "@store/core";
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import type { Services } from "./context";
 import type { Ctx } from "./context";
@@ -232,10 +233,7 @@ export async function exportCsv(ctx: Ctx): Promise<Response> {
   );
   const rows = await ctx.svc.db.query<Record<string, unknown>>(spec.sql, [range!.a, range!.b]);
   const truncated = rows.length > MAX_ROWS;
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'export', 'report', $2, $3::text::jsonb)`,
-    [staff.id, kind, JSON.stringify({ from, to, rows: Math.min(rows.length, MAX_ROWS) })],
-  );
+  await audit(ctx.svc.db, { actor: staff.id, action: "export", targetType: "report", targetId: kind, data: { from, to, rows: Math.min(rows.length, MAX_ROWS) } });
   return new Response(toCsv(spec.header, rows.slice(0, MAX_ROWS).map(spec.row)), {
     headers: {
       "content-type": "text/csv; charset=utf-8",

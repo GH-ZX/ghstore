@@ -3,6 +3,7 @@
  * app.audit_log. `support` can review top-ups and handle orders; only `owner`
  * can change settings, balances and roles.
  */
+import { audit } from "./audit";
 import { requireStaff } from "./auth";
 import { EMAIL_FROM, sendTestEmail } from "./email";
 import { TIME_ZONE } from "./reports";
@@ -17,13 +18,6 @@ import { validTiers } from "./loyalty";
 import { CHANNEL_CHAT } from "./channel";
 import { room } from "./jobs";
 import { syncSupplier } from "./sync";
-
-async function audit(ctx: Ctx, actor: string, action: string, targetType: string, targetId: string, data: Record<string, unknown> = {}) {
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, $2, $3, $4, $5::text::jsonb)`,
-    [actor, action, targetType, targetId, JSON.stringify(data)],
-  );
-}
 
 export async function overview(ctx: Ctx): Promise<Response> {
   await requireStaff(ctx, "monitor");
@@ -125,7 +119,7 @@ export async function approvePayment(ctx: Ctx): Promise<Response> {
   const rows = await call<{ credited: boolean; balance_cents: string | number }>(
     ctx.svc.db, `select * from app.credit_payment($1, $2, null, null, $3)`, [id, amountCents, staff.id],
   );
-  await audit(ctx, staff.id, "payment.approve", "payment", id, { amountCents, note });
+  await audit(ctx.svc.db, { actor: staff.id, action: "payment.approve", targetType: "payment", targetId: id, data: { amountCents, note } });
   return json({ credited: rows[0]?.credited ?? false, balanceCents: n(rows[0]?.balance_cents) });
 }
 
@@ -136,7 +130,7 @@ export async function rejectPayment(ctx: Ctx): Promise<Response> {
   const note = str(body, "note", { min: 3, max: 300 });
   const res = await ctx.svc.db.query(`update app.payments set status = 'rejected', note = $2 where id = $1 and status in ('created','pending','review','partial') returning id`, [id, note]);
   if (!res.length) throw new ApiError("bad_state");
-  await audit(ctx, staff.id, "payment.reject", "payment", id, { note });
+  await audit(ctx.svc.db, { actor: staff.id, action: "payment.reject", targetType: "payment", targetId: id, data: { note } });
   return json({ ok: true });
 }
 
@@ -144,7 +138,7 @@ export async function recheckPayment(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx);
   const id = uuid(ctx.params.id);
   const status = await settlePayment(ctx.svc, id);
-  await audit(ctx, staff.id, "payment.recheck", "payment", id, { status });
+  await audit(ctx.svc.db, { actor: staff.id, action: "payment.recheck", targetType: "payment", targetId: id, data: { status } });
   return json({ status });
 }
 
@@ -192,7 +186,7 @@ export async function refundOrder(ctx: Ctx): Promise<Response> {
     }
   }
   const rows = await call<{ refunded: boolean; balance_cents: string | number }>(ctx.svc.db, `select * from app.refund_order($1, $2, $3)`, [id, note, staff.id]);
-  await audit(ctx, staff.id, "order.refund", "order", id, { note, ...(supplierCancel ? { supplierCancel } : {}) });
+  await audit(ctx.svc.db, { actor: staff.id, action: "order.refund", targetType: "order", targetId: id, data: { note, ...(supplierCancel ? { supplierCancel } : {}) } });
   return json({ refunded: rows[0]?.refunded ?? false, supplierCancel });
 }
 
@@ -201,7 +195,7 @@ export async function retryOrder(ctx: Ctx): Promise<Response> {
   const id = uuid(ctx.params.id);
   await ctx.svc.db.query(`update app.orders set next_check_at = now() where id = $1 and status in ('paid','processing')`, [id]);
   const result = await fulfilOrder(ctx.svc, ctx.env, id);
-  await audit(ctx, staff.id, "order.retry", "order", id, { result });
+  await audit(ctx.svc.db, { actor: staff.id, action: "order.retry", targetType: "order", targetId: id, data: { result } });
   return json({ result });
 }
 
@@ -302,7 +296,7 @@ export async function putSetting(ctx: Ctx): Promise<Response> {
      on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
     [key, JSON.stringify(body.value), staff.id],
   );
-  await audit(ctx, staff.id, "setting.update", "setting", key, { before: before?.value ?? null, after: body.value });
+  await audit(ctx.svc.db, { actor: staff.id, action: "setting.update", targetType: "setting", targetId: key, data: { before: before?.value ?? null, after: body.value } });
   return json({ key, value: body.value });
 }
 
@@ -334,7 +328,7 @@ export async function setUserRole(ctx: Ctx): Promise<Response> {
       where id = $1`,
     [userId, role, status ?? null],
   );
-  await audit(ctx, staff.id, "user.update", "user", userId, { role, status });
+  await audit(ctx.svc.db, { actor: staff.id, action: "user.update", targetType: "user", targetId: userId, data: { role, status } });
   return json({ ok: true });
 }
 
@@ -344,7 +338,7 @@ export async function runSupplierSync(ctx: Ctx): Promise<Response> {
   if (!/^[a-z0-9_]{2,32}$/.test(id)) throw new ApiError("not_found");
   // A big catalogue is checked as far as this request's budget allows; the cron does the rest.
   const report = await syncSupplier(ctx.svc, id, { maxGroups: room(ctx.svc, 3), retryNow: true });
-  await audit(ctx, staff.id, "supplier.sync", "supplier", id, { ...report });
+  await audit(ctx.svc.db, { actor: staff.id, action: "supplier.sync", targetType: "supplier", targetId: id, data: { ...report } });
   return json(report);
 }
 
@@ -367,7 +361,7 @@ export async function checkAllSuppliers(ctx: Ctx): Promise<Response> {
   if (later.length) {
     await ctx.svc.db.query(`update app.suppliers set last_sync_at = null where id in (select jsonb_array_elements_text($1::text::jsonb))`, [JSON.stringify(later)]);
   }
-  await audit(ctx, staff.id, "supplier.sync_all", "supplier", "*", { checked: [...checked], later });
+  await audit(ctx.svc.db, { actor: staff.id, action: "supplier.sync_all", targetType: "supplier", targetId: "*", data: { checked: [...checked], later } });
   return json({ reports, later });
 }
 

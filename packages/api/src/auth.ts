@@ -12,6 +12,7 @@ import {
   fromBase64Url, fromUtf8, randomToken, readSessionToken, SESSION_TTL_SECONDS, signSession, toHex, utf8, verifyInitData, verifyLoginWidget,
   verifySession, type Channel, type TelegramUser,
 } from "@store/core";
+import { audit } from "./audit";
 import { webLoginMethods, type LoginMethod } from "./config";
 import type { AuthedUser, Ctx } from "./context";
 import { call, must, n, one, type Db } from "./db";
@@ -56,10 +57,7 @@ async function promoteOwner(db: Db, userId: string, telegramId: string, ownerIds
   if (!ids.includes(telegramId)) return;
   const res = await db.query(`update app.users set role = 'owner' where id = $1 and role <> 'owner' returning id`, [userId]);
   if (res.length) {
-    await db.query(
-      `insert into app.audit_log (actor_user_id, action, target_type, target_id) values ($1, 'user.promote_owner', 'user', $2)`,
-      [userId, userId],
-    );
+    await audit(db, { actor: userId, action: "user.promote_owner", targetType: "user", targetId: userId });
   }
 }
 
@@ -269,10 +267,7 @@ export async function unlink(ctx: Ctx): Promise<Response> {
     [auth.id, provider],
   );
   if (!removed.length) throw new ApiError("bad_state", "last_login");
-  await ctx.svc.db.query(
-    `insert into app.audit_log (actor_user_id, action, target_type, target_id, data) values ($1, 'user.unlink', 'user', $2, $3::text::jsonb)`,
-    [auth.id, auth.id, JSON.stringify({ provider })],
-  );
+  await audit(ctx.svc.db, { actor: auth.id, action: "user.unlink", targetType: "user", targetId: auth.id, data: { provider } });
   // A login is often removed because it was lost or taken over: sign out every
   // other session, and carry on here with a fresh one.
   await ctx.svc.db.query(`update app.users set sessions_revoked_at = now() where id = $1`, [auth.id]);
