@@ -41,7 +41,7 @@ const concat = (...parts: Uint8Array[]): Bytes => {
   return out;
 };
 
-interface Vapid {
+export interface Vapid {
   publicKey: string; // base64url, 65-byte uncompressed point
   privateKey: CryptoKey;
 }
@@ -121,19 +121,36 @@ export interface PushMessage {
   lang: "ar" | "en";
 }
 
-/** Send `msg` to every browser the user subscribed. Gone subscriptions are removed. Returns how many went out. */
-export async function pushToUser(svc: Services, env: ApiEnv, userId: string, msg: PushMessage, subject: string): Promise<number> {
+/** Browsers notified per message (the newest subscriptions): each is one request. */
+export const PUSH_MAX_BROWSERS = 5;
+/** Subscriptions kept per customer; subscribing one more forgets the oldest. */
+export const PUSH_MAX_SUBSCRIPTIONS = 10;
+
+/**
+ * Send `msg` to the browsers the user subscribed (the newest `max`, at most
+ * PUSH_MAX_BROWSERS), while more than `reserve` requests are left in this run.
+ * Gone subscriptions are removed. Returns how many went out. `vapid` saves
+ * reading the key again when sending many.
+ */
+export async function pushToUser(
+  svc: Services,
+  env: ApiEnv,
+  userId: string,
+  msg: PushMessage,
+  subject: string,
+  opts: { vapid?: Vapid; max?: number; reserve?: number } = {},
+): Promise<number> {
   const subs = await svc.db.query<{ id: string; endpoint: string; p256dh: string; auth: string }>(
-    `select id, endpoint, p256dh, auth from app.push_subscriptions where user_id = $1 order by created_at desc limit 5`,
-    [userId],
+    `select id, endpoint, p256dh, auth from app.push_subscriptions where user_id = $1 order by created_at desc limit $2`,
+    [userId, Math.max(0, Math.min(PUSH_MAX_BROWSERS, opts.max ?? PUSH_MAX_BROWSERS))],
   );
   if (!subs.length) return 0;
-  const vapid = await vapidKeys(svc, env);
+  const vapid = opts.vapid ?? (await vapidKeys(svc, env));
   const payload = utf8(JSON.stringify({ ...msg, dir: msg.lang === "ar" ? "rtl" : "ltr" }));
   let sent = 0;
   for (const s of subs) {
     if (!pushEndpointAllowed(s.endpoint)) continue;
-    if (svc.budget && svc.budget.left() < 2) break;
+    if (svc.budget && svc.budget.left() <= (opts.reserve ?? 1)) break;
     try {
       const res = await svc.fetch(s.endpoint, {
         method: "POST",
@@ -184,10 +201,22 @@ export async function subscribePush(ctx: Ctx): Promise<Response> {
   } catch {
     throw new ApiError("invalid_input", "keys");
   }
-  await ctx.svc.db.query(
+  // A browser already subscribed for another account stays with that account
+  // (it unsubscribes when that customer signs out); nobody can take over
+  // someone else's subscription by sending its address.
+  const saved = await ctx.svc.db.query(
     `insert into app.push_subscriptions (user_id, endpoint, p256dh, auth) values ($1, $2, $3, $4)
-     on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, failures = 0`,
+     on conflict (endpoint) do update set p256dh = excluded.p256dh, auth = excluded.auth, failures = 0
+       where app.push_subscriptions.user_id = excluded.user_id
+     returning id`,
     [user.id, endpoint, p256dh, auth],
+  );
+  if (!saved.length) throw new ApiError("bad_state", "endpoint");
+  // A handful of browsers per customer: the oldest go first.
+  await ctx.svc.db.query(
+    `delete from app.push_subscriptions where user_id = $1
+        and id not in (select id from app.push_subscriptions where user_id = $1 order by created_at desc, id desc limit $2)`,
+    [user.id, PUSH_MAX_SUBSCRIPTIONS],
   );
   return json({ ok: true });
 }

@@ -219,7 +219,7 @@ export async function getCatalog(ctx: Ctx): Promise<Response> {
        from app.offers o order by o.sort, o.price_cents`,
   );
   const suppliers = await db.query(
-    `select id, name, enabled, low_balance_cents, balance_cents, health, last_sync_at, last_error,
+    `select id, name, enabled, low_balance_cents, balance_cents, case when 'down' in (health, sync_health) then 'down' when 'degraded' in (health, sync_health) then 'degraded' when 'ok' in (health, sync_health) then 'ok' else 'unknown' end as health, last_sync_at, coalesce(last_error, sync_error) as last_error,
             import_markup_pct, import_min_margin_pct, import_round_to_cents
        from app.suppliers order by id`,
   );
@@ -534,7 +534,7 @@ export async function relinkOffer(ctx: Ctx): Promise<Response> {
 export async function listSuppliers(ctx: Ctx): Promise<Response> {
   await requireStaff(ctx, "owner");
   const rows = await ctx.svc.db.query<Record<string, unknown>>(
-    `select s.id, s.name, s.enabled, s.health, s.last_error, s.balance_cents, s.balance_checked_at, s.low_balance_cents,
+    `select s.id, s.name, s.enabled, case when 'down' in (s.health, s.sync_health) then 'down' when 'degraded' in (s.health, s.sync_health) then 'degraded' when 'ok' in (s.health, s.sync_health) then 'ok' else 'unknown' end as health, coalesce(s.last_error, s.sync_error) as last_error, s.balance_cents, s.balance_checked_at, s.low_balance_cents,
             s.last_sync_at, s.sync_minutes, s.stock_alerts,
             s.last_sync_at + make_interval(mins => s.sync_minutes) as next_sync_at, s.auto_reprice, s.max_jump_pct, s.import_markup_pct, s.import_min_margin_pct,
             s.import_round_to_cents, s.import_category_id, s.import_description_ar, s.import_description_en, s.last_sync_report,

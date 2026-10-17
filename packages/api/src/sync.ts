@@ -60,6 +60,8 @@ export interface SyncReport {
   complete: boolean;
   /** Why the check could not run (the supplier's own error, without secrets). */
   error?: string;
+  /** Groups of a big catalogue whose check failed this time (backed off; the rest went on). */
+  failedGroups?: number;
 }
 
 export interface SyncOptions {
@@ -69,6 +71,26 @@ export interface SyncOptions {
    * run inside the Worker's per-invocation request limit.
    */
   maxGroups?: number;
+  /** Check groups that are backing off after a failure too ("Sync now" in the admin). */
+  retryNow?: boolean;
+}
+
+/** Groups of a big catalogue checked at the same time. */
+const GROUP_CONCURRENCY = 4;
+/** A supplier's sync lease: another run leaves it alone meanwhile (released when done). */
+export const SYNC_LEASE_MINUTES = 5;
+
+function errText(err: unknown): string {
+  return (err instanceof Error ? err.message : String(err)).slice(0, 300) || "error";
+}
+
+/** Promise.allSettled, `limit` at a time, results in input order. */
+async function settledInBatches<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
+  const out: PromiseSettledResult<R>[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    out.push(...(await Promise.allSettled(items.slice(i, i + limit).map((x) => fn(x)))));
+  }
+  return out;
 }
 
 /** Did the cost move by more than the supplier's limit? */
@@ -109,32 +131,91 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
     [supplierId],
   );
   // Big catalogues: price only what the store sells, a few groups at a time,
-  // the groups not checked yet in this pass first.
+  // the groups not checked yet in this pass first. A group whose check failed
+  // waits out its backoff (supplier_sync_groups) while the others go on.
   const grouped = adapter.listProductsFor && adapter.syncGroup ? adapter : null;
+  const groupOf = (ref: string) => grouped!.syncGroup!(ref);
+  const failing = new Map<string, boolean>(); // group -> still waiting
   if (grouped) {
+    for (const g of await svc.db.query<{ group_id: string; waiting: boolean }>(
+      `select group_id, retry_at > now() as waiting from app.supplier_sync_groups where supplier_id = $1`,
+      [supplierId],
+    )) failing.set(g.group_id, g.waiting && !opts.retryNow);
     const max = Math.max(1, Math.floor(opts.maxGroups ?? Number.POSITIVE_INFINITY));
-    const dueGroups: string[] = [];
+    const dueGroups = new Set<string>();
     for (const o of offers) {
-      const g = grouped.syncGroup!(o.supplier_ref);
-      if (o.due && !dueGroups.includes(g)) dueGroups.push(g);
+      const g = groupOf(o.supplier_ref);
+      if (o.due && !failing.get(g)) dueGroups.add(g);
     }
-    const chosen = new Set(dueGroups.slice(0, max));
-    report.complete = dueGroups.length <= max;
-    offers = offers.filter((o) => chosen.has(grouped.syncGroup!(o.supplier_ref)));
+    const chosen = new Set([...dueGroups].slice(0, max));
+    report.complete = dueGroups.size <= max;
+    offers = offers.filter((o) => chosen.has(groupOf(o.supplier_ref)));
   }
+  const waiting = [...failing.values()].some(Boolean);
   if (offers.length === 0) {
-    await svc.db.query(`update app.suppliers set last_sync_at = now(), health = 'ok', last_error = null where id = $1`, [supplierId]);
+    // Nothing (else) due: the pass is over. Groups still backing off keep the supplier's sync state as it is.
+    await svc.db.query(
+      `update app.suppliers set last_sync_at = now(), sync_failures = 0, sync_retry_at = null,
+              sync_health = case when $2 then sync_health else 'ok' end, sync_error = case when $2 then sync_error else null end
+        where id = $1`,
+      [supplierId, waiting],
+    );
     await saveReport(svc, supplierId, report);
     return report;
   }
 
-  let products: SupplierProduct[];
+  let products: SupplierProduct[] = [];
   try {
-    products = grouped ? await grouped.listProductsFor!(offers.map((o) => o.supplier_ref)) : await adapter.listProducts();
+    if (grouped) {
+      // One call per group, so one broken group (a game the supplier dropped, a
+      // bad answer) does not stop the others; a few at a time.
+      const refs = new Map<string, string[]>();
+      for (const o of offers) {
+        const g = groupOf(o.supplier_ref);
+        refs.set(g, [...(refs.get(g) ?? []), o.supplier_ref]);
+      }
+      const groups = [...refs.keys()];
+      const results = await settledInBatches(groups, GROUP_CONCURRENCY, (g) => grouped.listProductsFor!(refs.get(g)!));
+      const failed = new Map<string, string>();
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled") products.push(...r.value);
+        else failed.set(groups[i]!, errText(r.reason));
+      });
+      if (failed.size === groups.length) throw results.find((r) => r.status === "rejected")!.reason;
+      if (failed.size) {
+        await svc.db.query(
+          `insert into app.supplier_sync_groups (supplier_id, group_id, failures, retry_at, last_error, updated_at)
+           select $1, x.g, 1, now() + interval '2 minutes', x.e, now() from jsonb_to_recordset($2::text::jsonb) as x(g text, e text)
+           on conflict (supplier_id, group_id) do update
+             set failures = app.supplier_sync_groups.failures + 1, last_error = excluded.last_error, updated_at = now(),
+                 retry_at = now() + make_interval(mins => least(60, power(2, least(app.supplier_sync_groups.failures + 1, 6))::int))`,
+          [supplierId, JSON.stringify([...failed].map(([g, e]) => ({ g: g.slice(0, 200), e })))],
+        );
+        // Their packages are left as they are, checked again after the backoff.
+        offers = offers.filter((o) => !failed.has(groupOf(o.supplier_ref)));
+        report.complete = false;
+        report.failedGroups = failed.size;
+        report.error = `${failed.size} of ${groups.length} group(s) could not be checked: ${[...failed.values()][0]}`.slice(0, 300);
+      }
+      const recovered = groups.filter((g) => !failed.has(g) && failing.has(g));
+      if (recovered.length) {
+        await svc.db.query(`delete from app.supplier_sync_groups where supplier_id = $1 and group_id in (select jsonb_array_elements_text($2::text::jsonb))`, [
+          supplierId, JSON.stringify(recovered),
+        ]);
+      }
+    } else {
+      products = await adapter.listProducts();
+    }
   } catch (err) {
     // A failed or partial catalogue must never be read as "everything was removed".
-    const msg = err instanceof Error ? err.message.slice(0, 300) : "error";
-    await svc.db.query(`update app.suppliers set health = 'degraded', last_error = $2 where id = $1`, [supplierId, msg]);
+    // The supplier backs off (2, 4, 8 … 60 minutes) instead of failing every minute.
+    const msg = errText(err);
+    await svc.db.query(
+      `update app.suppliers set sync_health = 'degraded', sync_error = $2, sync_failures = sync_failures + 1,
+              sync_retry_at = now() + make_interval(mins => least(60, power(2, least(sync_failures + 1, 6))::int))
+        where id = $1`,
+      [supplierId, msg],
+    );
     report.complete = false;
     report.error = msg;
     await saveReport(svc, supplierId, report);
@@ -279,8 +360,11 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
   }
   // A partial pass keeps the supplier due, so the next run checks the next groups.
   await svc.db.query(
-    `update app.suppliers set last_sync_at = case when $2 then now() else last_sync_at end, health = 'ok', last_error = null where id = $1`,
-    [supplierId, report.complete],
+    `update app.suppliers set last_sync_at = case when $2 then now() else last_sync_at end, sync_failures = 0, sync_retry_at = null,
+            sync_health = 'ok', sync_error = $3
+      where id = $1`,
+    // The supplier answers; groups that failed are noted (and backed off one by one).
+    [supplierId, report.complete, report.error ?? null],
   );
   await saveReport(svc, supplierId, report);
   // Back on sale: one Telegram message to each customer who asked to be told.
@@ -298,21 +382,37 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
  * (Admin → Suppliers → Checks), oldest first, at most `max` per call, and only
  * while the run has requests left (`reserve` kept back; the Workers free plan
  * allows 50 outgoing requests and 10 ms of CPU per invocation). The rest are
- * due again on the next tick.
+ * due again on the next tick. A supplier whose check failed waits out its
+ * backoff (sync_retry_at); each one is leased while it is checked, so two
+ * overlapping runs never check the same supplier at once.
  */
 export async function syncDueSuppliers(svc: Services, max = 1, opts: SyncOptions & { reserve?: number } = {}): Promise<SyncReport[]> {
-  const due = await svc.db.query<{ id: string }>(
-    `select id from app.suppliers
-      where enabled and (last_sync_at is null or last_sync_at < now() - make_interval(mins => sync_minutes))
-      order by last_sync_at nulls first limit $1`,
-    [max],
+  const claimed = await svc.db.query<{ id: string; last_sync_at: string | Date | null }>(
+    `update app.suppliers s set sync_lease_until = now() + make_interval(mins => $2)
+      where s.id in (select id from app.suppliers
+                      where enabled and (last_sync_at is null or last_sync_at < now() - make_interval(mins => sync_minutes))
+                        and (sync_retry_at is null or sync_retry_at <= now())
+                        and (sync_lease_until is null or sync_lease_until < now())
+                      order by last_sync_at nulls first limit $1
+                      for update skip locked)
+     returning s.id, s.last_sync_at`,
+    [max, SYNC_LEASE_MINUTES],
   );
+  // UPDATE ... RETURNING has no order: never synced first, then the oldest.
+  const at = (v: string | Date | null) => (v === null ? Number.NEGATIVE_INFINITY : new Date(v).getTime());
+  const due = claimed.sort((a, b) => at(a.last_sync_at) - at(b.last_sync_at));
   const reports: SyncReport[] = [];
   const left = () => (svc.budget ? svc.budget.left() - (opts.reserve ?? 0) : Number.POSITIVE_INFINITY);
-  for (const s of due) {
-    // Each supplier needs a few requests; a big catalogue checks only as many groups as fit.
-    if (reports.length > 0 && left() < 4) break;
-    reports.push(await syncSupplier(svc, s.id, { ...opts, maxGroups: Math.max(1, Math.min(opts.maxGroups ?? Number.POSITIVE_INFINITY, left() - 1)) }));
+  try {
+    for (const s of due) {
+      // Each supplier needs a few requests; a big catalogue checks only as many groups as fit.
+      if (reports.length > 0 && left() < 4) break;
+      reports.push(await syncSupplier(svc, s.id, { ...opts, maxGroups: Math.max(1, Math.min(opts.maxGroups ?? Number.POSITIVE_INFINITY, left() - 1)) }));
+    }
+  } finally {
+    if (due.length) {
+      await svc.db.query(`update app.suppliers set sync_lease_until = null where id = any(string_to_array($1::text, ','))`, [due.map((s) => s.id).join(",")]);
+    }
   }
   return reports;
 }

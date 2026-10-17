@@ -14,6 +14,7 @@ import { watchHealth } from "./health";
 import { queueChannelPosts, sendChannelPosts } from "./channel";
 import { refreshDueCatalogues } from "./supplier-catalogue";
 import { syncDueSuppliers } from "./sync";
+import { housekeepingDue, runHousekeeping } from "./housekeeping";
 
 /**
  * How many more outgoing requests this run may make, keeping `reserve` back
@@ -29,13 +30,15 @@ export const JOB_ALERT_AFTER = 3;
 
 export async function heartbeat(svc: Services, name: string, fn: () => Promise<unknown>): Promise<void> {
   await svc.db.query(
-    `insert into app.job_heartbeats (name, last_started_at) values ($1, now()) on conflict (name) do update set last_started_at = now()`,
+    // unfinished: runs started since the job last finished (a run cut off never gets to reset it; health.ts watches it).
+    `insert into app.job_heartbeats (name, last_started_at, unfinished) values ($1, now(), 1)
+     on conflict (name) do update set last_started_at = now(), unfinished = app.job_heartbeats.unfinished + 1`,
     [name],
   );
   try {
     await fn();
     const ok = await svc.db.query<{ recovered: boolean }>(
-      `update app.job_heartbeats h set last_ok_at = now(), last_error = null, failures = 0, alerted_at = null
+      `update app.job_heartbeats h set last_ok_at = now(), last_error = null, failures = 0, alerted_at = null, unfinished = 0
          from (select alerted_at from app.job_heartbeats where name = $1) p
         where h.name = $1
         returning p.alerted_at is not null as recovered`,
@@ -48,7 +51,7 @@ export async function heartbeat(svc: Services, name: string, fn: () => Promise<u
     try {
       const failed = await svc.db.query<{ failures: number; alert: boolean }>(
         `update app.job_heartbeats
-            set last_error = $2, failures = failures + 1,
+            set last_error = $2, failures = failures + 1, unfinished = 0,
                 alerted_at = case when failures + 1 >= $3 and alerted_at is null then now() else alerted_at end
           where name = $1
           returning failures, (failures >= $3 and alerted_at = now()) as alert`,
@@ -86,15 +89,20 @@ export async function flagStuckOrders(svc: Services): Promise<void> {
 }
 
 export async function recheckPendingPayments(svc: Services, limit = 20): Promise<void> {
+  // Customers waiting right now first (open top-ups, USDT hashes waiting for
+  // confirmations). Closed ones are checked less often the older they get (a
+  // tenth of their age: every few minutes at first, every few hours the next
+  // day), so abandoned top-ups never hold up live ones.
   const rows = await svc.db.query<{ id: string }>(
     `select id from app.payments
       where created_at > now() - interval '2 days'
         and ((status = 'pending' and method in ('sam','nowpayments') and created_at < now() - interval '1 minute')
           -- closed by the store (cancelled, window ran out): a late payment is still credited
-          or (status = 'expired' and method in ('sam','nowpayments') and note = any($2::text[]))
+          or (status = 'expired' and method in ('sam','nowpayments') and note = any($2::text[])
+              and updated_at < now() - least(interval '3 hours', greatest(interval '2 minutes', (now() - created_at) / 10)))
           -- a USDT hash submitted before it had enough confirmations: check the chain again
           or (status = 'review' and method = 'bep20' and tx_hash is not null and note is null))
-      order by updated_at limit $1`,
+      order by (status = 'expired'), updated_at limit $1`,
     [limit, CLOSED_NOTES],
   );
   for (const r of rows) {
@@ -142,21 +150,35 @@ export async function checkSupplierBalances(svc: Services): Promise<void> {
  * One cron tick (every minute). Customer-facing work runs every tick; the rest
  * is spread over the hour so a single run stays small enough for the Workers
  * free plan (10 ms CPU per invocation; waiting on the network does not count).
+ * Order: customers' orders, messages and payments; then the cheap jobs that
+ * only talk to the database; the supplier price checks and catalogue reads
+ * (the most requests and CPU) last, with whatever the run has left.
  */
 export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
-  const minute = svc.now().getUTCMinutes();
-  // Most urgent first: customers' orders (a few requests each), then their
-  // messages, then payments; the supplier sync gets whatever is left.
+  const now = svc.now();
+  const minute = now.getUTCMinutes();
+  // Most urgent first: customers' orders (a few requests each), then their messages, then payments.
   const orders = Math.min(10, Math.floor(room(svc, 8) / 3));
   if (orders > 0) await heartbeat(svc, "orders", () => processDueOrders(svc, env, orders));
   const messages = Math.min(25, room(svc, 6));
-  if (messages > 0) await heartbeat(svc, "outbox", () => sendOutbox(svc, env, messages));
+  if (messages > 0) await heartbeat(svc, "outbox", () => sendOutbox(svc, env, messages, 6));
   if (minute % 2 === 0 && room(svc, 4) > 0) await heartbeat(svc, "payments", () => recheckPendingPayments(svc, 10));
   // USDT top-ups matched by their exact amount, without a pasted hash (only while one is open).
   if (minute % 2 === 1 && room(svc, 4) >= 8) await heartbeat(svc, "usdt_deposits", () => detectUsdtDeposits(svc));
+
+  // Database only: cheap, and never starved by the supplier jobs below.
   if (minute % 10 === 5) await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
   // Errors piling up, a supplier not answering, a customer job stuck: the owner hears once.
   if (minute % 5 === 3) await heartbeat(svc, "health_watch", () => watchHealth(svc));
+  // "How was it?": a review request some hours after delivery (Admin → Settings).
+  if (minute % 15 === 13) await heartbeat(svc, "review_ask", () => queueReviewAsks(svc));
+  if (minute % 30 === 11) await heartbeat(svc, "buy_again", () => queueBuyAgain(svc));
+  if (minute % 30 === 23) await heartbeat(svc, "erase_details", () => eraseOldDetails(svc));
+  // Checked six times an hour, so one missed tick never skips a day; it is sent once.
+  if (minute % 10 === 9) await heartbeat(svc, "daily_summary", () => queueDailySummary(svc));
+  // Old rows deleted once a night (00:00-00:59 UTC, before the 01:30 backup); a missed tick tries again 10 minutes later.
+  if (now.getUTCHours() === 0 && minute % 10 === 6 && (await housekeepingDue(svc))) await heartbeat(svc, "housekeeping", () => runHousekeeping(svc));
+
   // The store's channel: new products and price drops queued, one post sent at a time (a few a day).
   if (minute % 5 === 2 && room(svc, 4) > 0) {
     await heartbeat(svc, "channel_posts", async () => {
@@ -164,8 +186,6 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
       await sendChannelPosts(svc, env);
     });
   }
-  // "How was it?": a review request some hours after delivery (Admin → Settings).
-  if (minute % 15 === 13) await heartbeat(svc, "review_ask", () => queueReviewAsks(svc));
   if (minute % 15 === 7 && room(svc, 2) > 0) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
   // Price and stock checks, every minute for whichever suppliers are due (each has its own interval).
   const groups = room(svc, 2);
@@ -174,10 +194,6 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   if (minute % 5 === 1 && room(svc, 2) >= 10) await heartbeat(svc, "supplier_catalogue", () => refreshDueCatalogues(svc, { maxGroups: 3 }));
   // Pictures linked from other sites, copied into the store's storage (once the key is set).
   if (minute % 10 === 4 && room(svc, 2) >= 10) await heartbeat(svc, "store_images", () => copyLinkedImages(svc, env, 4));
-  if (minute % 30 === 11) await heartbeat(svc, "buy_again", () => queueBuyAgain(svc));
-  if (minute % 30 === 23) await heartbeat(svc, "erase_details", () => eraseOldDetails(svc));
-  // Checked six times an hour, so one missed tick never skips a day; it is sent once.
-  if (minute % 10 === 9) await heartbeat(svc, "daily_summary", () => queueDailySummary(svc));
 }
 
 /**

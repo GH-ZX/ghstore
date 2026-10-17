@@ -42,6 +42,10 @@ export async function alertOnce(svc: Services, key: string, hours: number, text:
 export const ERRORS_TO_ALERT = 5;
 /** Customer jobs that should finish every minute or two. */
 const CUSTOMER_JOBS = ["orders", "outbox"];
+/** Runs started in a row without finishing before the owner hears about it. */
+export const UNFINISHED_TO_ALERT = 3;
+/** Minutes a receipt or alert may wait to be sent before the watchdog fails. */
+export const OUTBOX_LATE_MINUTES = 15;
 
 export async function watchHealth(svc: Services): Promise<void> {
   const errors = await one<{ count: string | number; latest: string | null }>(
@@ -54,11 +58,15 @@ export async function watchHealth(svc: Services): Promise<void> {
     await alertOnce(svc, "server_errors", 1, `⚠️ ${count} server errors in the last 15 minutes. Latest: ${(errors?.latest ?? "").slice(0, 200)}`);
   }
 
-  const suppliers = await svc.db.query<{ id: string; last_error: string | null }>(
-    `select id, last_error from app.suppliers where enabled and health in ('degraded', 'down')`,
+  // The balance check (health) and the price check (sync_health) are tracked
+  // apart, so one succeeding never hides the other failing.
+  const suppliers = await svc.db.query<{ id: string; balance: boolean; last_error: string | null; sync: boolean; sync_error: string | null }>(
+    `select id, health in ('degraded', 'down') as balance, last_error, sync_health in ('degraded', 'down') as sync, sync_error
+       from app.suppliers where enabled and (health in ('degraded', 'down') or sync_health in ('degraded', 'down'))`,
   );
   for (const s of suppliers) {
-    await alertOnce(svc, `supplier:${s.id}`, 6, `⚠️ ${s.id} is not answering: ${(s.last_error ?? "").slice(0, 200)}`);
+    if (s.balance) await alertOnce(svc, `supplier:${s.id}`, 6, `⚠️ ${s.id} is not answering: ${(s.last_error ?? "").slice(0, 200)}`);
+    if (s.sync) await alertOnce(svc, `sync:${s.id}`, 6, `⚠️ ${s.id}'s price check is failing (retrying less often): ${(s.sync_error ?? "").slice(0, 200)}`);
   }
 
   const since = (await readSettings(svc.db, ["bep20.scan_failing_since"]))["bep20.scan_failing_since"];
@@ -73,6 +81,14 @@ export async function watchHealth(svc: Services): Promise<void> {
   );
   for (const j of stale) {
     await alertOnce(svc, `stale:${j.name}`, 2, `⚠️ Job "${j.name}" hasn't finished for ${n(j.minutes)} minutes.`);
+  }
+  // Any job that keeps starting but never gets to the end (nor to an error): the run is cut off (too slow, over a limit).
+  const cut = await svc.db.query<{ name: string; unfinished: string | number }>(
+    `select name, unfinished from app.job_heartbeats where unfinished >= $1`,
+    [UNFINISHED_TO_ALERT],
+  );
+  for (const j of cut) {
+    await alertOnce(svc, `unfinished:${j.name}`, 6, `⚠️ Job "${j.name}" started ${n(j.unfinished)} times without finishing: its run is cut off before the end.`);
   }
 
   // Unusual activity: many top-ups in an hour, or many problem reports in a week, from one customer.
@@ -94,7 +110,10 @@ export async function watchHealth(svc: Services): Promise<void> {
   await svc.db.query(`delete from app.error_log where at < now() - interval '7 days'`);
 }
 
-/** GET /api/health — `?deep=1`: the database answers and the customer jobs ran lately (for a watchdog). */
+/**
+ * GET /api/health — `?deep=1`: the database answers, the customer jobs ran
+ * lately and no receipt or alert has waited more than 15 minutes (for a watchdog).
+ */
 export async function health(ctx: Ctx): Promise<Response> {
   if (ctx.url.searchParams.get("deep") !== "1") return json({ ok: true });
   const problems: string[] = [];
@@ -104,6 +123,12 @@ export async function health(ctx: Ctx): Promise<Response> {
       [CUSTOMER_JOBS],
     );
     if (rows.length < CUSTOMER_JOBS.length) problems.push("jobs");
+    // Messages due but not sent: the job runs, yet the queue is stuck (broadcasts, priority 1+, may take longer).
+    const late = await ctx.svc.db.query(
+      `select 1 from app.outbox where status = 'pending' and priority <= 0 and available_at < now() - make_interval(mins => $1) limit 1`,
+      [OUTBOX_LATE_MINUTES],
+    );
+    if (late.length) problems.push("outbox");
   } catch {
     problems.push("database");
   }

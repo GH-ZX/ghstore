@@ -57,9 +57,28 @@ export interface RequestServices {
   finish(): Promise<void>;
 }
 
+/**
+ * How long one outgoing request may take before it is given up (it then fails
+ * like a network error). Telegram, email and push answer in well under a
+ * second; suppliers and payment providers get longer (their adapters usually
+ * set their own, shorter limit).
+ */
+export const FETCH_TIMEOUT_MS = 10_000;
+export const ADAPTER_TIMEOUT_MS = 30_000;
+/** Database: connecting (through Hyperdrive) and one query, from the Worker's side. */
+export const DB_CONNECT_TIMEOUT_MS = 5_000;
+export const DB_QUERY_TIMEOUT_MS = 20_000;
+
 export function createServices(env: WorkerEnv): RequestServices {
   // Hyperdrive pools the real connections; a small per-request pool is the recommended pattern.
-  const pool = new Pool({ connectionString: env.HYPERDRIVE.connectionString, max: 5 });
+  // A slow or unreachable database fails the request instead of holding it
+  // (the database also stops a statement after 30 s: 0031_reliability.sql).
+  const pool = new Pool({
+    connectionString: env.HYPERDRIVE.connectionString,
+    max: 5,
+    connectionTimeoutMillis: DB_CONNECT_TIMEOUT_MS,
+    query_timeout: DB_QUERY_TIMEOUT_MS,
+  });
   const pending: Promise<unknown>[] = [];
   // Adapters get only string settings (secrets and vars), never bindings.
   const config = Object.fromEntries(Object.entries(env).filter(([, v]) => typeof v === "string")) as Record<string, string>;
@@ -67,11 +86,13 @@ export function createServices(env: WorkerEnv): RequestServices {
   // (50 on the free plan). Jobs ask svc.budget before starting more work.
   const limit = Number(env.SUBREQUEST_LIMIT) > 0 ? Number(env.SUBREQUEST_LIMIT) : 50;
   let used = 0;
-  const counted: typeof fetch = (input, init) => {
+  // Every request also gets a time limit, unless the caller set its own signal.
+  const countedWithin = (ms: number): typeof fetch => (input, init) => {
     used++;
-    return fetch(input, init);
+    return fetch(input, init?.signal ? init : { ...init, signal: AbortSignal.timeout(ms) });
   };
-  const adapterCtx: AdapterContext = { fetch: counted, config };
+  const counted = countedWithin(FETCH_TIMEOUT_MS);
+  const adapterCtx: AdapterContext = { fetch: countedWithin(ADAPTER_TIMEOUT_MS), config };
   const suppliers = new Map<string, SupplierAdapter | null>();
   const payments = new Map<PaymentMethod, PaymentAdapter | null>();
 

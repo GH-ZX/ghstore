@@ -15,8 +15,9 @@ Sent to every owner by the store bot (or the staff-alerts bot, when set):
 | Stuck orders | Open longer than "max pending hours" |
 | Supplier balance low | Under the supplier's threshold (Admin → Suppliers) |
 | Supplier not answering | Its balance check fails (once every 6 hours while it lasts) |
+| Supplier's price check failing | Its whole price check fails; it is retried less and less often (2 min up to an hour) meanwhile. One failing group of a big catalogue only backs off that group |
 | Job failing | A scheduled job failed 3 times in a row, and again when it recovers |
-| Job not finishing | Orders or messages haven't finished for 15 minutes |
+| Job not finishing | Orders or messages haven't finished for 15 minutes, or any job started 3 times without getting to the end (its run is cut off: too slow or over a limit) |
 | Server errors | 5 or more unexpected errors in 15 minutes (once an hour); details in `app.error_log` (kept a week) |
 | USDT checker down | Its log server refused for an hour (USDT top-ups then need the hash pasted) |
 | Daily summary | Every day at the hour set in Admin → Settings |
@@ -28,7 +29,8 @@ stop. The watchdog below covers that case from outside.
 
 `.github/workflows/watchdog.yml` runs every 15 minutes on GitHub: it opens the
 home page and `/api/health?deep=1`, which answers 503 when the database does
-not answer or the orders and messages jobs haven't run for 10 minutes. A failed
+not answer, the orders and messages jobs haven't run for 10 minutes, or a
+receipt or alert has waited more than 15 minutes to be sent. A failed
 run emails you (github.com → Settings → Notifications → Actions: "Send
 notifications for failed workflows only"). To get a Telegram message too, add
 two repository secrets (Settings → Secrets and variables → Actions):

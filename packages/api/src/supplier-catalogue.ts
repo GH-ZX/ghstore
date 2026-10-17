@@ -179,13 +179,19 @@ export async function noteSupplierPrices(svc: Services, supplierId: string, prod
   );
 }
 
+/** Items one scheduled refresh saves at most (each costs the Worker CPU to read and write). */
+export const REFRESH_MAX_ITEMS = 2000;
+
 /**
  * Scheduled: keep every enabled supplier's saved copy fresh, a few groups per
- * run and only while the run has requests to spare (a G2Bulk game takes ~4).
+ * run and only while the run has requests to spare (a G2Bulk game takes ~4),
+ * stopping once `maxItems` items were saved (the Workers free plan allows
+ * 10 ms of CPU per run; a big list is the costly part, not the requests).
  */
-export async function refreshDueCatalogues(svc: Services, opts: { maxGroups?: number; reserve?: number } = {}): Promise<number> {
+export async function refreshDueCatalogues(svc: Services, opts: { maxGroups?: number; reserve?: number; maxItems?: number } = {}): Promise<number> {
   let left = opts.maxGroups ?? 3;
   const reserve = opts.reserve ?? 8;
+  let items = opts.maxItems ?? REFRESH_MAX_ITEMS;
   await nameUnnamedItems(svc);
   const suppliers = await svc.db.query<{ id: string; groups_due: boolean }>(
     `select id, (groups_at is null or groups_at < now() - interval '24 hours') as groups_due from app.suppliers where enabled order by id`,
@@ -197,7 +203,7 @@ export async function refreshDueCatalogues(svc: Services, opts: { maxGroups?: nu
   for (const s of suppliers) {
     const adapter = svc.supplier(s.id);
     if (!adapter) continue;
-    if (left <= 0 || room(svc) < reserve) break;
+    if (left <= 0 || items <= 0 || room(svc) < reserve) break;
     try {
       if (adapter.listGroups && s.groups_due) {
         await refreshGroups(svc, s.id);
@@ -214,10 +220,10 @@ export async function refreshDueCatalogues(svc: Services, opts: { maxGroups?: nu
         [s.id, left, ITEMS_MAX_AGE_H],
       );
       for (const g of due) {
-        if (left <= 0 || room(svc) < reserve) break;
+        if (left <= 0 || items <= 0 || room(svc) < reserve) break;
         left--;
         try {
-          await refreshItems(svc, s.id, g.id);
+          items -= await refreshItems(svc, s.id, g.id);
           done++;
         } catch (err) {
           console.error(`catalogue ${s.id}/${g.id}:`, errText(err));
