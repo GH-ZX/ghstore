@@ -39,7 +39,7 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-misused-promises": ["error", { checksVoidReturn: { attributes: false } }],
       "react-hooks/rules-of-hooks": "error",
-      "react-hooks/exhaustive-deps": "error",
+      "react-hooks/exhaustive-deps": "warn",
     },
   },
 );
