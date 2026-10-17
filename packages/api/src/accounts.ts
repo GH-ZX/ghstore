@@ -8,11 +8,10 @@
  */
 import type { AccountInfo, PaymentMethod } from "@store/core";
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
-import { ApiError, json } from "./http";
+import { requireStaff } from "./guard";
+import { ApiError, checkSupplierId, json } from "./http";
 import { effectiveEnv } from "./keys";
-import { checkSupplierId } from "./supplier-catalogue";
 
 /** Payment providers with an account to show (Stars has none to read). */
 const PAYMENTS: { id: PaymentMethod; name: string; key: string }[] = [

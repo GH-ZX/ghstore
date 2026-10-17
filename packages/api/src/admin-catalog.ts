@@ -7,15 +7,14 @@
  */
 import { encryptText, minimumPrice, parseAfterFields, priceFromCost, withUnit, type InputField, type MarkupMode } from "@store/core";
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { call, must, n, one } from "./db";
-import { ApiError, int, json, optStr, readJson, str, uuid } from "./http";
+import { requireStaff } from "./guard";
+import { ApiError, int, json, optStr, readJson, str, SUPPLIER_ID, uuid } from "./http";
 import { notifyBackInStock } from "./favorites";
 import { renameSavedItems } from "./names";
 
 const SLUG = /^[a-z0-9-]{1,80}$/;
-const SUPPLIER_ID = /^[a-z0-9_]{2,32}$/;
 const KINDS = ["id", "code", "account", "link", "sms"] as const;
 const MODES: MarkupMode[] = ["percent", "fixed", "manual"];
 /** The badges a product's card can carry (none by default). */

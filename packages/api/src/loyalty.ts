@@ -5,9 +5,9 @@
  * their wallet. The paying is done by the database (app.pay_cashback, migration
  * 0029), never more than the order's margin; this file shows the level.
  */
-import { requireUser } from "./auth";
 import type { Ctx } from "./context";
 import { n, one, type Db } from "./db";
+import { requireUser } from "./guard";
 import { json } from "./http";
 import { readSettings } from "./settings";
 

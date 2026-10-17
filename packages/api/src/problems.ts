@@ -7,9 +7,9 @@
  */
 import { store } from "@store/config";
 import { audit } from "./audit";
-import { requireStaff, requireUser } from "./auth";
 import type { Ctx } from "./context";
 import { n, one, type Db } from "./db";
+import { requireStaff, requireUser } from "./guard";
 import { ApiError, json, readJson, uuid } from "./http";
 import { alertStaff } from "./notify";
 import { LIMITS, throttle } from "./ratelimit";

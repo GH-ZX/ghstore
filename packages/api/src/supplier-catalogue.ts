@@ -15,14 +15,13 @@
  * (names.ts), and items with the same clean product name are packages of one product.
  */
 import type { CleanName, SupplierAdapter, SupplierProduct } from "@store/core";
-import { requireStaff } from "./auth";
+import { room } from "./budget";
 import type { Ctx, Services } from "./context";
 import { n } from "./db";
-import { ApiError, json, readJson } from "./http";
-import { room } from "./jobs";
+import { requireStaff } from "./guard";
+import { ApiError, checkSupplierId, json, readJson } from "./http";
 import { cleanColumns, namerFor, nameUnnamedItems } from "./names";
 
-const SUPPLIER_ID = /^[a-z0-9_]{2,32}$/;
 const GROUP_ID = /^[\p{L}\p{N}:_.\- ]{0,120}$/u;
 const KINDS = new Set(["id", "code", "account", "link", "sms"]);
 /** One refresh stores at most this many items (5SIM lists every country × service). */
@@ -31,11 +30,6 @@ export const MAX_ITEMS = 5000;
 const ITEMS_MAX_AGE_H = 24;
 /** "New" items: first seen after the group's first read, within this many days. */
 const NEW_DAYS = 14;
-
-export function checkSupplierId(id: string | undefined): string {
-  if (!id || !SUPPLIER_ID.test(id)) throw new ApiError("not_found");
-  return id;
-}
 
 function errText(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).slice(0, 300);

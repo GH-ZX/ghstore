@@ -6,9 +6,9 @@
  * product's structured data for search engines.
  */
 import { audit } from "./audit";
-import { optionalUser, requireStaff, requireUser } from "./auth";
 import type { Ctx } from "./context";
 import { n, one, type Db } from "./db";
+import { optionalUser, requireStaff, requireUser } from "./guard";
 import { ApiError, json, readJson, uuid } from "./http";
 import { LIMITS, throttle } from "./ratelimit";
 

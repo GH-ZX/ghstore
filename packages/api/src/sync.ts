@@ -18,6 +18,7 @@
  * out and restock all day).
  */
 import { onCostChange, type PriceRule, type SupplierProduct } from "@store/core";
+import { room } from "./budget";
 import type { Services } from "./context";
 import { n, one } from "./db";
 import { notifyBackInStock } from "./favorites";
@@ -413,7 +414,7 @@ export async function syncDueSuppliers(svc: Services, max = 1, opts: SyncOptions
   const at = (v: string | Date | null) => (v === null ? Number.NEGATIVE_INFINITY : new Date(v).getTime());
   const due = claimed.sort((a, b) => at(a.last_sync_at) - at(b.last_sync_at));
   const reports: SyncReport[] = [];
-  const left = () => (svc.budget ? svc.budget.left() - (opts.reserve ?? 0) : Number.POSITIVE_INFINITY);
+  const left = () => room(svc, opts.reserve ?? 0);
   try {
     for (const s of due) {
       // Each supplier needs a few requests; a big catalogue checks only as many groups as fit.

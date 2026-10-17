@@ -29,12 +29,11 @@
 import { priceFromCost, withUnit, type InputField } from "@store/core";
 import { parseInputFields } from "./admin-catalog";
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import type { Db } from "./db";
 import { n } from "./db";
-import { ApiError, int, json, readJson } from "./http";
-import { checkSupplierId } from "./supplier-catalogue";
+import { requireStaff } from "./guard";
+import { ApiError, checkSupplierId, int, json, readJson } from "./http";
 
 /** At most this many changes in one apply. */
 export const MAX_CHANGES = 500;

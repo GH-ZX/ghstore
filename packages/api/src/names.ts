@@ -15,10 +15,9 @@
  */
 import { cleanSupplierName, DEFAULT_NAME_WORDS, parseNameWords, type CleanName, type NameWord } from "@store/core";
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { Ctx, Services } from "./context";
-import { ApiError, json, readJson } from "./http";
-import { checkSupplierId } from "./supplier-catalogue";
+import { requireStaff } from "./guard";
+import { ApiError, checkSupplierId, json, readJson } from "./http";
 
 const SETTING = "catalog.name_words";
 /** Items shown in the preview, at most. */

@@ -22,10 +22,10 @@
  */
 import { AFTER_SECRET, decryptText, encryptText, type AfterField, type InputField } from "@store/core";
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder, validateInput } from "./fulfilment";
+import { requireStaff } from "./guard";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 
 const KINDS = new Set(["account", "code", "link", "id"]);

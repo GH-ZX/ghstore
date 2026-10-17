@@ -6,10 +6,10 @@
 import { store } from "@store/config";
 import { formatUsd } from "@store/core";
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { Services } from "./context";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
+import { requireStaff } from "./guard";
 import { ApiError } from "./http";
 
 export const TIME_ZONE: string = store.timeZone;

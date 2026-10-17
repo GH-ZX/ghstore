@@ -15,9 +15,9 @@
  */
 import { decryptText, encryptText } from "@store/core";
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { ApiEnv, Ctx } from "./context";
 import type { Db } from "./db";
+import { requireStaff } from "./guard";
 import { ApiError, json, readJson } from "./http";
 
 export interface KeySpec {

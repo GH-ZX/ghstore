@@ -4,6 +4,7 @@
  */
 import { store } from "@store/config";
 import { formatUsd } from "@store/core";
+import { room } from "./budget";
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
 import { EMAIL_INSTEAD, emailReady, emailSettings, RECEIPT_TEMPLATES, renderReceipt, sendEmail } from "./email";
@@ -173,7 +174,7 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25, reserve
   }
   // The store's push key and contact, read once per batch.
   let pushFrom: { vapid: Vapid; subject: string } | null = null;
-  const left = () => (svc.budget ? svc.budget.left() - reserve : Number.POSITIVE_INFINITY);
+  const left = () => room(svc, reserve);
 
   for (const [i, r] of rows.entries()) {
     const locale = r.locale ?? "ar";

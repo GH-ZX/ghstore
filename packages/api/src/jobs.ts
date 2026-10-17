@@ -3,6 +3,7 @@
  * leases its rows with SKIP LOCKED and records a heartbeat, so overlapping runs
  * are harmless and the admin can see when a job last succeeded.
  */
+import { room } from "./budget";
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
 import { fulfilOrder } from "./fulfilment";
@@ -15,15 +16,6 @@ import { queueChannelPosts, sendChannelPosts } from "./channel";
 import { refreshDueCatalogues } from "./supplier-catalogue";
 import { syncDueSuppliers } from "./sync";
 import { housekeepingDue, runHousekeeping } from "./housekeeping";
-
-/**
- * How many more outgoing requests this run may make, keeping `reserve` back
- * (Infinity without a budget). One scheduled run shares Cloudflare's limit
- * (50 on the free plan) between all the jobs below.
- */
-export function room(svc: Services, reserve = 0): number {
-  return svc.budget ? Math.max(0, svc.budget.left() - reserve) : Number.POSITIVE_INFINITY;
-}
 
 /** Failed runs in a row before the owner hears about it on Telegram. */
 export const JOB_ALERT_AFTER = 3;

@@ -6,9 +6,9 @@
  */
 import { store } from "@store/config";
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import type { Db } from "./db";
+import { requireStaff } from "./guard";
 import { ApiError, json, readJson, str } from "./http";
 import { DEFAULT_PAGES, DEFAULTS_UPDATED } from "./legal-defaults";
 import { supportContacts } from "./settings";

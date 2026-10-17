@@ -4,9 +4,9 @@
  * customer's order is delivered, and coupons are applied inside place_order.
  */
 import { audit } from "./audit";
-import { requireStaff, requireUser } from "./auth";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
+import { requireStaff, requireUser } from "./guard";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { LIMITS, throttle } from "./ratelimit";
 

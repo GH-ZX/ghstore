@@ -4,8 +4,9 @@
  * can change settings, balances and roles.
  */
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
+import { room } from "./budget";
 import { EMAIL_FROM, sendTestEmail } from "./email";
+import { requireStaff } from "./guard";
 import { TIME_ZONE } from "./reports";
 import { CHANNEL_URL, EMAIL, PICTURE_MODES, SHOWCASE_AUTOPLAY, SHOWCASE_STYLES, TELEGRAM_USERNAME, WHATSAPP_NUMBER } from "./settings";
 import type { Ctx } from "./context";
@@ -16,7 +17,6 @@ import { settlePayment } from "./payments";
 import { openProblems } from "./problems";
 import { validTiers } from "./loyalty";
 import { CHANNEL_CHAT } from "./channel";
-import { room } from "./jobs";
 import { syncSupplier } from "./sync";
 
 export async function overview(ctx: Ctx): Promise<Response> {

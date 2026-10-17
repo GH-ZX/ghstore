@@ -17,8 +17,9 @@
  * Files are named by their content's hash: the same picture is stored once.
  */
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
+import { room } from "./budget";
 import type { ApiEnv, Ctx, Services } from "./context";
+import { requireStaff } from "./guard";
 import { ApiError, json, readJson } from "./http";
 import { effectiveEnv } from "./keys";
 
@@ -177,7 +178,7 @@ export async function copyLinkedImages(svc: Services, env: ApiEnv, max = 4): Pro
   );
   let copied = 0;
   for (const { url } of links) {
-    if (svc.budget && svc.budget.left() < 4) break;
+    if (room(svc) < 4) break;
     try {
       const picture = await fetchImage(svc, url);
       const stored = await storeImage(svc, full, picture.bytes, picture.type);

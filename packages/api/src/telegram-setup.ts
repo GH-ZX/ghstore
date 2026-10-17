@@ -10,9 +10,9 @@
  */
 import { store } from "@store/config";
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import { BOT_COMMANDS, OPEN_STORE } from "./bot";
 import type { Ctx } from "./context";
+import { requireStaff } from "./guard";
 import { ApiError, json } from "./http";
 import { effectiveEnv } from "./keys";
 import { saveBotUsername } from "./settings";

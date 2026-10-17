@@ -8,9 +8,9 @@
  */
 import { store } from "@store/config";
 import { formatUsd } from "@store/core";
-import { requireStaff } from "./auth";
 import type { ApiEnv, Ctx, Services } from "./context";
 import { n, one, type Db } from "./db";
+import { requireStaff } from "./guard";
 import { ApiError, json } from "./http";
 import { botUsername, channelUrl, readSettings } from "./settings";
 

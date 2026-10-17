@@ -10,9 +10,9 @@
  * makes the second request return the first broadcast.
  */
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
+import { requireStaff } from "./guard";
 import { ApiError, json, readJson, uuid, UUID_RE } from "./http";
 
 export const BROADCAST_MAX = 1000;

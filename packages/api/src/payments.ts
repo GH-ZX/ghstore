@@ -7,9 +7,9 @@
  */
 import { AdapterError, type PaymentEvent, type PaymentMethod } from "@store/core";
 import { BEP20_SEND_WINDOW_MS, starsForCents } from "@store/payments";
-import { requireUser } from "./auth";
 import type { ApiEnv, Ctx, Services } from "./context";
 import { call, isUniqueViolation, n, one } from "./db";
+import { requireUser } from "./guard";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { effectiveEnv } from "./keys";
 import { starsPerUsd, topupLimits, topupSafety } from "./settings";

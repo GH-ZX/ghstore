@@ -6,9 +6,9 @@
  * for a person to deliver a product sold by hand, 'release' for a person to
  * check what the supplier delivered (hidden from the customer until then).
  */
+import { requireUser } from "./guard";
 import { orderProblem } from "./problems";
 import { AFTER_SECRET, checkAnswers, decryptText, encryptText, type AfterField, type InputField } from "@store/core";
-import { requireUser } from "./auth";
 import { LIMITS, throttle } from "./ratelimit";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";

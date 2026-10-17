@@ -3,10 +3,10 @@
  * the order, icon and visibility of the category sections below it.
  */
 import { audit } from "./audit";
-import { requireStaff } from "./auth";
 import type { Ctx } from "./context";
 import type { Db } from "./db";
 import { must, n, one } from "./db";
+import { requireStaff } from "./guard";
 import { ApiError, int, json, readJson, uuid } from "./http";
 
 const LINK_TYPES = ["none", "product", "category", "url"] as const;

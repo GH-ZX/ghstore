@@ -13,9 +13,9 @@
  * waiting gets one Telegram message (`back_in_stock`) and the request is done.
  */
 import { queueBackInStockPosts } from "./channel";
-import { requireUser } from "./auth";
 import type { Ctx, Services } from "./context";
 import { n } from "./db";
+import { requireUser } from "./guard";
 import { ApiError, json, uuid } from "./http";
 
 const MAX_FAVORITES = 200;
