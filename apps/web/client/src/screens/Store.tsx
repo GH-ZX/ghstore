@@ -3,7 +3,8 @@
  * category ("See all" opens the category's own page at /c/:slug). Search lives in
  * the header (ui/Search.tsx).
  */
-import { useMemo, useRef, type ReactNode, lazy, Suspense } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
+import { hashText } from "../lib/format";
 import { pick } from "../lib/i18n";
 import { back, linkHandler, match, navigate, usePath } from "../lib/router";
 import { useT } from "../lib/state";
@@ -14,8 +15,6 @@ import { BoltIcon, CategoryIcon, ChevronIcon } from "../ui/icons";
 import { Empty, ErrorBox, Money, PageLoading, Tile } from "../ui/kit";
 import { Shell } from "../ui/Shell";
 import { Showcase, type ShowcaseOptions, type ShowcaseStyle, type SlideData, type SlidePackage } from "../ui/Showcase";
-// The product sheet loads on first open (and in the background after the store shows).
-const ProductSheet = lazy(() => import("./ProductSheet").then((m) => ({ default: m.ProductSheet })));
 import { SiteFooter } from "../ui/Footer";
 
 interface Catalog {
@@ -29,7 +28,6 @@ interface Catalog {
 export function Store() {
   const { t, lang } = useT();
   const path = usePath();
-  const open = match("/p/:slug", path);
   const catPage = match("/c/:slug", path);
   const { data, error, loading, reload } = useApi<Catalog>("/api/catalog");
 
@@ -51,20 +49,8 @@ export function Store() {
         {data && !catPage && <Home data={data} categories={categories} />}
         {data && <SiteFooter />}
       </div>
-      {open && (
-        <Suspense fallback={null}>
-          <ProductSheet slug={open.slug!} onClose={() => back("/")} />
-        </Suspense>
-      )}
     </Shell>
   );
-}
-
-/** A small stable number for a text (FNV-1a), to shuffle the same way all day. */
-function hash(text: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
-  return h >>> 0;
 }
 
 /**
@@ -78,7 +64,8 @@ function todaysPicks(products: ProductCard[], max = 12): ProductCard[] {
   const rank = (p: ProductCard) => (p.badge === "best" ? 0 : p.badge === "hot" ? 1 : p.badge === "new" ? 2 : 3);
   const rest = products
     .filter((p) => !p.featured)
-    .map((p) => ({ p, r: rank(p), h: hash(`${day}:${p.id}`) }))
+    // Shuffled the same way all day.
+    .map((p) => ({ p, r: rank(p), h: hashText(`${day}:${p.id}`) }))
     .sort((a, b) => a.r - b.r || a.h - b.h)
     .map((x) => x.p);
   return [...featured, ...rest].slice(0, Math.max(max, featured.length));
@@ -133,8 +120,15 @@ function openLink(link: Banner["link"]): (() => void) | null {
   if (!link) return null;
   if (link.type === "product") return () => navigate(`/p/${link.value}`);
   if (link.type === "category") return () => navigate(`/c/${link.value}`);
-  if (link.value.startsWith("/")) return () => navigate(link.value);
-  return () => openExternal(link.value);
+  const to = link.value.trim();
+  // A page of this store ("/wallet"), never "//other.site" or "/\other.site".
+  if (to.startsWith("/")) return to.startsWith("//") || to.includes("\\") ? null : () => navigate(to);
+  // Anything else opens outside the store, and only over https.
+  try {
+    return new URL(to).protocol === "https:" ? () => openExternal(to) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

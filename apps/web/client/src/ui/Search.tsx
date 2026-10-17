@@ -7,7 +7,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { matchesQuery } from "@store/core";
 import { pick } from "../lib/i18n";
-import { navigate } from "../lib/router";
+import { isOverlay, navigate } from "../lib/router";
 import { useApp, useT } from "../lib/state";
 import { pushBack } from "../lib/telegram";
 import { useApi } from "../lib/useApi";
@@ -66,7 +66,8 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
     document.body.style.overflow = "hidden";
     // Focus after the opening animation starts (keeps the keyboard from jumping the page on phones).
     const timer = window.setTimeout(() => input.current?.focus(), 60);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close.current();
+    // A sheet open over the search answers Escape first (and marks it handled).
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !e.defaultPrevented && close.current();
     window.addEventListener("keydown", onKey);
     const unBack = miniApp ? pushBack(() => close.current()) : () => {};
     return () => {
@@ -102,7 +103,8 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
 
   function go(to: string) {
     if (query) remember(query);
-    onClose();
+    // A product opens over the search (closing it brings the results back); a category is a new screen.
+    if (!isOverlay(new URL(to, location.origin).pathname)) onClose();
     navigate(to);
   }
 

@@ -7,10 +7,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { matchesQuery } from "@store/core";
 import { api, ApiFail, idempotencyKey } from "../lib/api";
-import { copyText, toLatinDigits, usd } from "../lib/format";
-import { errorText, pick } from "../lib/i18n";
+import { toLatinDigits, usd } from "../lib/format";
+import { useCopy } from "../lib/hooks";
+import { pick } from "../lib/i18n";
 import { navigate } from "../lib/router";
-import { refreshMe, toast, useApp, useT } from "../lib/state";
+import { failText, refreshMe, toast, toastFail, useApp, useT } from "../lib/state";
 import { haptic, openTelegramLink } from "../lib/telegram";
 import { invalidate, useApi } from "../lib/useApi";
 import type { CouponQuote, Favorites, InputField, Offer, ProductDetail } from "../lib/types";
@@ -84,6 +85,8 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const after = data?.product.afterFields ?? [];
   const invalid = offer ? offer.fields.some((f) => fieldError(f, valueOf(f.key))) || (after.length > 0 && !ready) : true;
 
+  const copyText = useCopy();
+
   /** Share the product's page (it shows a preview with its name, picture and price). */
   async function share() {
     const link = `${location.origin}/p/${slug}`;
@@ -100,7 +103,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
         /* closed: copy instead */
       }
     }
-    if (await copyText(link)) toast(t("linkCopied"));
+    await copyText(link, "linkCopied");
   }
 
   /** Sign in first (the heart and "Notify me" belong to an account). */
@@ -119,7 +122,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
       invalidate("/api/favorites");
       await favs.reload();
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setSavingFav(false);
     }
@@ -141,23 +144,28 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
     key.current = idempotencyKey();
   }
 
+  // Each quote gets a number; an answer to an older one (the package or quantity changed since) is ignored.
+  const quoteNo = useRef(0);
   async function applyCoupon(code: string): Promise<void> {
     if (!offer || !code.trim()) return;
+    const mine = ++quoteNo.current;
     setCouponBusy(true);
     setCouponErr(null);
     try {
       const q = await api<CouponQuote>("/api/coupons/quote", { body: { offerId: offer.id, quantity: qty, code: code.trim() } });
+      if (mine !== quoteNo.current) return;
       setCoupon(q);
       setCouponOpen(false);
       haptic("success");
     } catch (e) {
+      if (mine !== quoteNo.current) return;
       setCoupon(null);
       setCouponOpen(true);
       setCouponText(code);
-      setCouponErr(errorText(lang, e instanceof ApiFail ? e.code : "internal"));
+      setCouponErr(failText(e));
       haptic("error");
     } finally {
-      setCouponBusy(false);
+      if (mine === quoteNo.current) setCouponBusy(false);
     }
   }
 
@@ -198,12 +206,12 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
       haptic("error");
       const f = e instanceof ApiFail ? e : new ApiFail("internal", 0);
       setFailure(f);
-      toast(errorText(lang, f.code), true);
+      toast(failText(f), true);
       if (f.code === "offer_unavailable") void reload();
       if (f.code.startsWith("coupon_")) {
         setCoupon(null);
         setCouponOpen(true);
-        setCouponErr(errorText(lang, f.code));
+        setCouponErr(failText(f));
       }
     } finally {
       setBusy(false);
@@ -336,6 +344,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                 <button
                   type="button"
                   className="badge badge--rating press"
+                  aria-label={t("ratingLabel", { avg: data.product.rating.average.toFixed(1), count: data.product.rating.count })}
                   onClick={() => document.getElementById("reviews")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 >
                   <Stars value={data.product.rating.average} size={12} /> <span className="num">{data.product.rating.average.toFixed(1)}</span>
@@ -374,14 +383,14 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                 {t("quantity")}
               </span>
               <div className="seg" role="group" aria-label={t("quantity")}>
-                <button type="button" className="press" onClick={() => setQty((q) => Math.max(1, q - 1))} aria-label="−">
-                  −
+                <button type="button" className="press" disabled={qty <= 1} onClick={() => setQty((q) => Math.max(1, q - 1))} aria-label={t("qtyLess")}>
+                  <span aria-hidden="true">−</span>
                 </button>
-                <button type="button" aria-pressed="true" className="num" style={{ minWidth: 44 }}>
+                <output className="seg__value num" aria-live="polite" aria-label={t("quantity")}>
                   {qty}
-                </button>
-                <button type="button" className="press" onClick={() => setQty((q) => Math.min(offer.maxQuantity, q + 1))} aria-label="+">
-                  +
+                </output>
+                <button type="button" className="press" disabled={qty >= offer.maxQuantity} onClick={() => setQty((q) => Math.min(offer.maxQuantity, q + 1))} aria-label={t("qtyMore")}>
+                  <span aria-hidden="true">+</span>
                 </button>
               </div>
             </div>
@@ -403,7 +412,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                   {f.options.length <= 8 ? (
                     <div className="wrap" role="radiogroup" aria-label={label} style={{ gap: 8 }}>
                       {f.options.map((o) => (
-                        <button key={o.value} type="button" role="radio" aria-checked={value === o.value} aria-pressed={value === o.value} className="chip chip--sm press" onClick={() => set(o.value)}>
+                        <button key={o.value} type="button" role="radio" aria-checked={value === o.value} className="chip chip--sm press" onClick={() => set(o.value)}>
                           {pick(lang, o.labelAr, o.labelEn) || o.value}
                         </button>
                       ))}
@@ -470,7 +479,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                     <CheckIcon />
                     {t("couponApplied", { code: coupon.code })}
                   </span>
-                  <button type="button" className="btn btn--xs btn--ghost press" onClick={() => { setCoupon(null); setCouponText(""); }}>
+                  <button type="button" className="btn btn--xs btn--ghost press" onClick={() => { quoteNo.current++; setCouponBusy(false); setCoupon(null); setCouponText(""); }}>
                     {t("removeCoupon")}
                   </button>
                 </div>

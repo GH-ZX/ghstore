@@ -9,7 +9,7 @@ import { captureReferralFromUrl, stashReferral } from "./lib/referral";
 import { navigate } from "./lib/router";
 import { prefetch } from "./lib/useApi";
 import { applyLang, applyTheme, getState, refreshMe, setState } from "./lib/state";
-import { loadTelegram } from "./lib/telegram";
+import { isTelegramLaunch, loadTelegram, type TgWebApp } from "./lib/telegram";
 import type { PublicConfig } from "./lib/types";
 import { App } from "./App";
 import { startAnalytics } from "./lib/analytics";
@@ -48,35 +48,52 @@ function syncOnReturn() {
   void refreshMe();
 }
 
+/** Inside Telegram: its language, theme events and the deep link it opened with. */
+function setUpTelegram(w: TgWebApp) {
+  let lang = getState().lang;
+  try {
+    if (!localStorage.getItem("gh.lang")) lang = w.initDataUnsafe.user?.language_code?.startsWith("ar") ? "ar" : w.initDataUnsafe.user?.language_code ? "en" : lang;
+  } catch {
+    /* ignore */
+  }
+  applyLang(lang);
+  setState({ miniApp: true, lang });
+  w.onEvent("themeChanged", applyTheme);
+  w.onEvent("activated", syncOnReturn);
+  // Deep links: startapp=p_<slug> opens a product, r_<code> is a friend's invite,
+  // and the bot's buttons open the wallet, orders or the invite card.
+  const sp = w.initDataUnsafe.start_param ?? new URLSearchParams(location.search).get("startapp") ?? undefined;
+  if (sp?.startsWith("p_")) navigate(`/p/${sp.slice(2).replace(/[^a-z0-9-]/g, "")}`, { replace: true });
+  else if (sp?.startsWith("v_")) navigate(`/p/${sp.slice(2).replace(/[^a-z0-9-]/g, "")}?review=1`, { replace: true });
+  else if (sp?.startsWith("o_")) navigate(`/orders/${sp.slice(2).replace(/[^0-9a-f-]/g, "")}`, { replace: true });
+  else if (sp?.startsWith("r_")) stashReferral(sp.slice(2));
+  else if (sp === "wallet" || sp === "orders") navigate(`/${sp}`, { replace: true });
+  else if (sp === "invite") navigate("/profile", { replace: true });
+  else if (sp === "admin") navigate("/admin", { replace: true });
+  applyTheme();
+}
+
+/** How long the page waits for telegram.org's script before showing the store anyway. */
+const TELEGRAM_WAIT_MS = 3500;
+const LATE = Symbol("late");
+
 async function start() {
   applyLang(getState().lang);
   const root = createRoot(document.getElementById("root")!);
 
   const configP = api<PublicConfig>("/api/config").catch(() => null);
-  const w = await loadTelegram();
-  if (w) {
-    let lang = getState().lang;
-    try {
-      if (!localStorage.getItem("gh.lang")) lang = w.initDataUnsafe.user?.language_code?.startsWith("ar") ? "ar" : w.initDataUnsafe.user?.language_code ? "en" : lang;
-    } catch {
-      /* ignore */
+  // Opened from Telegram: treat it as the Mini App while its script loads (no "Sign in" button,
+  // no trip to the sign-in page), and never wait forever for a slow telegram.org.
+  const launch = isTelegramLaunch();
+  if (launch) setState({ miniApp: true });
+  const tgP = loadTelegram();
+  const first = await Promise.race([tgP, new Promise<typeof LATE>((r) => setTimeout(() => r(LATE), TELEGRAM_WAIT_MS))]);
+  if (first !== LATE) {
+    if (first) setUpTelegram(first);
+    else {
+      if (launch) setState({ miniApp: false });
+      captureReferralFromUrl();
     }
-    applyLang(lang);
-    setState({ miniApp: true, lang });
-    w.onEvent("themeChanged", applyTheme);
-    w.onEvent("activated", syncOnReturn);
-    // Deep links: startapp=p_<slug> opens a product, r_<code> is a friend's invite,
-    // and the bot's buttons open the wallet, orders or the invite card.
-    const sp = w.initDataUnsafe.start_param ?? new URLSearchParams(location.search).get("startapp") ?? undefined;
-    if (sp?.startsWith("p_")) navigate(`/p/${sp.slice(2).replace(/[^a-z0-9-]/g, "")}`, { replace: true });
-    else if (sp?.startsWith("v_")) navigate(`/p/${sp.slice(2).replace(/[^a-z0-9-]/g, "")}?review=1`, { replace: true });
-    else if (sp?.startsWith("o_")) navigate(`/orders/${sp.slice(2).replace(/[^0-9a-f-]/g, "")}`, { replace: true });
-    else if (sp?.startsWith("r_")) stashReferral(sp.slice(2));
-    else if (sp === "wallet" || sp === "orders") navigate(`/${sp}`, { replace: true });
-    else if (sp === "invite") navigate("/profile", { replace: true });
-    else if (sp === "admin") navigate("/admin", { replace: true });
-  } else {
-    captureReferralFromUrl();
   }
   applyTheme();
   root.render(<App />);
@@ -94,6 +111,17 @@ async function start() {
     setState({ config });
     applyTheme();
     startAnalytics(config.analytics?.cfBeacon);
+  }
+
+  // telegram.org was slow: the store is already showing; finish Telegram's part when its script arrives.
+  let w = first === LATE ? null : first;
+  if (first === LATE) {
+    w = await tgP;
+    if (w) setUpTelegram(w);
+    else {
+      setState({ miniApp: false });
+      captureReferralFromUrl();
+    }
   }
 
   if (w) {

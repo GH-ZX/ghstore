@@ -13,6 +13,7 @@ import { errorText, pick } from "../lib/i18n";
 import { linkHandler, navigate } from "../lib/router";
 import { toast, useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
+import { askConfirm } from "../ui/Confirm";
 import { CheckIcon, SearchIcon, ShieldIcon } from "../ui/icons";
 import { Empty, ErrorBox, Sheet, Spinner } from "../ui/kit";
 import { ago } from "./common";
@@ -214,9 +215,9 @@ export function Choose({ supplierId }: { supplierId: string }) {
     }
   }
 
-  function switchSupplier(id: string) {
+  async function switchSupplier(id: string) {
     if (id === supplierId) return;
-    if (pending && !window.confirm(t("chDiscard"))) return;
+    if (pending && !(await askConfirm(t("chDiscard")))) return;
     navigate(`/admin/suppliers/choose/${id}`, { replace: true });
   }
 
@@ -258,9 +259,9 @@ export function Choose({ supplierId }: { supplierId: string }) {
         </div>
       </div>
 
-      <div className="chip-row" role="tablist" aria-label={t("suppliers")}>
+      <div className="chip-row" role="group" aria-label={t("suppliers")}>
         {f.suppliers.map((x) => (
-          <button key={x.id} type="button" role="tab" className="chip chip--sm press" aria-pressed={x.id === supplierId} aria-selected={x.id === supplierId} onClick={() => switchSupplier(x.id)}>
+          <button key={x.id} type="button" className="chip chip--sm press" aria-pressed={x.id === supplierId} onClick={() => void switchSupplier(x.id)}>
             {x.name}
             {!x.enabled && <span style={{ opacity: 0.7 }}> · {t("supOff")}</span>}
           </button>

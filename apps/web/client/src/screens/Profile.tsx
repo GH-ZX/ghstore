@@ -3,19 +3,21 @@ import { disablePush, enablePush, needsHomeScreen, pushState, type PushState } f
 import { LevelCard } from "./Level";
 import { store } from "@store/config";
 import { useState, useEffect } from "react";
-import { api, ApiFail, setToken } from "../lib/api";
-import { errorText, pick } from "../lib/i18n";
-import { copyText, usd } from "../lib/format";
+import { api, setToken } from "../lib/api";
+import { linkWebLogin, RequireUser, startLink } from "../lib/auth";
+import { pick } from "../lib/i18n";
+import { usd } from "../lib/format";
+import { useCopy } from "../lib/hooks";
 import { linkHandler, navigate } from "../lib/router";
-import { refreshMe, setLang, setMode, signOut, toast, useApp, useT, type Mode } from "../lib/state";
-import { haptic, openExternal, openTelegramLink } from "../lib/telegram";
+import { refreshMe, setLang, setMode, signOut, toast, toastFail, useApp, useT, type Mode } from "../lib/state";
+import { openExternal, openTelegramLink } from "../lib/telegram";
 import type { Favorites, Referral } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { ChevronIcon, ContactMark, GiftIcon, HeartIcon, WalletIcon } from "../ui/icons";
 import { Seg, Sheet, Switch, Tile, Spinner } from "../ui/kit";
 import { SiteFooter } from "../ui/Footer";
 import { AdminLink, Shell } from "../ui/Shell";
-import { EmailCode, linkWebLogin, RequireUser, startLink } from "./Login";
+import { EmailCode } from "./EmailLogin";
 
 export function Profile() {
   const { t } = useT();
@@ -106,7 +108,7 @@ function ProfileView() {
           <span>{t("notifications")}</span>
           <Switch checked={u.notify} onChange={setNotify} label={t("notifications")} />
         </div>
-        {!miniApp && <DevicePushRow />}
+        {!miniApp && config?.push?.enabled === true && <DevicePushRow />}
         <div className="pref-row">
           <span>{t("language")}</span>
           <Seg
@@ -230,12 +232,8 @@ function InviteCard() {
   const webLink = `${location.origin}/?ref=${data.code}`;
   const shareLink = miniApp ? botLink : webLink;
 
-  async function copy(text: string) {
-    if (await copyText(text)) {
-      haptic("success");
-      toast(t("copied"));
-    }
-  }
+  const copyText = useCopy();
+  const copy = (text: string) => copyText(text);
 
   async function share() {
     if (miniApp) {
@@ -303,7 +301,7 @@ function InviteCard() {
  * through the sign-in page; in the Mini App, email is added right here.
  */
 function LoginsCard() {
-  const { t, lang } = useT();
+  const { t } = useT();
   const { me, miniApp, config } = useApp();
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -322,7 +320,7 @@ function LoginsCard() {
       await startLink(kind);
       navigate(`/login?link=1&with=${kind}&next=${encodeURIComponent("/profile")}`);
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     }
   }
 
@@ -331,7 +329,7 @@ function LoginsCard() {
       setLinkState(await startLink("supabase"));
       setAdding(true);
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     }
   }
 
@@ -344,7 +342,7 @@ function LoginsCard() {
       await refreshMe();
       toast(t("loginRemoved"));
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setBusy(false);
     }
@@ -408,7 +406,7 @@ function LoginsCard() {
                 setAdding(false);
                 toast(t("loginLinked"));
               } catch (e) {
-                toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+                toastFail(e);
               }
             }}
           />

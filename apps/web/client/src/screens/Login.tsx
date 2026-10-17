@@ -5,392 +5,19 @@
  * In the Mini App there is nothing to do: Telegram signs the user in.
  * The same screen links a second login to a signed-in account (?link=1).
  */
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { store } from "@store/config";
-import { api, ApiFail, setToken } from "../lib/api";
-import { toLatinDigits, usd } from "../lib/format";
-import { errorText, pick } from "../lib/i18n";
+import { api, setToken } from "../lib/api";
+import { linkWebLogin, safeNext, takeLinkState } from "../lib/auth";
+import { pick } from "../lib/i18n";
 import { navigate, useQuery } from "../lib/router";
-import { refreshMe, toast, useApp, useT } from "../lib/state";
-import type { Category, ProductCard } from "../lib/types";
-import { useApi } from "../lib/useApi";
-import { BoltIcon, ContactMark, MethodMark, ShieldIcon, WalletIcon } from "../ui/icons";
-import { ErrorBox, Logo, Spinner, Tile, Toast } from "../ui/kit";
+import { refreshMe, toast, toastFail, useApp, useT } from "../lib/state";
+import { ContactMark, ShieldIcon } from "../ui/icons";
+import { Logo, Spinner, Toast } from "../ui/kit";
+import { EmailLogin } from "./EmailLogin";
 
-/** Shows children only to a signed-in user; otherwise sends website visitors to sign in. */
-export function RequireUser({ children }: { children: ReactNode }) {
-  const { me, authChecked, miniApp } = useApp();
-  const { t } = useT();
-  useEffect(() => {
-    if (authChecked && !me && !miniApp) {
-      navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
-    }
-  }, [authChecked, me, miniApp]);
-  if (me) return <>{children}</>;
-  if (authChecked && miniApp) return <ErrorBox error={new ApiFail("unauthorized", 401)} onRetry={() => location.reload()} />;
-  return (
-    <div className="boot" style={{ minHeight: 240 }} aria-label={t("loading")}>
-      <span />
-    </div>
-  );
-}
-
-function safeNext(raw: string | null): string {
-  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
-}
-
-type LinkKind = "telegram" | "supabase";
-const stateKey = (kind: LinkKind) => `gh.link.${kind}`;
-
-/**
- * Profile → Connect: ask the store for a one-time link token, kept in this tab
- * only. The link is sent with it when the person comes back from Telegram or
- * Google, so a link someone else crafted (without the token) does nothing.
- */
-export async function startLink(kind: LinkKind): Promise<string> {
-  const r = await api<{ state: string }>("/api/me/link/start", { body: { provider: kind } });
-  try {
-    sessionStorage.setItem(stateKey(kind), r.state);
-  } catch {
-    /* storage unavailable: this tab can still use the returned token */
-  }
-  return r.state;
-}
-
-/** The token from startLink, used once. */
-function takeLinkState(kind: LinkKind): string | null {
-  try {
-    const s = sessionStorage.getItem(stateKey(kind));
-    sessionStorage.removeItem(stateKey(kind));
-    return s;
-  } catch {
-    return null;
-  }
-}
-
-/** Profile → link a website login: swap a Supabase access token for a link on the signed-in account. */
-export async function linkWebLogin(accessToken: string, state: string): Promise<void> {
-  const r = await api<{ switched: boolean; token?: string }>("/api/me/link/web", { body: { accessToken, state } });
-  // The login's own account had the history: the store moved us into it.
-  if (r.token) setToken(r.token);
-  await refreshMe();
-}
-
-/** Email with a one-time code through Supabase Auth; hands the access token to `onToken`. */
-export function EmailCode({ onToken }: { onToken: (accessToken: string) => Promise<void> }) {
-  const { t, lang } = useT();
-  const { config } = useApp();
-  const sb = config?.supabase ?? null;
-  const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [sent, setSent] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  async function sendCode(e: FormEvent) {
-    e.preventDefault();
-    if (!sb) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`${sb.url}/auth/v1/otp`, {
-        method: "POST",
-        headers: { apikey: sb.key, "content-type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), create_user: true }),
-      });
-      if (!res.ok) throw new ApiFail(res.status === 429 ? "rate_limited" : "invalid_input", res.status);
-      setSent(true);
-    } catch (err) {
-      toast(errorText(lang, err instanceof ApiFail ? err.code : "network"), true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function verify(e: FormEvent) {
-    e.preventDefault();
-    if (!sb) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`${sb.url}/auth/v1/verify`, {
-        method: "POST",
-        headers: { apikey: sb.key, "content-type": "application/json" },
-        body: JSON.stringify({ type: "email", email: email.trim(), token: code.trim() }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { access_token?: string };
-      if (!res.ok || !data.access_token) throw new ApiFail("invalid_input", res.status);
-      await onToken(data.access_token);
-    } catch (err) {
-      toast(errorText(lang, err instanceof ApiFail ? err.code : "network"), true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!sb) return null;
-  return !sent ? (
-    <form className="stack-sm" onSubmit={sendCode}>
-      <label className="field">
-        <span>{t("email")}</span>
-        <input className="input" type="email" dir="ltr" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("emailPh")} autoComplete="email" />
-      </label>
-      <button className="btn btn--block press" disabled={busy || !email.includes("@")}>
-        {busy ? <Spinner small /> : t("sendCode")}
-      </button>
-    </form>
-  ) : (
-    <form className="stack-sm" onSubmit={verify}>
-      <p className="small muted">{t("codeSent", { email })}</p>
-      <label className="field">
-        <span>{t("code")}</span>
-        <input className="input num" inputMode="numeric" autoComplete="one-time-code" required value={code} onChange={(e) => setCode(toLatinDigits(e.target.value).replace(/\D/g, "").slice(0, 10))} />
-      </label>
-      <button className="btn btn--block press" disabled={busy || code.length < 6}>
-        {busy ? <Spinner small /> : t("verify")}
-      </button>
-      <button type="button" className="btn btn--block btn--ghost press" onClick={() => setSent(false)}>
-        {t("changeEmail")}
-      </button>
-    </form>
-  );
-}
-
-/** A refused Supabase Auth call: its HTTP status and error code. */
-class AuthFail extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-  ) {
-    super(code);
-  }
-}
-
-/** Supabase Auth's REST API (the publishable key is meant for browsers). */
-async function authCall<T>(sb: { url: string; key: string }, path: string, body: unknown, opts: { method?: string; token?: string } = {}): Promise<T> {
-  const res = await fetch(`${sb.url}/auth/v1/${path}`, {
-    method: opts.method ?? "POST",
-    headers: { apikey: sb.key, "content-type": "application/json", ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}) },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) throw new AuthFail(res.status, String(data.error_code ?? data.error ?? ""));
-  return data as T;
-}
-
-type EmailMode = "password" | "code" | "set";
-
-/**
- * Email sign-in on the website: with a password, or with a one-time code.
- * "Create an account" and "Forgot password?" take the same path: a code sent to
- * the address proves it is yours, then you choose the password. So a password
- * is never set on an address nobody confirmed. The reset code comes in
- * Supabase's "Reset password" email, the others in "Magic Link" / "Confirm signup".
- */
-export function EmailLogin({ onToken }: { onToken: (accessToken: string) => Promise<void> }) {
-  const { t, lang } = useT();
-  const { config } = useApp();
-  const sb = config?.supabase ?? null;
-  const [mode, setMode] = useState<EmailMode>("password");
-  const [creating, setCreating] = useState(true);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
-  const [sent, setSent] = useState(false);
-  // Once the code is accepted: its session, so a refused password can be retried without a new code.
-  const [session, setSession] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  if (!sb) return null;
-  const auth = sb;
-  const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const resetting = mode === "set" && !creating;
-
-  const go = (m: EmailMode, create = true) => {
-    setMode(m);
-    setCreating(create);
-    setSent(false);
-    setCode("");
-    setPassword("");
-    setSession(null);
-    setErr(null);
-  };
-
-  const failText = (e: unknown): string => {
-    if (e instanceof AuthFail) {
-      if (e.status === 429 || e.code.includes("rate_limit")) return errorText(lang, "rate_limited");
-      if (e.code === "invalid_credentials" || e.code === "invalid_grant") return t("pwWrong");
-      if (e.code === "email_not_confirmed") return t("pwNotConfirmed");
-      if (e.code === "weak_password") return t("pwWeak");
-      if (e.code === "otp_expired" || e.status === 403) return t("codeWrong");
-      return errorText(lang, "invalid_input");
-    }
-    return errorText(lang, e instanceof ApiFail ? e.code : "network");
-  };
-
-  const run = async (e: FormEvent, fn: () => Promise<void>) => {
-    e.preventDefault();
-    setBusy(true);
-    setErr(null);
-    try {
-      await fn();
-    } catch (x) {
-      setErr(failText(x));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const verify = async (): Promise<string> => {
-    const r = await authCall<{ access_token?: string }>(auth, "verify", { type: resetting ? "recovery" : "email", email: email.trim(), token: code.trim() });
-    if (!r.access_token) throw new AuthFail(403, "otp_expired");
-    return r.access_token;
-  };
-
-  const signIn = (e: FormEvent) =>
-    run(e, async () => {
-      const r = await authCall<{ access_token?: string }>(auth, "token?grant_type=password", { email: email.trim(), password });
-      if (!r.access_token) throw new AuthFail(400, "invalid_credentials");
-      await onToken(r.access_token);
-    });
-
-  const sendCode = (e: FormEvent) =>
-    run(e, async () => {
-      if (resetting) await authCall(auth, "recover", { email: email.trim() });
-      else await authCall(auth, "otp", { email: email.trim(), create_user: true });
-      setSent(true);
-    });
-
-  const codeIn = (e: FormEvent) => run(e, async () => onToken(await verify()));
-
-  const choosePassword = (e: FormEvent) =>
-    run(e, async () => {
-      const token = session ?? (await verify());
-      setSession(token);
-      try {
-        await authCall(auth, "user", { password }, { method: "PUT", token });
-      } catch (x) {
-        // The same password as before is fine: the code already proved it is you.
-        if (!(x instanceof AuthFail && x.code === "same_password")) throw x;
-      }
-      await onToken(token);
-    });
-
-  const link = (label: string, onClick: () => void) => (
-    <button type="button" className="link-btn" onClick={onClick}>
-      {label}
-    </button>
-  );
-  const emailField = (
-    <label className="field">
-      <span>{t("email")}</span>
-      <input className="input" type="email" dir="ltr" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("emailPh")} autoComplete="email" />
-    </label>
-  );
-  const codeField = (
-    <label className="field">
-      <span>{t("code")}</span>
-      <input
-        className="input num"
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        required
-        value={code}
-        onChange={(e) => setCode(toLatinDigits(e.target.value).replace(/\D/g, "").slice(0, 10))}
-      />
-    </label>
-  );
-  const error = err && (
-    <p className="error-text" role="alert">
-      {err}
-    </p>
-  );
-
-  if (mode === "password")
-    return (
-      <form className="stack-sm" onSubmit={signIn}>
-        {emailField}
-        <div className="field">
-          <span className="row-between">
-            <label htmlFor="login-pw">{t("password")}</label>
-            {link(t("pwForgot"), () => go("set", false))}
-          </span>
-          <PasswordInput id="login-pw" value={password} onChange={setPassword} autoComplete="current-password" />
-        </div>
-        {error}
-        <button className="btn btn--block press" disabled={busy || !okEmail || !password}>
-          {busy ? <Spinner small /> : t("signIn")}
-        </button>
-        <div className="email-alt">
-          {link(t("pwCreate"), () => go("set", true))}
-          {link(t("pwUseCode"), () => go("code"))}
-        </div>
-      </form>
-    );
-
-  if (mode === "code")
-    return (
-      <form className="stack-sm" onSubmit={sent ? codeIn : sendCode}>
-        {sent ? <p className="small muted">{t("codeSent", { email })}</p> : emailField}
-        {sent && codeField}
-        {error}
-        <button className="btn btn--block press" disabled={busy || (sent ? code.length < 6 : !okEmail)}>
-          {busy ? <Spinner small /> : sent ? t("verify") : t("sendCode")}
-        </button>
-        <div className="email-alt">
-          {sent && link(t("changeEmail"), () => go("code"))}
-          {link(t("pwUsePassword"), () => go("password"))}
-        </div>
-      </form>
-    );
-
-  return (
-    <form className="stack-sm" onSubmit={sent ? choosePassword : sendCode}>
-      <div className="email-set__head">
-        <strong>{creating ? t("pwCreateTitle") : t("pwResetTitle")}</strong>
-        <span className="small muted">{!sent ? t("pwSetHint") : resetting ? t("pwResetSent", { email }) : t("codeSent", { email })}</span>
-      </div>
-      {sent ? <input type="email" autoComplete="username" value={email} readOnly hidden /> : emailField}
-      {sent && !session && codeField}
-      {sent && (
-        <div className="field">
-          <label htmlFor="login-new-pw">{t("pwNew")}</label>
-          <PasswordInput id="login-new-pw" value={password} onChange={setPassword} autoComplete="new-password" />
-          <span className="small muted">{t("pwRule")}</span>
-        </div>
-      )}
-      {error}
-      <button className="btn btn--block press" disabled={busy || (sent ? (!session && code.length < 6) || password.length < 8 : !okEmail)}>
-        {busy ? <Spinner small /> : !sent ? t("sendCode") : creating ? t("pwCreateBtn") : t("pwSaveBtn")}
-      </button>
-      <div className="email-alt">{link(t("pwBack"), () => go("password"))}</div>
-    </form>
-  );
-}
-
-/** A password box with a button to show what was typed. */
-function PasswordInput({ id, value, onChange, autoComplete }: { id: string; value: string; onChange: (v: string) => void; autoComplete: "current-password" | "new-password" }) {
-  const { t } = useT();
-  const [show, setShow] = useState(false);
-  return (
-    <div className="pw" dir="ltr">
-      <input
-        id={id}
-        className="input"
-        type={show ? "text" : "password"}
-        required
-        minLength={autoComplete === "new-password" ? 8 : undefined}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete={autoComplete}
-      />
-      <button type="button" className="pw__eye press" aria-label={show ? t("pwHide") : t("pwShow")} aria-pressed={show} onClick={() => setShow((s) => !s)}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
-          <circle cx="12" cy="12" r="3" />
-          {show && <path d="M4 4l16 16" />}
-        </svg>
-      </button>
-    </div>
-  );
-}
+// The moving pictures load after the form, so signing in never waits for them.
+const LoginArt = lazy(() => import("./LoginArt").then((m) => ({ default: m.LoginArt })));
 
 /**
  * Sign in, or with ?link=1 (from Profile) add another way to sign in to the
@@ -452,7 +79,7 @@ export function Login() {
     history.replaceState(null, "", location.pathname + location.search);
     setBusy(true);
     finishWeb(token)
-      .catch((e) => toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true))
+      .catch((e) => toastFail(e))
       .finally(() => setBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -480,7 +107,7 @@ export function Login() {
     api("/api/auth/telegram-widget", { body: fields })
       .then(() => refreshMe())
       .then(() => navigate(next, { replace: true }))
-      .catch((e) => toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true))
+      .catch((e) => toastFail(e))
       .finally(() => setBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -515,14 +142,13 @@ export function Login() {
       await refreshMe();
       done();
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setPending(null);
       setBusy(false);
     }
   }
 
-  const hasWeb = methods.includes("email") || methods.includes("google");
   if (pending) {
     const who = pending.fields.username ? `@${pending.fields.username}` : [pending.fields.first_name, pending.fields.last_name].filter(Boolean).join(" ");
     return (
@@ -563,7 +189,7 @@ export function Login() {
           <EmailLogin
             onToken={(token) =>
               finishWeb(token).catch((e) => {
-                toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+                toastFail(e);
               })
             }
           />
@@ -608,108 +234,11 @@ function LoginFrame({ back, children }: { back?: { href: string; label: string }
           </p>
         </div>
       </main>
-      <LoginArt />
+      <Suspense fallback={<aside className="login__art" aria-hidden="true" />}>
+        <LoginArt />
+      </Suspense>
       <Toast />
     </div>
-  );
-}
-
-/**
- * Products with a real picture, one category after another (games, AI, gift
- * cards, numbers…), so the mix shows the whole store, each picture once.
- */
-function mixAcross(products: ProductCard[]): ProductCard[] {
-  const seen = new Set<string>();
-  const groups = new Map<string, ProductCard[]>();
-  for (const p of [...products].sort((a, b) => Number(b.featured) - Number(a.featured))) {
-    if (!p.imageUrl || /simpleicons|favicons|\.svg(\?|$)/i.test(p.imageUrl) || seen.has(p.imageUrl)) continue;
-    seen.add(p.imageUrl);
-    groups.set(p.category, [...(groups.get(p.category) ?? []), p]);
-  }
-  const lists = [...groups.values()];
-  const out: ProductCard[] = [];
-  for (let i = 0; out.length < 36 && lists.some((l) => l[i]); i++) for (const l of lists) if (l[i]) out.push(l[i]!);
-  return out;
-}
-
-const ROW = 12;
-const NEXT_MS = 2800;
-
-/**
- * The sign-in page's other half, always moving: three rows of the store's
- * products drifting past, soft colours slowly changing place, and a card that
- * shows one product after another (its category, name and price).
- */
-function LoginArt() {
-  const { t, lang } = useT();
-  const { data } = useApi<{ products: ProductCard[]; categories: Category[] }>("/api/catalog");
-  const mix = useMemo(() => mixAcross(data?.products ?? []), [data]);
-  const rows = useMemo(() => {
-    const n = mix.length;
-    if (!n) return [];
-    const shift = Math.max(1, Math.floor(n / 3));
-    return [0, 1, 2].map((r) => Array.from({ length: ROW }, (_, i) => mix[(r * shift + i) % n]!));
-  }, [mix]);
-  const [at, setAt] = useState(0);
-  useEffect(() => {
-    if (mix.length < 2) return;
-    const id = setInterval(() => setAt((i) => (i + 1) % mix.length), NEXT_MS);
-    return () => clearInterval(id);
-  }, [mix.length]);
-  const cur = mix.length ? mix[at % mix.length] : undefined;
-  const cat = cur ? data?.categories.find((c) => c.slug === cur.category) : undefined;
-  return (
-    <aside className="login__art" dir={lang === "ar" ? "rtl" : "ltr"} aria-hidden="true">
-      <i className="login__blob login__blob--a" />
-      <i className="login__blob login__blob--b" />
-      <i className="login__blob login__blob--c" />
-      <div className="login__rows" dir="ltr">
-        {rows.map((row, r) => (
-          <div key={r} className={`login__row login__row--${r}`}>
-            <div className="login__track">
-              {[...row, ...row].map((p, i) => (
-                <Tile key={i} name={p.nameEn} imageUrl={p.imageUrl} className="login__tile" />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-      {cur && (
-        <div className="login__now" key={at}>
-          <Tile name={cur.nameEn} imageUrl={cur.imageUrl} className="login__now-tile" />
-          <span className="login__now-text">
-            {cat && <span className="login__now-cat">{pick(lang, cat.nameAr, cat.nameEn)}</span>}
-            <b>{pick(lang, cur.nameAr, cur.nameEn)}</b>
-            <span className="login__now-price">
-              {t("from")} <span className="num">{usd(cur.fromCents)}</span>
-              {!cur.byHand && <em>⚡ {t("instant")}</em>}
-            </span>
-          </span>
-          <i className="login__now-bar" />
-        </div>
-      )}
-      <div className="login__pitch">
-        <h2>{t("loginArtTitle")}</h2>
-        <ul>
-          <li>
-            <span className="login__perk-icon"><BoltIcon size={16} /></span>
-            {t("loginPerk1")}
-          </li>
-          <li>
-            <span className="login__perk-icon"><WalletIcon size={16} /></span>
-            {t("loginPerk2")}
-          </li>
-          <li>
-            <span className="login__marks">
-              <MethodMark method="sam" size={24} />
-              <MethodMark method="bep20" size={24} />
-              <MethodMark method="stars" size={24} />
-            </span>
-            {t("loginPerk3")}
-          </li>
-        </ul>
-      </div>
-    </aside>
   );
 }
 

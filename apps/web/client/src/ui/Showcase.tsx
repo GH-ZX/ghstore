@@ -200,6 +200,9 @@ export function Showcase({ slides, options = DEFAULT_OPTIONS }: { slides: SlideD
   const track = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(0);
   const [held, setHeld] = useState(false);
+  // The visitor's own pause (the button), kept until they press play.
+  const [paused, setPaused] = useState(false);
+  const [reducedMotion] = useState(() => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const count = slides.length;
 
@@ -235,7 +238,8 @@ export function Showcase({ slides, options = DEFAULT_OPTIONS }: { slides: SlideD
   }, [count]);
 
   if (count === 0) return null;
-  const autoplay = options.autoplay > 0;
+  // Reduced motion stops autoplay (the progress never runs), so there is nothing to pause.
+  const autoplay = options.autoplay > 0 && count > 1 && !reducedMotion;
   const next = () => goTo((index + 1) % count);
 
   return (
@@ -244,24 +248,40 @@ export function Showcase({ slides, options = DEFAULT_OPTIONS }: { slides: SlideD
       aria-roledescription="carousel"
       aria-label={t("highlights")}
       data-held={held || undefined}
+      data-paused={paused || undefined}
       style={{ "--autoplay": `${options.autoplay || 6}s` } as CSSProperties}
     >
-      <div className="showcase__track" ref={track} onPointerDown={hold} onWheel={hold} onFocus={hold}>
+      {/* Moving slides are not read out as they change; chosen ones are. */}
+      <div className="showcase__track" ref={track} onPointerDown={hold} onWheel={hold} onFocus={hold} aria-live={autoplay && !paused ? "off" : "polite"}>
         {slides.map((s, i) => (
           <ShowcaseSlide key={s.key} s={s} options={options} index={i} count={count} />
         ))}
       </div>
 
       {count > 1 && (
-        <div className="showcase__thumbs" role="tablist" aria-label={t("highlights")}>
+        <div className="showcase__thumbs" role="group" aria-label={t("highlights")}>
+          {autoplay && (
+            <button
+              type="button"
+              className="showcase__toggle press"
+              aria-label={paused ? t("slidesPlay") : t("slidesPause")}
+              title={paused ? t("slidesPlay") : t("slidesPause")}
+              onClick={() => setPaused((p) => !p)}
+            >
+              {paused ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor" /></svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z" fill="currentColor" /></svg>
+              )}
+            </button>
+          )}
           {slides.map((s, i) => (
             <button
               key={s.key}
               type="button"
-              role="tab"
               className="showcase__thumb press"
-              aria-selected={i === index}
-              aria-label={s.title}
+              aria-current={i === index ? "true" : undefined}
+              aria-label={t("slideOf", { n: i + 1, count, title: s.title })}
               onClick={() => {
                 hold();
                 goTo(i);

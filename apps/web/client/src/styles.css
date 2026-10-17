@@ -190,7 +190,9 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   height: 30px; min-width: 34px; padding: 0 10px; border: 0; border-radius: 999px;
   background: transparent; color: var(--muted); font-size: 13px; font-weight: 700;
 }
-.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+.seg button[aria-pressed="true"], .seg__value { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+.seg__value { display: inline-flex; align-items: center; justify-content: center; height: 30px; min-width: 44px; padding: 0 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+.seg button:disabled { opacity: .45; }
 
 .wallet-pill {
   height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line);
@@ -246,7 +248,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   flex: none; height: 38px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line);
   background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 500;
 }
-.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.chip[aria-pressed="true"], .chip[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .chip--sm { height: 32px; padding: 0 12px; font-size: 12px; font-weight: 600; }
 
 .badge {
@@ -1040,7 +1042,7 @@ button.sup__stat:disabled { cursor: default; }
   position: relative; flex: none; width: 46px; height: 46px; padding: 0; border-radius: 14px; overflow: hidden;
   border: 2px solid transparent; background: var(--surface-2); opacity: .6; transition: opacity .2s ease, border-color .2s ease;
 }
-.showcase__thumb[aria-selected="true"] { opacity: 1; border-color: var(--accent); }
+.showcase__thumb[aria-current="true"] { opacity: 1; border-color: var(--accent); }
 .showcase__thumb img, .showcase__thumb .tile { width: 100%; height: 100%; object-fit: cover; font-size: 13px; }
 .showcase__swatch { display: block; width: 100%; height: 100%; }
 .showcase__swatch--accent { background: var(--accent); } .showcase__swatch--dark { background: #13111b; } .showcase__swatch--light { background: var(--tile); }
@@ -1048,7 +1050,7 @@ button.sup__stat:disabled { cursor: default; }
 @media (min-width: 1000px) {
   .showcase__thumbs { position: absolute; z-index: 3; bottom: 22px; inset-inline-end: 28px; max-width: 40%; }
   .showcase__thumb { width: 50px; height: 50px; box-shadow: 0 6px 16px rgb(0 0 0 / .3); border-color: rgb(255 255 255 / .2); }
-  .showcase__thumb[aria-selected="true"] { border-color: #fff; }
+  .showcase__thumb[aria-current="true"] { border-color: #fff; }
 }
 
 /* progress: the active picture fills; when it is full, the next slide comes */
@@ -1058,7 +1060,17 @@ button.sup__stat:disabled { cursor: default; }
   transform-origin: left center; animation: gh-fill var(--autoplay, 6s) linear forwards;
 }
 [dir="rtl"] .showcase__fill { transform-origin: right center; }
-.showcase:hover .showcase__fill, .showcase:focus-within .showcase__fill, .showcase[data-held] .showcase__fill { animation-play-state: paused; }
+/* Hover and focus pause it, except on the play/pause button itself (it says what it does). */
+.showcase:hover:not(:has(.showcase__toggle:hover)) .showcase__fill,
+.showcase:focus-within:not(:has(.showcase__toggle:focus)) .showcase__fill,
+.showcase[data-held] .showcase__fill, .showcase[data-paused] .showcase__fill { animation-play-state: paused; }
+.showcase__toggle {
+  flex: none; width: 46px; height: 46px; display: grid; place-items: center; padding: 0; border: 2px solid transparent;
+  border-radius: 14px; background: var(--surface-2); color: var(--ink);
+}
+@media (min-width: 1000px) {
+  .showcase__toggle { width: 50px; height: 50px; background: rgb(0 0 0 / .45); color: #fff; border-color: rgb(255 255 255 / .2); box-shadow: 0 6px 16px rgb(0 0 0 / .3); }
+}
 @media (prefers-reduced-motion: reduce) { .showcase__fill { animation: none; transform: none; } }
 
 /* Admin → Home: choosing the look */

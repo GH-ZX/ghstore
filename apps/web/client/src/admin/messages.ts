@@ -661,6 +661,12 @@ export const adminEn = {
   referralPct: "Reward (% of what the friend pays)",
   referralDays: "Days a friend's orders count (0 = always)",
   referralHint: "Paid to the inviter's balance when the invited friend's order is delivered. Only new customers can be invited.",
+  jobCol: "Job",
+  emailFromPh: "{name} <orders@{domain}>",
+  pushTitle: "Browser notifications",
+  pushSwitch: "Offer notifications on the website",
+  pushSettingHint: "Lets website customers turn on order updates in their browser (Profile → Notifications on this device). Sending them needs the Cloudflare Workers paid plan; leave this off on the free plan.",
+  catalogSearch: "Search products",
 } as const;
 
 export type AdminKey = keyof typeof adminEn;
@@ -1322,6 +1328,12 @@ const adminAr: Record<AdminKey, string> = {
   referralPct: "المكافأة (% مما يدفعه الصديق)",
   referralDays: "عدد الأيام التي تُحتسب فيها طلبات الصديق (0 = دائماً)",
   referralHint: "تُضاف إلى رصيد صاحب الدعوة عند تسليم طلب الصديق. يمكن دعوة العملاء الجدد فقط.",
+  jobCol: "المهمة",
+  emailFromPh: "{name} <orders@{domain}>",
+  pushTitle: "إشعارات المتصفح",
+  pushSwitch: "اعرض الإشعارات على الموقع",
+  pushSettingHint: "يتيح لعملاء الموقع تفعيل تحديثات الطلبات في المتصفح (حسابي ← الإشعارات على هذا الجهاز). إرسالها يحتاج خطة Cloudflare Workers المدفوعة؛ اتركه مطفأً على الخطة المجانية.",
+  catalogSearch: "ابحث في المنتجات",
 };
 
 addMessages(adminEn, adminAr);

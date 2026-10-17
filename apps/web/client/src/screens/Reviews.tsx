@@ -4,9 +4,8 @@
  * (Rate this product, change it, remove it). See packages/api/src/reviews.ts.
  */
 import { useEffect, useRef, useState } from "react";
-import { api, ApiFail } from "../lib/api";
-import { errorText } from "../lib/i18n";
-import { toast, useApp, useT } from "../lib/state";
+import { api } from "../lib/api";
+import { toast, toastFail, useApp, useT } from "../lib/state";
 import { haptic } from "../lib/telegram";
 import { invalidate, useApi } from "../lib/useApi";
 import { Spinner } from "../ui/kit";
@@ -63,9 +62,12 @@ export function ProductReviews({ slug, focus }: { slug: string; focus?: boolean 
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLElement>(null);
 
-  // From an order's "Rate this product": open the form and bring it into view.
+  // From an order's "Rate this product": open the form and bring it into view,
+  // once (not again when the reviews reload after saving).
+  const focused = useRef(false);
   useEffect(() => {
-    if (!focus || !data) return;
+    if (!focus || !data || focused.current) return;
+    focused.current = true;
     box.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (data.canReview) startEditing(data.mine?.rating ?? 0, data.mine?.comment ?? "");
   }, [focus, data]);
@@ -100,7 +102,7 @@ export function ProductReviews({ slug, focus }: { slug: string; focus?: boolean 
       setEditing(false);
       await refresh();
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setBusy(false);
     }
@@ -114,7 +116,7 @@ export function ProductReviews({ slug, focus }: { slug: string; focus?: boolean 
       setEditing(false);
       await refresh();
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setBusy(false);
     }
@@ -129,7 +131,7 @@ export function ProductReviews({ slug, focus }: { slug: string; focus?: boolean 
       setExtra((x) => [...x, ...r.reviews]);
       setMore(r.more);
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setLoadingMore(false);
     }

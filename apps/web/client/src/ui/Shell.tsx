@@ -1,11 +1,13 @@
 /** Customer layout: floating glass header, page, floating pill tab bar. */
 import { useEffect, useState, type ReactNode } from "react";
+import { store } from "@store/config";
 import { usd } from "../lib/format";
 import { linkHandler, usePath, back } from "../lib/router";
 import { setLang, useApp, useT } from "../lib/state";
 import { pushBack } from "../lib/telegram";
 import type { MsgKey } from "../lib/i18n";
 import { AdminIcon, GlobeIcon, OrdersIcon, ProfileIcon, SearchIcon, StoreIcon, WalletIcon } from "./icons";
+import { ConfirmHost } from "./Confirm";
 import { Logo, Toast } from "./kit";
 import { SearchOverlay } from "./Search";
 
@@ -50,7 +52,7 @@ export function Shell({ title, children, narrow }: { title?: string; children: R
     <>
       {/* The same way round in both languages: the logo on the left. */}
       <header className="header" dir="ltr">
-        <a href="/" className="header__brand" onClick={linkHandler("/")} aria-label="GH Store">
+        <a href="/" className="header__brand" onClick={linkHandler("/")} aria-label={store.name}>
           <Logo />
           <span className="header__sep" aria-hidden="true" />
           <span className="header__title" dir="auto">{title ?? t("store")}</span>
@@ -100,6 +102,7 @@ export function Shell({ title, children, narrow }: { title?: string; children: R
       </nav>
       {searching && <SearchOverlay onClose={() => setSearching(false)} />}
       <Toast />
+      <ConfirmHost />
     </>
   );
 }

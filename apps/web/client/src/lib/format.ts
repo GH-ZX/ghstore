@@ -27,6 +27,13 @@ export function dateTime(iso: string, lang: Lang): string {
   }).format(d);
 }
 
+/** A small stable number for a text (FNV-1a): the same text gives the same number everywhere. */
+export function hashText(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
 /** Two letters for a product tile when it has no image: "PUBG Mobile UC" → "PU". */
 export function monogram(name: string): string {
   const words = name.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean);
