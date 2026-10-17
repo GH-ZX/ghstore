@@ -132,10 +132,10 @@ automatically.
 - Providers: Email on, with **Confirm email on** (a password only ever goes on an
   address that was confirmed). For Google, turn on the Google provider with your
   Google OAuth client.
-- Emails → templates "Magic Link" and "Confirm signup" (a first code goes out
-  with the second): paste `docs/email-templates/code.html` into both, so the
-  email carries the 6-digit code (`{{ .Token }}`) the website asks for (signing
-  up and signing in with a code). "Reset Password": paste
+- Emails → templates: "Magic Link" ← `docs/email-templates/code.html`, and
+  "Confirm signup" ← `signup.html` (a new customer's first code comes in it).
+  Both carry the 6-digit code (`{{ .Token }}`) the website asks for (signing up
+  and signing in with a code). "Reauthentication" ← `reauth.html`. "Reset Password": paste
   `docs/email-templates/reset.html` ("Forgot password?" sends that one). The
   password is always chosen on the website, after the code.
 - Emails → SMTP settings: Supabase's built-in sender only reaches your own team's
