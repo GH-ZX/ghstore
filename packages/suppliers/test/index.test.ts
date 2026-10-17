@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { supplierFactories } from "../src/index";
-import { deliveryValues, secretEquals, usdToCents, uuid4From, uuid5 } from "../src/shared";
+import { deliveryValues, secretEquals, usdCostToCents, usdToCents, uuid4From, uuid5 } from "../src/shared";
 import { fakeFetch } from "./fake-fetch";
 
 describe("supplier registry", () => {
@@ -25,6 +25,20 @@ describe("shared helpers", () => {
     expect(usdToCents(-1)).toBeNull();
     expect(usdToCents("abc")).toBeNull();
     expect(usdToCents(null)).toBeNull();
+  });
+
+  it("rounds supplier costs up to whole cents, so nothing costs 0 by rounding", () => {
+    expect(usdCostToCents(0.004)).toBe(1);
+    expect(usdCostToCents("0.0001")).toBe(1);
+    expect(usdCostToCents("0.84")).toBe(84);
+    expect(usdCostToCents(0.84)).toBe(84);
+    expect(usdCostToCents(0.1 + 0.2)).toBe(30);
+    expect(usdCostToCents("18.101")).toBe(1811);
+    expect(usdCostToCents("3.333")).toBe(334);
+    expect(usdCostToCents(0)).toBe(0);
+    expect(usdCostToCents(-1)).toBeNull();
+    expect(usdCostToCents("1e3")).toBeNull();
+    expect(usdCostToCents(null)).toBeNull();
   });
 
   it("matches Python's uuid5 and derives stable v4-shaped uuids", async () => {

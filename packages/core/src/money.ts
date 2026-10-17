@@ -21,6 +21,23 @@ export function toCents(value: string | number): Cents {
   return negative ? -cents : cents;
 }
 
+/**
+ * Parse a non-negative amount of dollars ("0.0042", 12.3) into cents, rounding
+ * any fraction of a cent UP: what a supplier charges is never under-counted,
+ * and a cost below half a cent is 1 cent, not free. Throws on garbage.
+ */
+export function toCentsUp(value: string | number): Cents {
+  // Eight decimals absorb float noise (0.1 + 0.2) without hiding a real fraction of a cent.
+  const s = typeof value === "number" ? (Number.isFinite(value) ? value.toFixed(8) : "x") : value.trim();
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(s);
+  if (!m) throw new RangeError(`not a non-negative amount: "${value}"`);
+  const frac = m[2] ?? "";
+  let cents = Number(m[1]) * 100 + Number((frac + "00").slice(0, 2));
+  if (/[1-9]/.test(frac.slice(2))) cents += 1;
+  if (!Number.isSafeInteger(cents)) throw new RangeError(`amount too large: "${value}"`);
+  return cents;
+}
+
 /** Cents to a plain decimal string with two places: 1234 -> "12.34". */
 export function centsToDecimal(cents: Cents): string {
   assertCents(cents);

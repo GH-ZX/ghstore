@@ -17,6 +17,7 @@ import {
   readSessionToken,
   signSession,
   toCents,
+  toCentsUp,
   toHex,
   utf8,
   verifyInitData,
@@ -34,6 +35,12 @@ describe("money", () => {
     expect(toCents("-4.90")).toBe(-490);
     expect(toCents(4.9)).toBe(490);
     expect(() => toCents("12,5")).toThrow();
+    // Supplier costs: any fraction of a cent rounds up, and a price is never 0.
+    expect(toCentsUp("0.004")).toBe(1);
+    expect(toCentsUp("12.341")).toBe(1235);
+    expect(toCentsUp(4.9)).toBe(490);
+    expect(() => toCentsUp("-1")).toThrow();
+    expect(priceFromCost(0, { mode: "percent", value: 10, minMarginPct: 5 })).toBe(1);
     expect(() => toCents("abc")).toThrow();
   });
   it("formats cents", () => {
@@ -80,6 +87,16 @@ describe("orders", () => {
     expect(nextStep({ status: "failed", retryable: true, reason: "x" }, 5)).toEqual({ next: "refund", reason: "x" });
     expect(nextStep({ status: "failed", retryable: false, reason: "bad id" }, 0)).toEqual({ next: "refund", reason: "bad id" });
     expect(backoffSeconds(99)).toBe(900);
+  });
+  it("counts failures in a row, not checks, and never refunds an accepted order for a retryable failure", () => {
+    const blip = { status: "failed", retryable: true, reason: "timeout" } as const;
+    // Polled 40 times while pending, then one blip: retried, not refunded.
+    expect(nextStep(blip, 40, { failures: 0 })).toEqual({ next: "retry", checkAfterSeconds: 30, reason: "timeout" });
+    expect(nextStep(blip, 40, { failures: 5 })).toEqual({ next: "refund", reason: "timeout" });
+    // The supplier has it: keep asking, whatever the streak.
+    expect(nextStep(blip, 40, { failures: 50, accepted: true })).toEqual({ next: "retry", checkAfterSeconds: 900, reason: "timeout" });
+    // A supplier that says the order failed is still refunded.
+    expect(nextStep({ status: "failed", retryable: false, reason: "cancelled" }, 3, { failures: 0, accepted: true })).toEqual({ next: "refund", reason: "cancelled" });
   });
 });
 

@@ -26,7 +26,7 @@
 import { AdapterError } from "../../core/src/adapters";
 import type { AdapterContext, PurchaseResult, SupplierAdapter, SupplierProduct } from "../../core/src/adapters";
 import {
-  num, accountFacts, arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpError, isObj, itemsFrom, obj, refusal, str, supplierMessage, usdToCents, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult, type Obj,
+  num, accountFacts, arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpError, isObj, itemsFrom, obj, refusal, str, supplierMessage, usdCostToCents, usdToCents, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult, type Obj,
 } from "./shared";
 
 const ID = "prodseller";
@@ -76,7 +76,7 @@ export function createProdSeller(ctx: AdapterContext): SupplierAdapter {
     async listProducts() {
       return arr((await read("/products"))?.products).filter(isObj).flatMap((p): SupplierProduct[] => {
         const id = str(p.id);
-        const cost = usdToCents(p.price);
+        const cost = usdCostToCents(p.price);
         if (!id || cost === null) return [];
         return [{
           externalId: id,
@@ -87,7 +87,7 @@ export function createProdSeller(ctx: AdapterContext): SupplierAdapter {
           meta: {
             description: str(p.description) ?? null,
             image: str(p.imageUrl) ?? null,
-            publicPriceCents: usdToCents(p.publicPrice),
+            publicPriceCents: usdCostToCents(p.publicPrice),
           },
         }];
       });
