@@ -5,16 +5,16 @@
  * In the Mini App there is nothing to do: Telegram signs the user in.
  * The same screen links a second login to a signed-in account (?link=1).
  */
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { store } from "@store/config";
 import { api, ApiFail, setToken } from "../lib/api";
-import { toLatinDigits } from "../lib/format";
-import { errorText } from "../lib/i18n";
+import { toLatinDigits, usd } from "../lib/format";
+import { errorText, pick } from "../lib/i18n";
 import { navigate, useQuery } from "../lib/router";
 import { refreshMe, toast, useApp, useT } from "../lib/state";
-import type { ProductCard } from "../lib/types";
+import type { Category, ProductCard } from "../lib/types";
 import { useApi } from "../lib/useApi";
-import { ContactMark, ShieldIcon } from "../ui/icons";
+import { BoltIcon, ContactMark, MethodMark, ShieldIcon, WalletIcon } from "../ui/icons";
 import { ErrorBox, Logo, Spinner, Tile, Toast } from "../ui/kit";
 
 /** Shows children only to a signed-in user; otherwise sends website visitors to sign in. */
@@ -347,12 +347,6 @@ export function Login() {
  */
 function LoginFrame({ back, children }: { back?: { href: string; label: string }; children: ReactNode }) {
   const { t, lang } = useT();
-  const { data } = useApi<{ products: ProductCard[] }>("/api/catalog");
-  // Real pictures first (not plain brand logos), featured ones first.
-  const pics = (data?.products ?? [])
-    .filter((p) => p.imageUrl && !/simpleicons|favicons|\.svg(\?|$)/i.test(p.imageUrl))
-    .sort((a, b) => Number(b.featured) - Number(a.featured))
-    .slice(0, 6);
   const dir = lang === "ar" ? "rtl" : "ltr";
   return (
     <div className="login" dir="ltr">
@@ -374,23 +368,108 @@ function LoginFrame({ back, children }: { back?: { href: string; label: string }
           </p>
         </div>
       </main>
-      <aside className="login__art" dir={dir} aria-hidden="true">
-        <div className="login__tiles">
-          {pics.map((p, i) => (
-            <Tile key={p.id} name={p.nameEn} imageUrl={p.imageUrl} className={`login__tile login__tile--${i}`} />
-          ))}
-        </div>
-        <div className="login__pitch">
-          <h2>{t("loginArtTitle")}</h2>
-          <ul>
-            <li><span>⚡</span>{t("loginPerk1")}</li>
-            <li><span>👛</span>{t("loginPerk2")}</li>
-            <li><span>💳</span>{t("loginPerk3")}</li>
-          </ul>
-        </div>
-      </aside>
+      <LoginArt />
       <Toast />
     </div>
+  );
+}
+
+/**
+ * Products with a real picture, one category after another (games, AI, gift
+ * cards, numbers…), so the mix shows the whole store, each picture once.
+ */
+function mixAcross(products: ProductCard[]): ProductCard[] {
+  const seen = new Set<string>();
+  const groups = new Map<string, ProductCard[]>();
+  for (const p of [...products].sort((a, b) => Number(b.featured) - Number(a.featured))) {
+    if (!p.imageUrl || /simpleicons|favicons|\.svg(\?|$)/i.test(p.imageUrl) || seen.has(p.imageUrl)) continue;
+    seen.add(p.imageUrl);
+    groups.set(p.category, [...(groups.get(p.category) ?? []), p]);
+  }
+  const lists = [...groups.values()];
+  const out: ProductCard[] = [];
+  for (let i = 0; out.length < 36 && lists.some((l) => l[i]); i++) for (const l of lists) if (l[i]) out.push(l[i]!);
+  return out;
+}
+
+const ROW = 12;
+const NEXT_MS = 2800;
+
+/**
+ * The sign-in page's other half, always moving: three rows of the store's
+ * products drifting past, soft colours slowly changing place, and a card that
+ * shows one product after another (its category, name and price).
+ */
+function LoginArt() {
+  const { t, lang } = useT();
+  const { data } = useApi<{ products: ProductCard[]; categories: Category[] }>("/api/catalog");
+  const mix = useMemo(() => mixAcross(data?.products ?? []), [data]);
+  const rows = useMemo(() => {
+    const n = mix.length;
+    if (!n) return [];
+    const shift = Math.max(1, Math.floor(n / 3));
+    return [0, 1, 2].map((r) => Array.from({ length: ROW }, (_, i) => mix[(r * shift + i) % n]!));
+  }, [mix]);
+  const [at, setAt] = useState(0);
+  useEffect(() => {
+    if (mix.length < 2) return;
+    const id = setInterval(() => setAt((i) => (i + 1) % mix.length), NEXT_MS);
+    return () => clearInterval(id);
+  }, [mix.length]);
+  const cur = mix.length ? mix[at % mix.length] : undefined;
+  const cat = cur ? data?.categories.find((c) => c.slug === cur.category) : undefined;
+  return (
+    <aside className="login__art" dir={lang === "ar" ? "rtl" : "ltr"} aria-hidden="true">
+      <i className="login__blob login__blob--a" />
+      <i className="login__blob login__blob--b" />
+      <i className="login__blob login__blob--c" />
+      <div className="login__rows" dir="ltr">
+        {rows.map((row, r) => (
+          <div key={r} className={`login__row login__row--${r}`}>
+            <div className="login__track">
+              {[...row, ...row].map((p, i) => (
+                <Tile key={i} name={p.nameEn} imageUrl={p.imageUrl} className="login__tile" />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {cur && (
+        <div className="login__now" key={at}>
+          <Tile name={cur.nameEn} imageUrl={cur.imageUrl} className="login__now-tile" />
+          <span className="login__now-text">
+            {cat && <span className="login__now-cat">{pick(lang, cat.nameAr, cat.nameEn)}</span>}
+            <b>{pick(lang, cur.nameAr, cur.nameEn)}</b>
+            <span className="login__now-price">
+              {t("from")} <span className="num">{usd(cur.fromCents)}</span>
+              {!cur.byHand && <em>⚡ {t("instant")}</em>}
+            </span>
+          </span>
+          <i className="login__now-bar" />
+        </div>
+      )}
+      <div className="login__pitch">
+        <h2>{t("loginArtTitle")}</h2>
+        <ul>
+          <li>
+            <span className="login__perk-icon"><BoltIcon size={16} /></span>
+            {t("loginPerk1")}
+          </li>
+          <li>
+            <span className="login__perk-icon"><WalletIcon size={16} /></span>
+            {t("loginPerk2")}
+          </li>
+          <li>
+            <span className="login__marks">
+              <MethodMark method="sam" size={24} />
+              <MethodMark method="bep20" size={24} />
+              <MethodMark method="stars" size={24} />
+            </span>
+            {t("loginPerk3")}
+          </li>
+        </ul>
+      </div>
+    </aside>
   );
 }
 
