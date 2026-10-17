@@ -125,7 +125,8 @@ describe("report a problem", () => {
 describe("review requests", () => {
   it("ask once per customer and product, some hours after delivery", async () => {
     await db.query(`update app.orders set delivered_at = now() - interval '5 hours' where user_id = $1 and status = 'delivered'`, [customerId]);
-    expect(await queueReviewAsks(h.svc)).toBeGreaterThanOrEqual(1);
+    // A big batch: earlier runs of a reused test database leave other customers' orders due too.
+    expect(await queueReviewAsks(h.svc, 100_000)).toBeGreaterThanOrEqual(1);
     const asks = await db.query<{ data: { slug: string } }>(`select data from app.outbox where template = 'review_ask' and user_id = $1`, [customerId]);
     expect(asks.filter((a) => a.data.slug === slug)).toHaveLength(1);
     expect(await queueReviewAsks(h.svc)).toBe(0);

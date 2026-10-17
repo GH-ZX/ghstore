@@ -14,7 +14,7 @@ import { recheckPendingPayments } from "../src/jobs";
 import { watchHealth } from "../src/health";
 import { runHousekeeping } from "../src/housekeeping";
 import { refreshDueCatalogues } from "../src/supplier-catalogue";
-import { connectTestDb, env, Harness } from "./helpers";
+import { connectTestDb, env, Harness, holdOtherSuppliers } from "./helpers";
 
 const conn = await connectTestDb();
 const db = conn.db;
@@ -236,7 +236,15 @@ describe("supplier price checks", () => {
         return [{ externalId: "x", name: "x", costCents: 100, available: true, kind: "code" }];
       },
     });
-    const mine = async () => (await syncDueSuppliers(h.svc, 50)).filter((r) => r.supplier === supplier);
+    // Only this supplier is due (earlier runs leave test suppliers switched on).
+    const mine = async () => {
+      const release = await holdOtherSuppliers(db, [supplier]);
+      try {
+        return (await syncDueSuppliers(h.svc, 50)).filter((r) => r.supplier === supplier);
+      } finally {
+        await release();
+      }
+    };
     expect((await mine())[0]).toMatchObject({ error: "connection reset" });
     expect(await supplierRow(supplier)).toMatchObject({ health: "ok", sync_health: "degraded", sync_error: "connection reset", sync_failures: 1, backing_off: true, leased: false });
     // Backing off: not tried again on the next tick.
@@ -273,7 +281,12 @@ describe("supplier price checks", () => {
         return [{ externalId: "y", name: "y", costCents: 100, available: true, kind: "code" }];
       },
     });
-    expect((await syncDueSuppliers(h.svc, 50)).some((r) => r.supplier === supplier)).toBe(true);
+    const release = await holdOtherSuppliers(db, [supplier]);
+    try {
+      expect((await syncDueSuppliers(h.svc, 50)).some((r) => r.supplier === supplier)).toBe(true);
+    } finally {
+      await release();
+    }
     expect(calls).toBe(1);
     expect((await supplierRow(supplier)).leased).toBe(false); // released when done
     await db.query(`update app.suppliers set enabled = false where id = $1`, [supplier]);

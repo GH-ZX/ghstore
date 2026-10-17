@@ -229,6 +229,11 @@ describe("top-up, order, delivery, refund", () => {
     await h.settle();
     expect((await h.call("GET", `/api/orders/${r.data.orderId}`, { token })).data.order.status).toBe("processing");
     await db.query(`update app.orders set next_check_at = now() - interval '1 second' where id = $1`, [r.data.orderId]);
+    // Only this order is due: a reused test database keeps earlier runs' orders waiting on the fake supplier.
+    await db.query(
+      `update app.orders set next_check_at = now() + interval '1 hour' where status in ('paid', 'processing') and next_check_at <= now() and id <> $1`,
+      [r.data.orderId],
+    );
     await runScheduled(h.svc, (await import("./helpers")).env);
     const o = await h.call("GET", `/api/orders/${r.data.orderId}`, { token });
     expect(o.data.order.status).toBe("delivered");
@@ -242,7 +247,8 @@ describe("manual USDT transfers", () => {
   it("credits a verified transaction once and blocks reuse", async () => {
     const a = await h.login(tg(5));
     const b = await h.login(tg(6));
-    const hash = "0x" + Array.from({ length: 64 }, (_, i) => ((i + Date.now()) % 16).toString(16)).join("");
+    // Unique to this run: a reused test database remembers every hash already credited.
+    const hash = "0x" + (Date.now().toString(16) + crypto.randomUUID().replaceAll("-", "")).padEnd(64, "d").slice(0, 64);
     const pa = await h.call("POST", "/api/topups", { token: a, body: { method: "bep20", amountCents: 1000 } });
     expect(pa.data.action.type).toBe("address");
     expect((await h.call("GET", `/api/topups/${pa.data.paymentId}`, { token: a })).data.stage).toBe("await_hash");

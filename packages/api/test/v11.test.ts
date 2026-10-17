@@ -133,8 +133,10 @@ describe("channel posts", () => {
   it("announces a new product once, within the day's limit", async () => {
     await setting("channel.chat", "@ghtestchannel");
     await setting("channel.post_new", true);
-    await setting("channel.max_per_day", 50);
+    await setting("channel.max_per_day", 30);
     await db.query(`update app.channel_posts set status = 'skipped' where status = 'pending'`);
+    // Posts sent by earlier runs of a reused test database do not count against today's limit.
+    await db.query(`update app.channel_posts set sent_at = sent_at - interval '1 day' where status = 'sent' and sent_at > now() - interval '1 day'`);
     const p = (await db.query<{ id: string }>(
       `insert into app.products (slug, category_id, name_ar, name_en, kind, active, image_url) values ($1, (select id from app.categories where slug = 'games'), 'جديد', 'Brand New ${run}', 'code', true, 'https://img.example/new.png') returning id`,
       [`v11-new-${run}`],
