@@ -46,6 +46,58 @@ function shell(request: Request, env: WorkerEnv): Promise<Response> {
   return env.ASSETS.fetch(new Request(new URL("/", request.url)));
 }
 
+/** The plain app (no page head), with the page's security headers like every other answer. */
+function plainShell(page: Response): Response {
+  const out = withSecurityHeaders(page);
+  if ((out.headers.get("content-type") ?? "").includes("text/html")) out.headers.set("content-security-policy", PAGE_CSP);
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────── edge cache
+
+/**
+ * Busy public answers are kept for a minute in Cloudflare's cache (per data
+ * centre), so a crowd looking at the store does not cost one database round
+ * trip each. Only answers that are the same for everyone: they never read who
+ * is asking (no session, no cookie), and only a 200 without set-cookie.
+ */
+const EDGE_TTL_SECONDS = 60;
+/** The browser's own cache-control, kept beside the edge copy's. */
+const CLIENT_CACHE_HEADER = "x-store-client-cache-control";
+
+/** GET API answers that do not depend on who asks (catalogue, product, config, store pages). */
+function sharedApiAnswer(url: URL): boolean {
+  if (url.pathname === "/api/catalog") return !url.searchParams.has("q"); // searches vary too much to be worth it
+  return url.pathname === "/api/config" || /^\/api\/(products|pages)\/[^/]+$/.test(url.pathname);
+}
+
+function edgeCache(): Cache | null {
+  const c = (globalThis as { caches?: { default?: Cache } }).caches;
+  return c?.default ?? null;
+}
+
+/** The kept copy of `key`, or `make()`'s answer (kept for `ttl` seconds when it is a plain 200). */
+async function viaEdge(ctx: ExecutionContext, key: string, make: () => Promise<Response>, ttl = EDGE_TTL_SECONDS): Promise<Response> {
+  const cache = edgeCache();
+  if (!cache) return make();
+  const req = new Request(key, { method: "GET" });
+  const hit = await cache.match(req).catch(() => undefined);
+  if (hit) {
+    const out = new Response(hit.body, hit);
+    out.headers.set("cache-control", hit.headers.get(CLIENT_CACHE_HEADER) ?? "no-cache");
+    out.headers.delete(CLIENT_CACHE_HEADER);
+    return out;
+  }
+  const res = await make();
+  if (res.status === 200 && !res.headers.has("set-cookie")) {
+    const copy = new Response(res.clone().body, res);
+    copy.headers.set(CLIENT_CACHE_HEADER, res.headers.get("cache-control") ?? "no-cache");
+    copy.headers.set("cache-control", `public, max-age=${ttl}`);
+    ctx.waitUntil(cache.put(req, copy).catch(() => {}));
+  }
+  return res;
+}
+
 type HeadFor = (svc: Services, o: PageOpts) => Promise<PageHead | null>;
 
 /**
@@ -55,7 +107,14 @@ type HeadFor = (svc: Services, o: PageOpts) => Promise<PageHead | null>;
  */
 async function seoPage(request: Request, env: WorkerEnv, ctx: ExecutionContext, headFor: HeadFor): Promise<Response> {
   const page = await shell(request, env);
-  if (!page.ok || !(page.headers.get("content-type") ?? "").includes("text/html")) return page;
+  if (!page.ok || !(page.headers.get("content-type") ?? "").includes("text/html")) return plainShell(page);
+  // Kept a minute at the edge, per version of the app (its shell's ETag), so a deploy never serves pages of the old one.
+  const version = page.headers.get("etag");
+  if (request.method !== "GET" || !version) return renderSeoPage(request, env, ctx, headFor, page);
+  return viaEdge(ctx, `${request.url}${request.url.includes("?") ? "&" : "?"}__v=${encodeURIComponent(version)}`, () => renderSeoPage(request, env, ctx, headFor, page));
+}
+
+async function renderSeoPage(request: Request, env: WorkerEnv, ctx: ExecutionContext, headFor: HeadFor, page: Response): Promise<Response> {
   const { svc, finish } = createServices(env);
   try {
     const q = new URL(request.url).searchParams.get("lang");
@@ -68,7 +127,7 @@ async function seoPage(request: Request, env: WorkerEnv, ctx: ExecutionContext, 
       return { o, head: await headFor(svc, o) };
     };
     const r = await within(1500, work());
-    if (!r) return page;
+    if (!r) return plainShell(page);
     const headers = new Headers(page.headers);
     headers.delete("content-length");
     headers.delete("etag");
@@ -81,7 +140,7 @@ async function seoPage(request: Request, env: WorkerEnv, ctx: ExecutionContext, 
     return withSecurityHeaders(new Response(renderPage(await page.text(), r.head, r.o), { status: 200, headers }));
   } catch (err) {
     console.error("page head failed", err instanceof Error ? err.message : String(err));
-    return shell(request, env);
+    return plainShell(await shell(request, env));
   } finally {
     ctx.waitUntil(finish());
   }
@@ -124,21 +183,24 @@ export default {
       return Response.redirect(url.toString(), 301);
     }
     if (url.pathname.startsWith("/api/") || url.pathname === "/telegram/webhook") {
-      const { svc, ready, finish } = createServices(env);
-      try {
-        await ready();
-        const res =
-          url.pathname === "/telegram/webhook" && request.method === "POST"
-            ? await handleBotWebhook(request, env, svc)
-            : await handle(request, env, svc);
-        return withSecurityHeaders(res);
-      } finally {
-        ctx.waitUntil(finish());
-      }
+      const api = async () => {
+        const { svc, ready, finish } = createServices(env);
+        try {
+          await ready();
+          const res =
+            url.pathname === "/telegram/webhook" && request.method === "POST"
+              ? await handleBotWebhook(request, env, svc)
+              : await handle(request, env, svc);
+          return withSecurityHeaders(res);
+        } finally {
+          ctx.waitUntil(finish());
+        }
+      };
+      return request.method === "GET" && sharedApiAnswer(url) ? viaEdge(ctx, request.url, api) : api();
     }
     if (request.method === "GET" || request.method === "HEAD") {
-      if (url.pathname === "/robots.txt") return robots(env, ctx);
-      if (url.pathname === "/sitemap.xml") return sitemap(env, ctx);
+      if (url.pathname === "/robots.txt") return viaEdge(ctx, request.url, () => robots(env, ctx), 600);
+      if (url.pathname === "/sitemap.xml") return viaEdge(ctx, request.url, () => sitemap(env, ctx), 600);
       if (url.pathname === "/") return seoPage(request, env, ctx, (svc, o) => homeHead(svc, o));
       const product = PRODUCT_PATH.exec(url.pathname)?.[1];
       if (product) return seoPage(request, env, ctx, async (svc, o) => {

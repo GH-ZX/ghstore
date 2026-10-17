@@ -114,6 +114,32 @@ export async function saveBotUsername(db: Db, username: string | null): Promise<
 export const AUTO_BADGES = { newDays: 14, newCount: 6, bestDays: 30, bestCount: 3, bestMinOrders: 3 } as const;
 
 /**
+ * The month's best sellers move slowly but are counted from the orders: kept a
+ * few minutes per Worker instance, so busy catalogue views do not count them
+ * again each time (the switches above are still read every time).
+ */
+const BEST_SELLERS_TTL_MS = 5 * 60_000;
+let bestSellersMemo: { at: number; ids: string[] } | null = null;
+
+/** Forget the remembered best sellers (tests; after a change that must show at once). */
+export function forgetBestSellers(): void {
+  bestSellersMemo = null;
+}
+
+async function bestSellers(db: Db): Promise<string[]> {
+  if (bestSellersMemo && Date.now() - bestSellersMemo.at < BEST_SELLERS_TTL_MS) return bestSellersMemo.ids;
+  const rows = await db.query<{ product_id: string }>(
+    `select product_id from app.orders
+      where status = 'delivered' and created_at > now() - make_interval(days => $1)
+      group by product_id having count(*) >= $2
+      order by count(*) desc, max(created_at) desc limit $3`,
+    [AUTO_BADGES.bestDays, AUTO_BADGES.bestMinOrders, AUTO_BADGES.bestCount],
+  );
+  bestSellersMemo = { at: Date.now(), ids: rows.map((r) => r.product_id) };
+  return bestSellersMemo.ids;
+}
+
+/**
  * Products that earn an automatic badge right now, for products whose badge is
  * left on "automatic" (null): Best seller for the most sold lately, New for the
  * newest. Each can be switched off (badges.auto_best / badges.auto_new).
@@ -122,14 +148,7 @@ export async function autoBadges(db: Db): Promise<Map<string, "new" | "best">> {
   const s = await readSettings(db, ["badges.auto_new", "badges.auto_best"]);
   const out = new Map<string, "new" | "best">();
   if (s["badges.auto_best"] !== false) {
-    const best = await db.query<{ product_id: string }>(
-      `select product_id from app.orders
-        where status = 'delivered' and created_at > now() - make_interval(days => $1)
-        group by product_id having count(*) >= $2
-        order by count(*) desc, max(created_at) desc limit $3`,
-      [AUTO_BADGES.bestDays, AUTO_BADGES.bestMinOrders, AUTO_BADGES.bestCount],
-    );
-    for (const b of best) out.set(b.product_id, "best");
+    for (const id of await bestSellers(db)) out.set(id, "best");
   }
   if (s["badges.auto_new"] !== false) {
     const fresh = await db.query<{ id: string }>(
