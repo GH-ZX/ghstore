@@ -30,17 +30,23 @@ What protects money, codes and accounts, and what the owner must do.
   amount of the real USDT contract to the store address, was mined after the
   request, and has 20 confirmations. A hash can be used once in the whole store.
   So a public transaction hash cannot be claimed by someone else.
+  There are 100 tags per dollar amount, so a customer may hold at most **2**
+  waiting USDT requests at a time (a trigger on `app.payments`, migration 0032);
+  a few accounts cannot hold every tag for a popular amount.
 - Anything unusual (underpaid, overpaid, wrong payer, unreadable amount) goes to
   **review**; a person approves it with the amount actually received.
 
 ## Accounts and sessions
 
 - Mini App sign-in: Telegram `initData` HMAC checked with the bot token, at most
-  24 hours old. Website sign-in: the Supabase access token is checked with Supabase
+  **1 hour** old (initData works as a bearer login while it is accepted, and the
+  Mini App signs in right after opening). Website sign-in: the Supabase access token is checked with Supabase
   once, then exchanged for the store's own session.
 - Sessions are signed with `SESSION_SECRET` (not the bot token) and tied to a
   database row: logout, bans and role changes take effect immediately.
   Unknown or revoked sessions fail closed.
+- Every sign-in creates a session row; an account keeps at most 20 live
+  sessions per channel (web, Mini App), and signing in again ends the oldest.
 - Cookies are `HttpOnly; Secure; SameSite=Lax`. Requests that change something must
   come from the store's own origin or carry a bearer token (CSRF).
 - Roles: `customer`, `monitor` (looks at orders, top-ups and customers; changes
@@ -62,11 +68,32 @@ What protects money, codes and accounts, and what the owner must do.
   HTML-escaped. Broadcasts are plain text (no Telegram formatting).
 - Owners come only from `OWNER_TELEGRAM_IDS` or another owner.
 
+## Throttles
+
+`app.rate_limits` counts requests per key in fixed windows; `app.rate_limit_hit`
+(migration 0032, the Worker's only access to the table) counts and checks in one
+statement and deletes windows that are over now and then, so no job is needed.
+Over the limit, the API answers `429 rate_limited`. Limits live in
+`packages/api/src/ratelimit.ts`:
+
+| What | Key | Limit |
+| --- | --- | --- |
+| Sign-in (`/api/auth/telegram`, `/telegram-widget`, `/web`) | address (`CF-Connecting-IP`; IPv6 by /64) | 100 per 10 min |
+| Sign-in | Telegram id or website account | 30 per 10 min |
+| Coupon quotes | customer | 20 per 10 min (stops guessing codes) |
+| Problem reports | customer | 10 per hour |
+| Review saves | customer | 20 per hour |
+
+Without `CF-Connecting-IP` (local runs, tests) the per-address limit is skipped;
+the per-account ones still apply. `X-Forwarded-For` is never trusted.
+
 ## Delivered goods
 
 - Codes, accounts and links are encrypted at rest with AES-GCM (`DATA_KEY`),
-  including manual stock uploaded by the owner. They are decrypted only for the
-  order's owner.
+  including manual stock uploaded by the owner. Customers see them only on
+  their own orders.
+- Staff: admin order details mask delivered codes; revealing them is an
+  explicit action and is written to `app.audit_log`.
 - Users only ever see their own orders: ownership is part of every query, and a
   stranger's order is "not found".
 
@@ -91,7 +118,23 @@ What protects money, codes and accounts, and what the owner must do.
 
 - No secrets in git: `.env*` and `.dev.vars` are ignored; `.env.example` lists
   names only. Production secrets live in Cloudflare (`wrangler secret put`).
-- Supplier and provider errors are logged without keys (adapters mask them).
+- Supplier and provider errors are logged without keys (adapters mask them,
+  and also mask any `token=` / `secret=` / `key=` query value, in case a
+  provider echoes our callback URL back).
+- Payment and supplier keys can also be set in Admin → Settings → Keys
+  (encrypted with `DATA_KEY`, never shown again), and win over a Worker secret
+  of the same name. That includes `NOWPAYMENTS_IPN_SECRET`. The bot token,
+  `DATA_KEY`, `SESSION_SECRET`, `TELEGRAM_WEBHOOK_SECRET` and the SAM and
+  supplier webhook secrets are Worker secrets only.
+- **Webhook secrets in URLs.** SAM signs nothing, so its callback carries
+  `?token=<SAM_WEBHOOK_SECRET>`; G2Bulk callbacks carry `?token=` too. Suppliers
+  that can send a header (`X-Supplier-Webhook-Secret` / `X-Webhook-Secret`)
+  are checked by the header first. A secret in a URL appears in **Cloudflare's
+  request logs** (Workers Logs / Logpush, dashboard) and in the provider's own
+  records: treat access to those logs as access to the secret, and rotate the
+  secret if a log export leaks. The store's own logging never prints full
+  request URLs (errors are recorded by method and path only). NOWPayments
+  callbacks are signed (HMAC header) and carry no secret.
 
 ## Owner checklist
 

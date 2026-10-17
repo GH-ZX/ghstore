@@ -2,9 +2,12 @@
  * Payment and supplier keys set by the owner in Admin → Settings → Keys
  * (app.store_keys), on top of the Worker's own secrets.
  *
- * - Only the names below can be set. Webhook secrets, the store bot token, DATA_KEY
- *   and SESSION_SECRET stay Worker secrets: the store cannot sign anyone in, or
- *   read these values, without them.
+ * - Only the names below can be set. The store bot token, DATA_KEY, SESSION_SECRET,
+ *   TELEGRAM_WEBHOOK_SECRET and the SAM and supplier webhook secrets stay Worker
+ *   secrets: the store cannot sign anyone in, or read these values, without them.
+ *   NOWPAYMENTS_IPN_SECRET is the exception: it can be set here too, so an owner
+ *   with Admin → Keys can change how NOWPayments callbacks are checked (they are
+ *   still only wake-ups: the payment is re-read from NOWPayments before crediting).
  * - Values are AES-GCM encrypted with DATA_KEY, bound to their name, and never
  *   sent back to the browser; the admin sees only whether a key is set and its
  *   last four characters.

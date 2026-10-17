@@ -227,13 +227,20 @@ export function retryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
-/** Remove every given secret from a provider-supplied string before it is quoted in an error. */
+/** URL query values that carry a secret (our callback URLs hold `?token=`). */
+const SECRET_QUERY = /([?&](?:token|secret|key|api_key|apikey|signature|sig)=)[^&#\s"'<>]+/gi;
+
+/**
+ * Remove every given secret from a provider-supplied string before it is quoted
+ * in an error, and any secret-looking query value (a provider echoing our
+ * callback URL back would otherwise put its token in our logs).
+ */
 export function redact(value: string, secrets: Array<string | undefined>): string {
   let out = value;
   for (const secret of secrets) {
     if (secret && secret.length >= 4) out = out.split(secret).join("[redacted]");
   }
-  return out;
+  return out.replace(SECRET_QUERY, "$1[redacted]");
 }
 
 /** The human-readable message a provider put in an error body, if any. */
