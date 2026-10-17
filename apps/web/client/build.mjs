@@ -10,6 +10,7 @@
 import { build, transform } from "esbuild";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,7 +82,7 @@ for (const f of ["favicon.svg", "icon-192.png", "icon-512.png", "apple-touch-ico
 // Load store.config.ts and the theme code (TypeScript) by bundling them for Node.
 const meta = await build({
   stdin: {
-    contents: `export { store } from ${JSON.stringify(join(root, "store.config.ts"))}; export { themeCss, googleFontsHref } from ${JSON.stringify(join(root, "packages", "ui", "src", "index.ts"))}; export { splashHtml } from ${JSON.stringify(join(here, "src", "ui", "logo.ts"))};`,
+    contents: `export { store } from ${JSON.stringify(join(root, "store.config.ts"))}; export { themeCss, googleFontsHref } from ${JSON.stringify(join(root, "packages", "ui", "src", "index.ts"))}; export { splashHtml } from ${JSON.stringify(join(here, "src", "ui", "logo.ts"))}; export { BRANDS } from ${JSON.stringify(join(root, "packages", "core", "src", "art.ts"))};`,
     resolveDir: root,
     loader: "ts",
   },
@@ -91,7 +92,7 @@ const meta = await build({
   platform: "node",
   logLevel: "warning",
 });
-const { store, themeCss, googleFontsHref, splashHtml } = await import(`data:text/javascript;base64,${Buffer.from(meta.outputFiles[0].contents).toString("base64")}`);
+const { store, themeCss, googleFontsHref, splashHtml, BRANDS } = await import(`data:text/javascript;base64,${Buffer.from(meta.outputFiles[0].contents).toString("base64")}`);
 
 const attr = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 // Replacer functions keep "$" in names or taglines literal.
@@ -135,6 +136,12 @@ await copyFile(join(here, "public", "_headers"), join(out, "_headers"));
 await copyFile(join(here, "public", "sw.js"), join(out, "sw.js"));
 // Static pictures: payment providers' logos (pay/, ShamCash) and promo pictures (promo/, the Numbers slide).
 for (const dir of ["pay", "promo", "services"]) await cp(join(here, "public", dir), join(out, dir), { recursive: true });
+// Brand marks for products without a picture (packages/core art.ts): only the
+// store's own list, copied from simple-icons (CC0) into /brands. Nothing is
+// fetched at runtime and none of it goes into the JavaScript.
+const requireWeb = createRequire(join(here, "..", "package.json"));
+await mkdir(join(out, "brands"), { recursive: true });
+for (const b of BRANDS) await copyFile(requireWeb.resolve(`simple-icons/icons/${b.slug}.svg`), join(out, "brands", `${b.slug}.svg`));
 
 // The deployed version, for the after-deploy check (.github/workflows/after-deploy.yml).
 const version = process.env.WORKERS_CI_COMMIT_SHA || process.env.GITHUB_SHA || (() => {

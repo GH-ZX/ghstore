@@ -16,7 +16,8 @@ import { haptic, openTelegramLink } from "../lib/telegram";
 import { invalidate, useApi } from "../lib/useApi";
 import type { CouponQuote, Favorites, InputField, Offer, ProductDetail } from "../lib/types";
 import { BellIcon, CheckIcon, ChevronIcon, CloseIcon, HeartIcon, SearchIcon, ShareIcon, ShieldIcon } from "../ui/icons";
-import { ErrorBox, Sheet, Spinner, Tile } from "../ui/kit";
+import { ErrorBox, Sheet, Spinner } from "../ui/kit";
+import { ProductArt } from "../ui/ProductArt";
 import { ProductReviews, Stars } from "./Reviews";
 
 interface Placed {
@@ -322,7 +323,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
     >
       {!data && !error && (
         <div className="stack">
-          <div className="skeleton product-tile" />
+          <div className="skeleton product-hero" />
           <div className="skeleton" style={{ height: 28, width: "60%" }} />
           <div className="skeleton" style={{ height: 50 }} />
           <div className="skeleton" style={{ height: 50 }} />
@@ -331,7 +332,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
       <ErrorBox error={error} onRetry={reload} />
       {data && offer && (
         <>
-          <Tile name={data.product.nameEn} imageUrl={data.product.imageUrl} className="product-tile" width={720} />
+          <ProductArt name={data.product.nameEn} nameAr={data.product.nameAr} imageUrl={data.product.imageUrl} coverUrl={data.product.coverUrl} className="product-hero" width={1080} eager />
           <h2>{name}</h2>
           <div className="row-between">
             <span className="wrap" style={{ gap: 8, alignItems: "baseline" }}>
@@ -476,6 +477,24 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
             </div>
           )}
 
+          {pick(lang, data.product.descriptionAr, data.product.descriptionEn) ? (
+            <div className="prose">{pick(lang, data.product.descriptionAr, data.product.descriptionEn)}</div>
+          ) : (
+            <div className="stack-sm">
+              <span className="small" style={{ fontWeight: 600 }}>
+                {t("included")}
+              </span>
+              {(["f1", "f2", "f3"] as const).map((k) => (
+                <span key={k} className="wrap" style={{ fontSize: 14 }}>
+                  <span className="good">
+                    <CheckIcon />
+                  </span>
+                  {data.product.byHand && k === "f1" ? t("f1Hand") : t(k)}
+                </span>
+              ))}
+            </div>
+          )}
+          {/* The coupon comes after the description: read first, then a code if you have one. */}
           {me && !soldOut && (
             <div className="stack-sm">
               {coupon ? (
@@ -523,24 +542,6 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
                 </button>
               )}
               {couponErr && <span className="error-text">{couponErr}</span>}
-            </div>
-          )}
-
-          {pick(lang, data.product.descriptionAr, data.product.descriptionEn) ? (
-            <div className="prose">{pick(lang, data.product.descriptionAr, data.product.descriptionEn)}</div>
-          ) : (
-            <div className="stack-sm">
-              <span className="small" style={{ fontWeight: 600 }}>
-                {t("included")}
-              </span>
-              {(["f1", "f2", "f3"] as const).map((k) => (
-                <span key={k} className="wrap" style={{ fontSize: 14 }}>
-                  <span className="good">
-                    <CheckIcon />
-                  </span>
-                  {data.product.byHand && k === "f1" ? t("f1Hand") : t(k)}
-                </span>
-              ))}
             </div>
           )}
           {pick(lang, data.product.instructionsAr, data.product.instructionsEn) && (

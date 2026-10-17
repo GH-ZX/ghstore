@@ -18,6 +18,7 @@ import type { OrderDetail, OrderRow, OrderStatus } from "../lib/types";
 import { askConfirm } from "../ui/Confirm";
 import { CheckIcon, ChevronIcon } from "../ui/icons";
 import { Empty, ErrorBox, Spinner } from "../ui/kit";
+import { ProductArt } from "../ui/ProductArt";
 import { Shell } from "../ui/Shell";
 
 export const STATUS_COLOR: Record<OrderStatus, string> = {
@@ -70,7 +71,10 @@ function OrderList() {
         <div className="list">
           {rows.map((o) => (
             <a key={o.id} className="list-row" href={`/orders/${o.id}`} onClick={linkHandler(`/orders/${o.id}`)}>
-              <span className="dot" style={{ background: STATUS_COLOR[o.status] }} />
+              <span className="order-pic">
+                <ProductArt name={o.productEn} nameAr={o.productAr} imageUrl={o.imageUrl} className="order-pic__art" width={120} />
+                <span className="dot" style={{ background: STATUS_COLOR[o.status] }} />
+              </span>
               <span className="list-row__main">
                 <span className="list-row__title">{pick(lang, o.productAr, o.productEn)}</span>
                 <span className="list-row__meta">

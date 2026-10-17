@@ -34,15 +34,6 @@ export function hashText(text: string): number {
   return h >>> 0;
 }
 
-/** Two letters for a product tile when it has no image: "PUBG Mobile UC" → "PU". */
-export function monogram(name: string): string {
-  const words = name.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return "•";
-  const latin = words.find((w) => /^[A-Za-z0-9]/.test(w));
-  const w = latin ?? words[0]!;
-  return w.slice(0, w.length <= 3 && w === w.toUpperCase() ? 3 : 2).toUpperCase();
-}
-
 /** Arabic-Indic and Persian digits (common on Arabic keyboards) to 0-9; Arabic decimal sign to ".". */
 export function toLatinDigits(input: string): string {
   return input

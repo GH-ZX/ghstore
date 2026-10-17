@@ -9,7 +9,7 @@ import { useT } from "../lib/state";
 import type { Category, ProductCard } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { BoltIcon, MethodMark, WalletIcon } from "../ui/icons";
-import { Tile } from "../ui/kit";
+import { ProductArt } from "../ui/ProductArt";
 
 /**
  * Products with a real picture, one category after another (games, AI, gift
@@ -87,7 +87,7 @@ const Rows = memo(function Rows({ rows }: { rows: ProductCard[][] }) {
         <div key={r} className={`login__row login__row--${r}`}>
           <div className="login__track">
             {[...row, ...row].map((p, i) => (
-              <Tile key={i} name={p.nameEn} imageUrl={p.imageUrl} className="login__tile" />
+              <ProductArt key={i} name={p.nameEn} imageUrl={p.imageUrl} className="login__tile" />
             ))}
           </div>
         </div>
@@ -110,7 +110,7 @@ function NowCard({ mix, categories }: { mix: ProductCard[]; categories: Category
   const cat = categories?.find((c) => c.slug === cur.category);
   return (
     <div className="login__now" key={at}>
-      <Tile name={cur.nameEn} imageUrl={cur.imageUrl} className="login__now-tile" />
+      <ProductArt name={cur.nameEn} imageUrl={cur.imageUrl} className="login__now-tile" />
       <span className="login__now-text">
         {cat && <span className="login__now-cat">{pick(lang, cat.nameAr, cat.nameEn)}</span>}
         <b>{pick(lang, cur.nameAr, cur.nameEn)}</b>

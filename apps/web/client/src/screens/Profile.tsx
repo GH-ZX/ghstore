@@ -14,7 +14,8 @@ import { openExternal, openTelegramLink } from "../lib/telegram";
 import type { Favorites, Referral } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { ChevronIcon, ContactMark, GiftIcon, HeartIcon, WalletIcon } from "../ui/icons";
-import { Seg, Sheet, Switch, Tile, Spinner } from "../ui/kit";
+import { Seg, Sheet, Switch, Spinner } from "../ui/kit";
+import { ProductArt } from "../ui/ProductArt";
 import { SiteFooter } from "../ui/Footer";
 import { AdminLink, Shell } from "../ui/Shell";
 import { EmailCode } from "./EmailLogin";
@@ -434,7 +435,7 @@ function FavoritesCard() {
             const to = `/p/${p.slug}`;
             return (
               <a key={p.id} href={to} onClick={linkHandler(to)} className="fav-item press">
-                <Tile name={p.nameEn} imageUrl={p.imageUrl} className="fav-item__pic" />
+                <ProductArt name={p.nameEn} nameAr={p.nameAr} imageUrl={p.imageUrl} className="fav-item__pic" />
                 <span className="fav-item__name">{pick(lang, p.nameAr, p.nameEn)}</span>
                 <span className={p.fromCents === null ? "small bad" : "small num fav-item__price"}>
                   {p.fromCents === null ? t("soldOut") : `${t("from")} ${usd(p.fromCents)}`}
