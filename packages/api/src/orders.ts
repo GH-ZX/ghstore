@@ -17,12 +17,11 @@ import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { alertNewOrder, alertStaff } from "./notify";
 import { couponCode } from "./promo";
 import { readSettings } from "./settings";
+import { settingValue } from "./settings-registry";
 import { SUPPLIER_ON } from "./sql-fragments";
 import { store } from "@store/config";
 
 const CHANNELS = new Set(["web", "miniapp", "bot"]);
-/** "Try another number" in a row, unless Admin → Settings says otherwise. */
-const DEFAULT_MAX_RETRIES = 5;
 
 export async function placeOrder(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
@@ -252,8 +251,7 @@ export async function closeNumber(ctx: Ctx): Promise<Response> {
   if (body.again !== true) return json({ closed: true });
   // At most `numbers.max_retries` numbers of the same package in a row (half an hour), so a
   // country that delivers nothing does not burn through the wallet: then try another country.
-  const limit = await readSettings(ctx.svc.db, ["numbers.max_retries"]);
-  const max = typeof limit["numbers.max_retries"] === "number" ? (limit["numbers.max_retries"] as number) : DEFAULT_MAX_RETRIES;
+  const max = settingValue(await readSettings(ctx.svc.db, ["numbers.max_retries"]), "numbers.max_retries");
   const tries = await one<{ n: string | number }>(
     ctx.svc.db,
     `select count(*) as n from app.orders where user_id = $1 and offer_id = $2 and idempotency_key like 'again-%' and created_at > now() - interval '30 minutes'`,

@@ -8,6 +8,7 @@ import { json } from "./http";
 import { footerPages } from "./pages";
 import { availableMethods } from "./payments";
 import { botUsername, channelUrl, starsPerUsd, supportContacts, topupLimits } from "./settings";
+import { settingValue } from "./settings-registry";
 
 const LOGIN_METHODS = ["telegram", "email", "google"] as const;
 export type LoginMethod = (typeof LOGIN_METHODS)[number];
@@ -27,7 +28,7 @@ function loginMethods(ctx: Ctx, s: Record<string, unknown>): LoginMethod[] {
   const supabaseReady = typeof ctx.env.SUPABASE_URL === "string" && typeof ctx.env.SUPABASE_PUBLISHABLE_KEY === "string" && !!ctx.env.SUPABASE_PUBLISHABLE_KEY;
   // WEB_LOGIN_METHODS lists what this deployment may offer; Admin → Settings switches email and Google on or off.
   const wanted = String(ctx.env.WEB_LOGIN_METHODS ?? "telegram,email").split(",").map((m) => m.trim());
-  const switchedOn = (m: LoginMethod) => m === "telegram" || (m === "email" ? s["login.email"] !== false : s["login.google"] === true);
+  const switchedOn = (m: LoginMethod) => m === "telegram" || (m === "email" ? settingValue(s, "login.email") : settingValue(s, "login.google"));
   return LOGIN_METHODS.filter((m): m is LoginMethod => wanted.includes(m) && switchedOn(m) && (m === "telegram" || supabaseReady));
 }
 
@@ -40,8 +41,8 @@ export async function publicConfig(ctx: Ctx): Promise<Response> {
   const login = loginMethods(ctx, s);
   return json(
     {
-      theme: { preset: s["theme.preset"] ?? "energetic", defaultMode: s["theme.default_mode"] ?? "system" },
-      sypPerUsd: typeof s["fx.syp_per_usd"] === "number" ? s["fx.syp_per_usd"] : null,
+      theme: { preset: settingValue(s, "theme.preset"), defaultMode: settingValue(s, "theme.default_mode") },
+      sypPerUsd: settingValue(s, "fx.syp_per_usd"),
       payments: {
         methods: await availableMethods(ctx.env, ctx.svc),
         ...(await topupLimits(ctx.svc.db)),
@@ -55,11 +56,11 @@ export async function publicConfig(ctx: Ctx): Promise<Response> {
       // The store's pages linked at the bottom (terms, privacy, refund…).
       pages: await footerPages(ctx.svc.db),
       // Cloudflare Web Analytics (no cookies), when the owner set its token.
-      analytics: { cfBeacon: typeof s["analytics.cf_token"] === "string" ? s["analytics.cf_token"] : null },
+      analytics: { cfBeacon: settingValue(s, "analytics.cf_token") },
       // Product pictures resized by Cloudflare (Admin → Settings), when its Transformations are on.
-      images: { resize: s["images.resize"] === true },
+      images: { resize: settingValue(s, "images.resize") },
       // Browser notifications (Admin → Settings): the Profile switch shows only when they are on.
-      push: { enabled: s["push.enabled"] === true },
+      push: { enabled: settingValue(s, "push.enabled") },
       supabase: supabaseReady ? { url: ctx.env.SUPABASE_URL, key: ctx.env.SUPABASE_PUBLISHABLE_KEY } : null,
     },
     { headers: { "cache-control": "public, max-age=60" } },

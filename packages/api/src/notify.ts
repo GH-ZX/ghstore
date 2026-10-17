@@ -10,6 +10,7 @@ import { n } from "./db";
 import { EMAIL_INSTEAD, emailReady, emailSettings, RECEIPT_TEMPLATES, renderReceipt, sendEmail } from "./email";
 import { effectiveEnv } from "./keys";
 import { botUsername, readSettings, supportContacts } from "./settings";
+import { settingValue } from "./settings-registry";
 import { PUSH_MAX_BROWSERS, pushToUser, vapidKeys, type Vapid } from "./push";
 import { summaryText, type DaySummary } from "./reports";
 
@@ -109,7 +110,7 @@ export function renderTemplate(template: string, locale: "ar" | "en", data: Data
 
 /** Browser notifications are off until the owner turns them on (Admin → Settings: push.enabled). */
 export async function pushEnabled(db: Services["db"]): Promise<boolean> {
-  return (await readSettings(db, ["push.enabled"]))["push.enabled"] === true;
+  return settingValue(await readSettings(db, ["push.enabled"]), "push.enabled");
 }
 
 /**

@@ -11,6 +11,7 @@ import type { Ctx } from "./context";
 import { n, one } from "./db";
 import { requireStaff } from "./guard";
 import { ApiError } from "./http";
+import { settingValue } from "./settings-registry";
 
 export const TIME_ZONE: string = store.timeZone;
 
@@ -122,8 +123,8 @@ export async function queueDailySummary(svc: Services): Promise<boolean> {
     `select key, value from app.settings where key in ('reports.daily', 'reports.daily_hour')`,
   );
   const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  if (s["reports.daily"] === false) return false;
-  const hour = typeof s["reports.daily_hour"] === "number" ? s["reports.daily_hour"] : 9;
+  if (!settingValue(s, "reports.daily")) return false;
+  const hour = settingValue(s, "reports.daily_hour");
   const now = localNow(svc.now());
   if (now.hour !== hour) return false;
   return svc.db.tx(async (db) => {

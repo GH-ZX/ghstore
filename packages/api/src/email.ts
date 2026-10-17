@@ -14,14 +14,12 @@ import type { ApiEnv, Services } from "./context";
 import { n, one, type Db } from "./db";
 import { ApiError } from "./http";
 import { effectiveEnv } from "./keys";
+import { settingValue } from "./settings-registry";
 
 /** Telegram templates that also go out as an email receipt. */
 export const RECEIPT_TEMPLATES = new Set(["order_delivered", "order_refunded", "payment_credited"]);
 /** Messages a website customer (no Telegram) gets by email instead. */
 export const EMAIL_INSTEAD = new Set(["order_needs_info", "back_in_stock", "problem_reply", "review_ask", "level_up"]);
-
-/** "Name <address@domain>" or a bare address. */
-export const EMAIL_FROM = /^(?:[^<>\r\n"]{1,60} <[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}>|[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24})$/;
 
 export interface EmailSettings {
   on: boolean;
@@ -32,9 +30,9 @@ export interface EmailSettings {
 export async function emailSettings(env: ApiEnv, db: Db): Promise<EmailSettings> {
   const rows = await db.query<{ key: string; value: unknown }>(`select key, value from app.settings where key in ('email.receipts', 'email.from')`);
   const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  const from = typeof s["email.from"] === "string" && EMAIL_FROM.test(s["email.from"]) ? s["email.from"] : null;
+  const from = settingValue(s, "email.from");
   const key = (await effectiveEnv(env, db)).RESEND_API_KEY;
-  return { on: s["email.receipts"] !== false, from, apiKey: typeof key === "string" && key ? key : null };
+  return { on: settingValue(s, "email.receipts"), from, apiKey: typeof key === "string" && key ? key : null };
 }
 
 /** Ready to send: switched on, a sender address and an API key. */

@@ -13,10 +13,9 @@ import { n, one, type Db } from "./db";
 import { requireStaff } from "./guard";
 import { ApiError, json } from "./http";
 import { botUsername, channelUrl, readSettings } from "./settings";
+import { settingValue } from "./settings-registry";
 import { ON_SALE } from "./sql-fragments";
 
-/** A public channel's @name, or a numeric chat id (-100…). */
-export const CHANNEL_CHAT = /^(@[A-Za-z][A-Za-z0-9_]{4,31}|-100\d{6,15})$/;
 /** A price at least this much lower is announced. */
 const DROP_RATIO = 0.9;
 /** Pending posts older than this are dropped (old news). */
@@ -32,20 +31,19 @@ export interface ChannelSettings {
 
 export async function channelSettings(db: Db): Promise<ChannelSettings> {
   const s = await readSettings(db, ["channel.chat", "channel.post_new", "channel.post_back", "channel.post_drops", "channel.max_per_day"]);
-  let chat = typeof s["channel.chat"] === "string" && CHANNEL_CHAT.test(s["channel.chat"]) ? s["channel.chat"] : null;
+  let chat = settingValue(s, "channel.chat");
   // No chat set: the store's public channel (t.me/name) from Admin → Settings.
   if (!chat) {
     const url = await channelUrl(db);
     const name = url ? /^https:\/\/t\.me\/([A-Za-z][A-Za-z0-9_]{4,31})$/.exec(url)?.[1] : null;
     chat = name ? `@${name}` : null;
   }
-  const max = s["channel.max_per_day"];
   return {
     chat,
-    postNew: s["channel.post_new"] === true,
-    postBack: s["channel.post_back"] === true,
-    postDrops: s["channel.post_drops"] === true,
-    maxPerDay: typeof max === "number" && Number.isInteger(max) && max >= 1 && max <= 30 ? max : 6,
+    postNew: settingValue(s, "channel.post_new"),
+    postBack: settingValue(s, "channel.post_back"),
+    postDrops: settingValue(s, "channel.post_drops"),
+    maxPerDay: settingValue(s, "channel.max_per_day"),
   };
 }
 

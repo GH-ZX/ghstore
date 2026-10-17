@@ -14,6 +14,7 @@ import { n, one, type Db } from "./db";
 import { liveBanners } from "./home";
 import { allPages, publishedPage } from "./pages";
 import { channelUrl, readSettings, showcaseSettings } from "./settings";
+import { settingValue } from "./settings-registry";
 import { ON_SALE } from "./sql-fragments";
 
 type Locale = "ar" | "en";
@@ -70,7 +71,7 @@ export const SEO_KEYS = [
 
 export async function seoSettings(db: Db): Promise<SeoSettings> {
   const s = await readSettings(db, [...SEO_KEYS]);
-  const text = (k: string) => (typeof s[k] === "string" && (s[k] as string).trim() ? (s[k] as string).trim() : null);
+  const text = (k: Exclude<(typeof SEO_KEYS)[number], "seo.indexing">) => settingValue(s, k)?.trim() ?? null;
   const image = text("seo.image_url");
   return {
     titleAr: text("seo.title_ar"),
@@ -80,7 +81,7 @@ export async function seoSettings(db: Db): Promise<SeoSettings> {
     imageUrl: image && /^https:\/\/\S{4,}$/.test(image) ? image : null,
     google: text("seo.google_verification"),
     bing: text("seo.bing_verification"),
-    indexing: s["seo.indexing"] !== false,
+    indexing: settingValue(s, "seo.indexing"),
   };
 }
 
@@ -190,7 +191,7 @@ export async function firstSlidePicture(db: Db): Promise<string | null> {
 /** Admin → Settings → Smaller pictures (Cloudflare resizing for pictures hosted elsewhere). */
 async function pictureOptions(db: Db): Promise<PictureOptions> {
   const s = await readSettings(db, ["images.resize"]);
-  return { cloudflare: s["images.resize"] === true };
+  return { cloudflare: settingValue(s, "images.resize") };
 }
 
 /** The preloads of the home showcase's first picture (none when unknown or on error). */
