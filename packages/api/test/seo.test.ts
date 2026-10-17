@@ -1,6 +1,6 @@
 /** Link previews (product pages), sitemap and robots. */
 import { afterAll, describe, expect, it } from "vitest";
-import { categoryHead, homeHead, legalHead, productMeta, renderPage, renderProductPage, robotsTxt, sitemapXml } from "../src/index";
+import { categoryHead, homeHead, legalHead, llmsTxt, productMeta, renderPage, renderProductPage, robotsTxt, sitemapXml } from "../src/index";
 import { publishedPage } from "../src/pages";
 import { docHtml, slidePreloads } from "../src/seo";
 import { connectTestDb } from "./helpers";
@@ -161,6 +161,18 @@ describe("store pages and search engines", () => {
     const cat = await categoryHead({ db }, "games", { ...o, locale: "ar" });
     expect(cat?.title).toMatch(/ \| GH Store$/);
     expect(await categoryHead({ db }, `nope-${run}`, o)).toBeNull();
+  });
+
+  it("describes the store for AI assistants in llms.txt, with a link per category and product", async () => {
+    const text = await llmsTxt({ db }, "https://gh-store.me", "ar");
+    expect(text).not.toBeNull();
+    expect(text!.startsWith("# GH Store\n")).toBe(true);
+    expect(text).toMatch(/^> .+/m);
+    expect(text).toContain("## Categories");
+    expect(text).toMatch(/- \[[^\]]+\]\(https:\/\/gh-store\.me\/c\/[a-z0-9-]+\?lang=en\): \d+ products?/);
+    expect(text).toMatch(/- \[[^\]]+\]\(https:\/\/gh-store\.me\/p\/[a-z0-9-]+\?lang=en\): from \$\d+\.\d\d/);
+    expect(text).toContain("](https://gh-store.me/legal/terms?lang=en)");
+    expect(text).toContain("[Sitemap](https://gh-store.me/sitemap.xml)");
   });
 
   it("lists categories, pages and the English versions in the sitemap; robots follows the switch", async () => {

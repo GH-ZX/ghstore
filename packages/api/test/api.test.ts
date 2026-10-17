@@ -86,12 +86,18 @@ describe("auth", () => {
     const bad = await h.call("POST", "/api/auth/telegram", { body: { initData: "user=%7B%22id%22%3A1%7D&auth_date=1&hash=" + "0".repeat(64) } });
     expect(bad.status).toBe(401);
     expect((await h.call("GET", "/api/me")).status).toBe(401);
+    // The web app's start-up check: a visitor is "nobody", not an error.
+    const guest = await h.call("GET", "/api/me?guest=ok");
+    expect(guest.status).toBe(200);
+    expect(guest.data).toEqual({ user: null });
+    expect((await h.call("GET", "/api/me?guest=ok", { token })).data.user.id).toBe(me.data.user.id);
   });
 
   it("revoked sessions stop working", async () => {
     const token = await h.login(tg(2));
     expect((await h.call("POST", "/api/auth/logout", { token })).status).toBe(200);
     expect((await h.call("GET", "/api/me", { token })).status).toBe(401);
+    expect((await h.call("GET", "/api/me?guest=ok", { token })).data).toEqual({ user: null });
   });
 
   it("refuses cross-site writes without a bearer token", async () => {

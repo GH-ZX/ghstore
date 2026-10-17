@@ -1310,7 +1310,7 @@ textarea.input { padding: 10px 14px; min-height: 0; resize: vertical; line-heigh
 .site-footer__links { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; }
 .site-footer__links a { color: var(--muted); font-size: 13px; font-weight: 600; text-decoration: none; }
 .site-footer__links a:hover { color: var(--accent-text); }
-.site-footer__copy { font-size: 12px; color: var(--muted); opacity: .8; margin: 0; }
+.site-footer__copy { font-size: 12px; color: var(--muted); margin: 0; }
 .login__agree { text-align: center; line-height: 1.7; }
 .login__agree a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
 
