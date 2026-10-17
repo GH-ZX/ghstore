@@ -216,7 +216,10 @@ describe("a supplier's delivery checked before release", () => {
     expect(o.data.deliveries).toEqual([]);
 
     const detail = await h.call("GET", `/api/admin/orders/${r.data.orderId}`, { token: owner });
-    expect(detail.data.deliveries.map((d: { value: string }) => d.value)).toEqual(["supplier:acc"]);
+    // Hidden in the order's view; "Show" reveals it, and the look is audit logged.
+    expect(detail.data.deliveries.map((d: { value: string | null; masked: boolean }) => [d.value, d.masked])).toEqual([[null, true]]);
+    const shown = await h.call("POST", `/api/admin/orders/${r.data.orderId}/reveal`, { token: owner, body: { deliveryId: detail.data.deliveries[0].id } });
+    expect(shown.data.deliveries.map((d: { value: string }) => d.value)).toEqual(["supplier:acc"]);
     expect((await h.call("POST", `/api/admin/orders/${r.data.orderId}/deliver`, { token: owner, body: {} })).status).toBe(200);
     o = await h.call("GET", `/api/orders/${r.data.orderId}`, { token: customer });
     expect(o.data.order.status).toBe("delivered");
