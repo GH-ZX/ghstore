@@ -12,7 +12,10 @@ import { toLatinDigits } from "../lib/format";
 import { errorText } from "../lib/i18n";
 import { navigate, useQuery } from "../lib/router";
 import { refreshMe, toast, useApp, useT } from "../lib/state";
-import { ErrorBox, Logo, Spinner, Toast } from "../ui/kit";
+import type { ProductCard } from "../lib/types";
+import { useApi } from "../lib/useApi";
+import { ContactMark, ShieldIcon } from "../ui/icons";
+import { ErrorBox, Logo, Spinner, Tile, Toast } from "../ui/kit";
 
 /** Shows children only to a signed-in user; otherwise sends website visitors to sign in. */
 export function RequireUser({ children }: { children: ReactNode }) {
@@ -284,12 +287,10 @@ export function Login() {
   if (pending) {
     const who = pending.fields.username ? `@${pending.fields.username}` : [pending.fields.first_name, pending.fields.last_name].filter(Boolean).join(" ");
     return (
-      <div className="login">
-        <div className="card login__card screen">
+      <LoginFrame>
           <div className="login__brand">
-            <Logo height={40} />
             <h1>{t("linkTitle")}</h1>
-            <p>{t("linkConfirm", { name: who || "Telegram" })}</p>
+            <p className="muted">{t("linkConfirm", { name: who || "Telegram" })}</p>
           </div>
           <button type="button" className="btn btn--block press" disabled={busy} onClick={confirmTelegram}>
             {busy ? <Spinner small /> : t("linkConfirmBtn")}
@@ -297,18 +298,12 @@ export function Login() {
           <button type="button" className="btn btn--block btn--ghost press" disabled={busy} onClick={() => { setPending(null); navigate(next, { replace: true }); }}>
             {t("cancel")}
           </button>
-        </div>
-        <Toast />
-      </div>
+      </LoginFrame>
     );
   }
   return (
-    <div className="login">
-      <div className="card login__card screen">
+    <LoginFrame back={{ href: linking ? next : "/", label: linking ? t("back") : t("backToStoreShort") }}>
         <div className="login__brand">
-          <a href="/" aria-label={store.name}>
-            <Logo height={40} />
-          </a>
           <h1>{linking ? t("linkTitle") : t("signInTitle", { name: store.name })}</h1>
           <p className="muted">{linking ? t("linkText") : t("signInText")}</p>
         </div>
@@ -317,17 +312,14 @@ export function Login() {
             <Spinner small />
           </div>
         )}
-        {methods.includes("telegram") && (
-          <>
-            <div className="tg-widget" ref={widget} aria-label={t("withTelegram")} />
-            {!linking && (
-              <a className="btn btn--block btn--soft press" href={`https://t.me/${bot}`} target="_blank" rel="noopener">
-                {t("orOpenBot")}
-              </a>
-            )}
-          </>
+        {methods.includes("telegram") && <div className="tg-widget" ref={widget} aria-label={t("withTelegram")} />}
+        {methods.includes("google") && sb && (
+          <button type="button" className="btn btn--block login-btn login-btn--google press" onClick={google}>
+            <GoogleMark />
+            {t("withGoogle")}
+          </button>
         )}
-        {methods.includes("telegram") && hasWeb && sb && <div className="divider">{t("or")}</div>}
+        {(methods.includes("telegram") || methods.includes("google")) && methods.includes("email") && sb && <div className="divider">{t("orEmail")}</div>}
         {methods.includes("email") && sb && (
           <EmailCode
             onToken={(token) =>
@@ -337,25 +329,79 @@ export function Login() {
             }
           />
         )}
-        {methods.includes("google") && sb && (
-          <button type="button" className="btn btn--block btn--ghost press" onClick={google}>
-            {t("withGoogle")}
-          </button>
-        )}
         {linking && methods.length === 0 && <p className="small muted">{t("allLinked")}</p>}
-        <a
-          className="small"
-          href={linking ? next : "/"}
-          style={{ textAlign: "center" }}
-          onClick={(e) => {
-            e.preventDefault();
-            navigate(linking ? next : "/");
-          }}
-        >
-          {linking ? t("back") : t("backToStoreShort")}
-        </a>
-      </div>
+        {methods.includes("telegram") && !linking && (
+          <a className="login__bot press" href={`https://t.me/${bot}`} target="_blank" rel="noopener">
+            <ContactMark kind="telegram" size={30} />
+            <span>{t("orOpenBot")}</span>
+          </a>
+        )}
+    </LoginFrame>
+  );
+}
+
+/**
+ * The sign-in page: the form on one half (the left on a computer, whatever the
+ * language), the store's look on the other: its products' pictures and what it
+ * offers. On a phone the pictures make a short band above the form.
+ */
+function LoginFrame({ back, children }: { back?: { href: string; label: string }; children: ReactNode }) {
+  const { t, lang } = useT();
+  const { data } = useApi<{ products: ProductCard[] }>("/api/catalog");
+  // Real pictures first (not plain brand logos), featured ones first.
+  const pics = (data?.products ?? [])
+    .filter((p) => p.imageUrl && !/simpleicons|favicons|\.svg(\?|$)/i.test(p.imageUrl))
+    .sort((a, b) => Number(b.featured) - Number(a.featured))
+    .slice(0, 6);
+  const dir = lang === "ar" ? "rtl" : "ltr";
+  return (
+    <div className="login" dir="ltr">
+      <main className="login__pane" dir={dir}>
+        <div className="login__card screen">
+          <div className="login__top">
+            <a href="/" aria-label={store.name} onClick={(e) => { e.preventDefault(); navigate("/"); }}>
+              <Logo height={30} />
+            </a>
+            {back && (
+              <a className="login__back press" href={back.href} onClick={(e) => { e.preventDefault(); navigate(back.href); }}>
+                {back.label}
+              </a>
+            )}
+          </div>
+          {children}
+          <p className="login__safe small muted">
+            <ShieldIcon size={13} /> {t("loginSafe")}
+          </p>
+        </div>
+      </main>
+      <aside className="login__art" dir={dir} aria-hidden="true">
+        <div className="login__tiles">
+          {pics.map((p, i) => (
+            <Tile key={p.id} name={p.nameEn} imageUrl={p.imageUrl} className={`login__tile login__tile--${i}`} />
+          ))}
+        </div>
+        <div className="login__pitch">
+          <h2>{t("loginArtTitle")}</h2>
+          <ul>
+            <li><span>⚡</span>{t("loginPerk1")}</li>
+            <li><span>👛</span>{t("loginPerk2")}</li>
+            <li><span>💳</span>{t("loginPerk3")}</li>
+          </ul>
+        </div>
+      </aside>
       <Toast />
     </div>
+  );
+}
+
+/** Google's "G", in its colours. */
+function GoogleMark() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z" />
+      <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A11.9 11.9 0 0 1 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z" />
+    </svg>
   );
 }

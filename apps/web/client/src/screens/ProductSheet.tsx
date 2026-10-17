@@ -14,7 +14,7 @@ import { refreshMe, toast, useApp, useT } from "../lib/state";
 import { haptic, openTelegramLink } from "../lib/telegram";
 import { invalidate, useApi } from "../lib/useApi";
 import type { CouponQuote, Favorites, InputField, Offer, ProductDetail } from "../lib/types";
-import { BellIcon, CheckIcon, HeartIcon, ShareIcon, ShieldIcon } from "../ui/icons";
+import { BellIcon, CheckIcon, ChevronIcon, CloseIcon, HeartIcon, SearchIcon, ShareIcon, ShieldIcon } from "../ui/icons";
 import { ErrorBox, Sheet, Spinner, Tile } from "../ui/kit";
 
 interface Placed {
@@ -55,8 +55,6 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const [couponText, setCouponText] = useState("");
   const [couponErr, setCouponErr] = useState<string | null>(null);
   const [couponBusy, setCouponBusy] = useState(false);
-  // Many packages (a virtual number's countries): a search box over them.
-  const [pq, setPq] = useState("");
   const [ready, setReady] = useState(false);
   // The owner selling face to face: no wallet, the order is theirs to hand over.
   const [inPerson, setInPerson] = useState(false);
@@ -354,43 +352,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
           {data.product.kind === "sms" && <p className="small muted">{t("numBuyHint")}</p>}
 
           {data.offers.length > 1 && (
-            <div className="stack-sm">
-              <span className="small" style={{ fontWeight: 600 }}>
-                {data.product.kind === "sms" ? t("numCountry") : t("package")}
-              </span>
-              {data.offers.length > 12 && (
-                <input
-                  className="input"
-                  type="search"
-                  value={pq}
-                  onChange={(e) => setPq(e.target.value)}
-                  placeholder={t("searchLabel")}
-                  aria-label={t("searchLabel")}
-                  style={{ minHeight: 42 }}
-                />
-              )}
-              <div className={data.offers.length > 6 ? "options options--many" : "options"} role="radiogroup" aria-label={t("package")}>
-                {data.offers.filter((o) => o.id === offer.id || !pq || matchesQuery(`${o.nameAr} ${o.nameEn}`, pq)).map((o) => (
-                  <button key={o.id} type="button" role="radio" aria-checked={o.id === offer.id} className={o.soldOut ? "option option--soldout press" : "option press"} onClick={() => choose(o)}>
-                    <span className="option__name">
-                      <bdi>{pick(lang, o.nameAr, o.nameEn)}</bdi>
-                      {o.soldOut && <span className="option__soldout">{t("soldOut")}</span>}
-                      {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "") && (
-                        <span className="option__note">
-                          <ShieldIcon size={11} /> {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "")}
-                        </span>
-                      )}
-                      {typeof o.successPct === "number" && (
-                        <span className={`option__rate option__rate--${o.successPct >= 60 ? "good" : o.successPct >= 30 ? "mid" : "low"}`}>
-                          {t("successRate", { n: Math.round(o.successPct) })}
-                        </span>
-                      )}
-                    </span>
-                    <span className="num">{usd(o.priceCents)}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <PackagePicker offers={data.offers} selected={offer} title={data.product.kind === "sms" ? t("numCountry") : t("package")} onChoose={choose} />
           )}
 
           {!soldOut && offer.maxQuantity > 1 && (
@@ -569,5 +531,117 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
         </>
       )}
     </Sheet>
+  );
+}
+
+/** Packages shown before "Show all": a long list never takes over the sheet. */
+const FIRST_PACKAGES = 6;
+
+/**
+ * The packages: a few first, the rest one tap away, and a small search for long
+ * lists. The list is part of the sheet (no scroll box of its own), so scrolling
+ * always moves the sheet down to the player ID. Choosing from the full list folds
+ * it back, with the chosen package kept in view.
+ */
+function PackagePicker({ offers, selected, title, onChoose }: { offers: Offer[]; selected: Offer; title: string; onChoose: (o: Offer) => void }) {
+  const { t, lang } = useT();
+  const [all, setAll] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [q, setQ] = useState("");
+  const top = useRef<HTMLDivElement>(null);
+  const many = offers.length > FIRST_PACKAGES + 1;
+  const canSearch = offers.length > 8;
+  const matched = q ? offers.filter((o) => matchesQuery(`${o.nameAr} ${o.nameEn}`, q)) : offers;
+  let shown = matched;
+  const folded = many && !q && !all;
+  if (folded) {
+    shown = offers.slice(0, FIRST_PACKAGES);
+    if (!shown.some((o) => o.id === selected.id)) shown = [...shown.slice(0, FIRST_PACKAGES - 1), selected];
+  }
+
+  function closeSearch() {
+    setQ("");
+    setSearching(false);
+  }
+
+  function pick1(o: Offer) {
+    onChoose(o);
+    haptic("tap");
+    if (all || q) {
+      setAll(false);
+      closeSearch();
+      requestAnimationFrame(() => top.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+    }
+  }
+
+  return (
+    <div className="stack-sm" ref={top}>
+      <div className="pk-head">
+        {searching ? (
+          <label className="pk-search">
+            <SearchIcon size={16} />
+            <input
+              autoFocus
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && closeSearch()}
+              placeholder={t("pkSearch")}
+              aria-label={t("pkSearch")}
+            />
+            <button type="button" className="pk-search__x press" aria-label={t("close")} onClick={closeSearch}>
+              <CloseIcon size={13} />
+            </button>
+          </label>
+        ) : (
+          <>
+            <span className="pk-head__title">
+              {title} <span className="muted num">{offers.length}</span>
+            </span>
+            {canSearch && (
+              <button type="button" className="pk-head__search press" aria-label={t("pkSearch")} onClick={() => setSearching(true)}>
+                <SearchIcon size={16} />
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      <div className={many ? "options options--many" : "options"} role="radiogroup" aria-label={title}>
+        {shown.map((o, i) => (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={o.id === selected.id}
+            className={`option press${o.soldOut ? " option--soldout" : ""}${i >= FIRST_PACKAGES ? " option--in" : ""}`}
+            style={i >= FIRST_PACKAGES ? { animationDelay: `${Math.min(i - FIRST_PACKAGES, 12) * 22}ms` } : undefined}
+            onClick={() => pick1(o)}
+          >
+            <span className="option__name">
+              <bdi>{pick(lang, o.nameAr, o.nameEn)}</bdi>
+              {o.soldOut && <span className="option__soldout">{t("soldOut")}</span>}
+              {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "") && (
+                <span className="option__note">
+                  <ShieldIcon size={11} /> {pick(lang, o.warrantyAr ?? "", o.warrantyEn ?? "")}
+                </span>
+              )}
+              {typeof o.successPct === "number" && (
+                <span className={`option__rate option__rate--${o.successPct >= 60 ? "good" : o.successPct >= 30 ? "mid" : "low"}`}>
+                  {t("successRate", { n: Math.round(o.successPct) })}
+                </span>
+              )}
+            </span>
+            <span className="num option__price">{usd(o.priceCents)}</span>
+          </button>
+        ))}
+        {q && matched.length === 0 && <p className="small muted pk-none">{t("pkNone")}</p>}
+      </div>
+      {many && !q && (
+        <button type="button" className={`pk-more press${all ? " pk-more--open" : ""}`} aria-expanded={all} onClick={() => setAll((v) => !v)}>
+          {all ? t("pkLess") : t("pkAll", { n: offers.length })}
+          <ChevronIcon size={16} />
+        </button>
+      )}
+    </div>
   );
 }
