@@ -227,12 +227,11 @@ function InviteCard() {
   const { miniApp } = useApp();
   const { data } = useApi<Referral>("/api/me/referral");
   const { config } = useApp();
+  const copyText = useCopy();
   if (!data?.enabled) return null;
   const botLink = `https://t.me/${config?.telegram?.bot ?? store.telegramBot}?start=r_${data.code}`;
   const webLink = `${location.origin}/?ref=${data.code}`;
   const shareLink = miniApp ? botLink : webLink;
-
-  const copyText = useCopy();
   const copy = (text: string) => copyText(text);
 
   async function share() {
