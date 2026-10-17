@@ -212,9 +212,11 @@ export function ProductReviews({ slug, focus }: { slug: string; focus?: boolean 
               <button type="button" className="btn btn--xs btn--soft press" disabled={busy} onClick={() => startEditing(data.mine!.rating, data.mine!.comment)}>
                 {t("edit")}
               </button>
-              <button type="button" className="btn btn--xs btn--ghost press" disabled={busy} onClick={() => void remove()}>
-                {t("reviewRemove")}
-              </button>
+              {!data.mine.hidden && (
+                <button type="button" className="btn btn--xs btn--ghost press" disabled={busy} onClick={() => void remove()}>
+                  {t("reviewRemove")}
+                </button>
+              )}
             </div>
           </div>
         ) : (

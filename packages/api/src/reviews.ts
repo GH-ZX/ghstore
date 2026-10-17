@@ -118,11 +118,18 @@ export async function saveReview(ctx: Ctx): Promise<Response> {
   return json({ ok: true });
 }
 
-/** DELETE /api/products/:slug/review — remove your review. */
+/**
+ * DELETE /api/products/:slug/review — remove your review. A review the staff hid
+ * stays (hidden): removing it and writing it again must not bring it back.
+ */
 export async function deleteReview(ctx: Ctx): Promise<Response> {
   const me = await requireUser(ctx);
   const product = await productId(ctx.svc.db, ctx.params.slug ?? "");
-  await ctx.svc.db.query(`delete from app.reviews where product_id = $1 and user_id = $2`, [product, me.id]);
+  const gone = await ctx.svc.db.query(`delete from app.reviews where product_id = $1 and user_id = $2 and status = 'visible' returning id`, [product, me.id]);
+  if (!gone.length) {
+    const hidden = await one<{ id: string }>(ctx.svc.db, `select id from app.reviews where product_id = $1 and user_id = $2`, [product, me.id]);
+    if (hidden) throw new ApiError("not_allowed", "review_hidden");
+  }
   return json({ ok: true });
 }
 

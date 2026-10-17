@@ -68,7 +68,7 @@ describe("reviews", () => {
     expect(product.review[0]).toMatchObject({ reviewBody: "Fast delivery", author: { name: "Ahmad" } });
   });
 
-  it("lets staff hide a review, and the customer remove theirs", async () => {
+  it("lets staff hide a review for good, and the customer remove a shown one", async () => {
     const list = await h.call("GET", "/api/admin/reviews", { token: owner });
     const id = (list.data.reviews as { id: string; slug: string }[]).find((r) => r.slug === slug)!.id;
     expect((await h.call("PATCH", `/api/admin/reviews/${id}`, { token: other, body: { status: "hidden" } })).status).toBe(403);
@@ -76,6 +76,11 @@ describe("reviews", () => {
     const after = await h.call("GET", `/api/products/${slug}/reviews`, { token: buyer });
     expect(after.data.summary.count).toBe(0);
     expect(after.data.mine.hidden).toBe(true);
+    // Removing and writing it again would bring a hidden review back: not allowed.
+    expect((await h.call("DELETE", `/api/products/${slug}/review`, { token: buyer })).status).toBe(403);
+    expect((await h.call("PUT", `/api/products/${slug}/review`, { token: buyer, body: { rating: 1, comment: "again" } })).status).toBe(200);
+    expect((await h.call("GET", `/api/products/${slug}/reviews`)).data.summary.count).toBe(0);
+    expect((await h.call("PATCH", `/api/admin/reviews/${id}`, { token: owner, body: { status: "visible" } })).status).toBe(200);
     expect((await h.call("DELETE", `/api/products/${slug}/review`, { token: buyer })).status).toBe(200);
     expect((await h.call("GET", `/api/products/${slug}/reviews`, { token: buyer })).data.mine).toBeNull();
   });
