@@ -21,6 +21,8 @@ export interface PublicConfig {
   analytics?: { cfBeacon: string | null };
   /** Product pictures resized by Cloudflare. */
   images?: { resize: boolean };
+  /** Browser notifications (Admin → Settings): off unless the owner switched them on. */
+  push?: { enabled: boolean };
 }
 
 export interface Me {

@@ -5,11 +5,12 @@
 import { useSyncExternalStore } from "react";
 import { googleFontsHref, isPreset, themeCss, THEMES } from "@store/ui";
 import { store as storeConfig } from "@store/config";
-import { api, setToken } from "./api";
+import { api, ApiFail, setToken } from "./api";
 import { translate, type MsgKey } from "./i18n";
 import { claimReferral } from "./referral";
 import { paintTelegram, tg } from "./telegram";
 import type { Lang, Me, PublicConfig } from "./types";
+import { clearCache } from "./useApi";
 
 export type Mode = "system" | "light" | "dark";
 
@@ -148,21 +149,35 @@ export const PRESETS = Object.keys(THEMES) as (keyof typeof THEMES)[];
 
 // ───────────────────────────── session
 
+/**
+ * Read the signed-in user again. Only a 401 means "signed out": a network
+ * error or a server hiccup keeps the user we already have.
+ */
 export async function refreshMe(): Promise<Me | null> {
+  const before = state.me?.user.id ?? null;
   try {
     const me = await api<Me>("/api/me");
+    // Someone else signed in on this device: nothing of the previous person's stays cached.
+    if (before !== null && me.user.id !== before) clearCache();
     setState({ me, authChecked: true });
     void claimReferral();
     return me;
-  } catch {
-    setState({ me: null, authChecked: true });
-    return null;
+  } catch (e) {
+    if (e instanceof ApiFail && e.status === 401) {
+      if (before !== null) clearCache();
+      setState({ me: null, authChecked: true });
+      return null;
+    }
+    setState({ authChecked: true });
+    return state.me;
   }
 }
 
 export async function signOut(): Promise<void> {
   await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
   setToken(null);
+  // A shared device: the next person must not see this one's orders, wallet or favourites.
+  clearCache();
   setState({ me: null });
 }
 
