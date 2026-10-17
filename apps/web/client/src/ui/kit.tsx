@@ -1,8 +1,9 @@
 /** Small shared components: logo, sheets, tiles, money, states. */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { store } from "@store/config";
 import { errorText } from "../lib/i18n";
-import { usd, syp } from "../lib/format";
+import { hashText, monogram, usd, syp } from "../lib/format";
 import { useApp, useT } from "../lib/state";
 import type { ApiFail } from "../lib/api";
 import { pushBack } from "../lib/telegram";
@@ -23,7 +24,8 @@ export function Logo({ height = 22 }: { height?: number }) {
 }
 
 export function Spinner({ small }: { small?: boolean }) {
-  return <span className={small ? "spinner spinner--sm" : "spinner"} role="status" aria-label="…" />;
+  const { t } = useT();
+  return <span className={small ? "spinner spinner--sm" : "spinner"} role="status" aria-label={t("loading")} />;
 }
 
 export function PageLoading() {
@@ -93,8 +95,8 @@ export function Tile({ name, imageUrl, className, width = 400 }: { name: string;
     // The picture template: a cover in a colour of its own (the same for the same
     // name, everywhere), with the product's monogram.
     return (
-      <span className={`tile tile--art ${className ?? ""}`} style={{ "--h": ART_HUES[hashName(name) % ART_HUES.length] } as CSSProperties} aria-hidden="true">
-        <span className="tile__mono">{monogramOf(name)}</span>
+      <span className={`tile tile--art ${className ?? ""}`} style={{ "--h": ART_HUES[hashText(name) % ART_HUES.length] } as CSSProperties} aria-hidden="true">
+        <span className="tile__mono">{monogram(name)}</span>
       </span>
     );
   }
@@ -115,34 +117,63 @@ export function Tile({ name, imageUrl, className, width = 400 }: { name: string;
 /** Hues for the picture template: violet, magenta, rose, coral, amber, emerald, teal, blue. */
 const ART_HUES = [285, 320, 355, 25, 60, 155, 195, 250];
 
-function hashName(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
-  return h >>> 0;
+/** Open sheets, oldest first: only the top one is live; the page and the sheets under it are inert. */
+const openSheets: HTMLElement[] = [];
+
+function syncInert(): void {
+  const root = document.getElementById("root");
+  const top = openSheets[openSheets.length - 1];
+  if (root) root.inert = openSheets.length > 0;
+  for (const el of openSheets) el.inert = el !== top;
 }
 
-function monogramOf(name: string): string {
-  const words = name.replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean);
-  const latin = words.find((w) => /^[A-Za-z0-9]/.test(w)) ?? words[0] ?? "•";
-  return latin.slice(0, latin.length <= 3 && latin === latin.toUpperCase() ? 3 : 2).toUpperCase();
-}
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
- * Bottom sheet (dialog on wide screens). Closes on the backdrop, Escape and
- * Telegram's back button; keeps focus inside while open.
+ * Bottom sheet (dialog on wide screens), drawn over the page (a portal on
+ * <body>). Closes on the backdrop, Escape and Telegram's back button. While it
+ * is open the page behind (and any sheet under it) is inert, Tab cycles inside
+ * it, and only the top sheet answers Escape.
  */
 export function Sheet({ onClose, label, children, foot, head }: { onClose: () => void; label: string; children: ReactNode; foot?: ReactNode; head?: ReactNode }) {
   const { t } = useT();
   const ref = useRef<HTMLDivElement>(null);
+  const layer = useRef<HTMLDivElement>(null);
   // The latest onClose, without re-running the open/close effect on every render.
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
+    const el = layer.current!;
     const close = () => closeRef.current();
     const prev = document.activeElement as HTMLElement | null;
+    openSheets.push(el);
+    syncInert();
     ref.current?.focus();
+    const isTop = () => openSheets[openSheets.length - 1] === el;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (!isTop()) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+        return;
+      }
+      if (e.key !== "Tab" || !ref.current) return;
+      const items = [...ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement);
+      if (!items.length) {
+        e.preventDefault();
+        ref.current.focus();
+        return;
+      }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === ref.current || !ref.current.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !ref.current.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     const overflow = document.body.style.overflow;
@@ -152,12 +183,16 @@ export function Sheet({ onClose, label, children, foot, head }: { onClose: () =>
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = overflow;
       popBack();
+      const i = openSheets.lastIndexOf(el);
+      if (i >= 0) openSheets.splice(i, 1);
+      el.inert = false;
+      syncInert();
       prev?.focus?.();
     };
   }, []);
-  return (
-    <>
-      <button type="button" className="backdrop" aria-label={t("close")} onClick={() => closeRef.current()} />
+  return createPortal(
+    <div ref={layer}>
+      <button type="button" className="backdrop" aria-label={t("close")} tabIndex={-1} onClick={() => closeRef.current()} />
       <div className="sheet" role="dialog" aria-modal="true" aria-label={label} ref={ref} tabIndex={-1}>
         <div className="sheet__handle">
           <span />
@@ -171,7 +206,8 @@ export function Sheet({ onClose, label, children, foot, head }: { onClose: () =>
         <div className="sheet__body">{children}</div>
         {foot && <div className="sheet__foot">{foot}</div>}
       </div>
-    </>
+    </div>,
+    document.body,
   );
 }
 
@@ -195,12 +231,21 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
+/**
+ * The toast. One live region stays mounted (on <body>, so a sheet making the
+ * page inert does not silence it) and only its text changes, which is what
+ * screen readers announce reliably.
+ */
 export function Toast() {
   const { toast } = useApp();
-  if (!toast) return null;
-  return (
-    <div key={toast.id} className={toast.bad ? "toast toast--bad" : "toast"} role="status" aria-live="polite">
-      {toast.text}
-    </div>
+  return createPortal(
+    <div role="status" aria-live="polite" aria-atomic="true">
+      {toast && (
+        <div key={toast.id} className={toast.bad ? "toast toast--bad" : "toast"}>
+          {toast.text}
+        </div>
+      )}
+    </div>,
+    document.body,
   );
 }

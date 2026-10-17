@@ -4,10 +4,9 @@
  * and the store's answer. See packages/api/src/problems.ts.
  */
 import { useState } from "react";
-import { api, ApiFail } from "../lib/api";
+import { api } from "../lib/api";
 import { dateTime } from "../lib/format";
-import { errorText } from "../lib/i18n";
-import { toast, useT } from "../lib/state";
+import { toast, toastFail, useT } from "../lib/state";
 import { haptic } from "../lib/telegram";
 import type { OrderProblem } from "../lib/types";
 import { Spinner } from "../ui/kit";
@@ -34,7 +33,7 @@ export function ProblemCard({ orderId, problem, onSent }: { orderId: string; pro
       setMessage("");
       onSent();
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setBusy(false);
     }
@@ -77,7 +76,7 @@ export function ProblemCard({ orderId, problem, onSent }: { orderId: string; pro
           <strong>{t("problemWhat")}</strong>
           <div className="wrap" style={{ gap: 8 }} role="radiogroup" aria-label={t("problemWhat")}>
             {REASONS.map((r) => (
-              <button key={r} type="button" role="radio" aria-checked={reason === r} aria-pressed={reason === r} className="chip chip--sm press" onClick={() => setReason(r)}>
+              <button key={r} type="button" role="radio" aria-checked={reason === r} className="chip chip--sm press" onClick={() => setReason(r)}>
                 {t(`problem_${r}`)}
               </button>
             ))}

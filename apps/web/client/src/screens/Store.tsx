@@ -4,6 +4,7 @@
  * the header (ui/Search.tsx).
  */
 import { useMemo, useRef, type ReactNode, lazy, Suspense } from "react";
+import { hashText } from "../lib/format";
 import { pick } from "../lib/i18n";
 import { back, linkHandler, match, navigate, usePath } from "../lib/router";
 import { useT } from "../lib/state";
@@ -53,18 +54,12 @@ export function Store() {
       </div>
       {open && (
         <Suspense fallback={null}>
-          <ProductSheet slug={open.slug!} onClose={() => back("/")} />
+          {/* A new product starts a fresh sheet (package, quantity, coupon, fields). */}
+          <ProductSheet key={open.slug} slug={open.slug!} onClose={() => back("/")} />
         </Suspense>
       )}
     </Shell>
   );
-}
-
-/** A small stable number for a text (FNV-1a), to shuffle the same way all day. */
-function hash(text: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
-  return h >>> 0;
 }
 
 /**
@@ -78,7 +73,8 @@ function todaysPicks(products: ProductCard[], max = 12): ProductCard[] {
   const rank = (p: ProductCard) => (p.badge === "best" ? 0 : p.badge === "hot" ? 1 : p.badge === "new" ? 2 : 3);
   const rest = products
     .filter((p) => !p.featured)
-    .map((p) => ({ p, r: rank(p), h: hash(`${day}:${p.id}`) }))
+    // Shuffled the same way all day.
+    .map((p) => ({ p, r: rank(p), h: hashText(`${day}:${p.id}`) }))
     .sort((a, b) => a.r - b.r || a.h - b.h)
     .map((x) => x.p);
   return [...featured, ...rest].slice(0, Math.max(max, featured.length));
@@ -133,8 +129,15 @@ function openLink(link: Banner["link"]): (() => void) | null {
   if (!link) return null;
   if (link.type === "product") return () => navigate(`/p/${link.value}`);
   if (link.type === "category") return () => navigate(`/c/${link.value}`);
-  if (link.value.startsWith("/")) return () => navigate(link.value);
-  return () => openExternal(link.value);
+  const to = link.value.trim();
+  // A page of this store ("/wallet"), never "//other.site" or "/\other.site".
+  if (to.startsWith("/")) return to.startsWith("//") || to.includes("\\") ? null : () => navigate(to);
+  // Anything else opens outside the store, and only over https.
+  try {
+    return new URL(to).protocol === "https:" ? () => openExternal(to) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

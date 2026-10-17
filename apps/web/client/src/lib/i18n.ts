@@ -99,7 +99,7 @@ const en = {
   // errors (API codes)
   e_network: "No connection. Check your internet and try again.", e_unauthorized: "Please sign in again.",
   e_forbidden: "You can't do that.", e_not_found: "Not found.", e_conflict: "Already exists.",
-  e_rate_limited: "Too many open requests. Try again later.",
+  e_rate_limited: "Too many attempts. Try again in a few minutes.",
   e_limit_new_account: "New accounts start with a smaller top-up. Try a smaller amount, or a bigger one after your first order.", e_insufficient_balance: "Your balance is too low.",
   e_offer_unavailable: "This package is not available right now.", e_out_of_stock: "Out of stock right now.",
   e_user_blocked: "This account is blocked.", e_invalid_quantity: "Check the quantity.", e_invalid_input: "Check the highlighted field.",
@@ -202,6 +202,11 @@ const en = {
   loginsHint: "One account everywhere: sign in with any of these and you see the same balance and orders.",
   e_account_in_use: "That login already has its own wallet with history. Sign in with it instead, or ask support to merge them.",
   e_already_linked: "This account already has a login of that kind. Remove it first.",
+  // confirmations, the showcase's controls, quantity and rating labels
+  confirmTitle: "Are you sure?",
+  slidesPause: "Pause the slideshow", slidesPlay: "Play the slideshow", slideOf: "Slide {n} of {count}: {title}",
+  qtyLess: "One less", qtyMore: "One more",
+  ratingLabel: "Rated {avg} out of 5 from {count} reviews. Show the reviews",
 } as const;
 
 type StoreKey = keyof typeof en;
@@ -294,7 +299,7 @@ const ar: Record<StoreKey, string> = {
   changeEmail: "استخدم بريداً آخر", orOpenBot: "أو افتح المتجر في تيليجرام", backToStoreShort: "العودة إلى المتجر",
   e_network: "لا يوجد اتصال. تحقق من الإنترنت وحاول مجدداً.", e_unauthorized: "سجّل الدخول من جديد.",
   e_forbidden: "لا يمكنك القيام بذلك.", e_not_found: "غير موجود.", e_conflict: "موجود مسبقاً.",
-  e_rate_limited: "لديك طلبات مفتوحة كثيرة. حاول لاحقاً.",
+  e_rate_limited: "محاولات كثيرة. حاول مرة أخرى بعد دقائق.",
   e_limit_new_account: "الحسابات الجديدة تبدأ بشحن أصغر. جرّب مبلغاً أقل، أو مبلغاً أكبر بعد أول طلب.", e_insufficient_balance: "رصيدك لا يكفي.",
   e_offer_unavailable: "هذه الباقة غير متاحة الآن.", e_out_of_stock: "نفدت الكمية حالياً.",
   e_user_blocked: "هذا الحساب محظور.", e_invalid_quantity: "تحقق من الكمية.", e_invalid_input: "تحقق من الحقل المحدد.",
@@ -394,7 +399,10 @@ const ar: Record<StoreKey, string> = {
   loginsHint: "حساب واحد في كل مكان: ادخل بأي منها وسترى الرصيد والطلبات نفسها.",
   e_account_in_use: "طريقة الدخول هذه لها محفظة وسجل خاص بها. ادخل بها بدلاً من ذلك، أو اطلب من الدعم دمج الحسابين.",
   e_already_linked: "هذا الحساب مربوط بطريقة دخول من النوع نفسه. أزلها أولاً.",
-  
+  confirmTitle: "هل أنت متأكد؟",
+  slidesPause: "إيقاف العرض مؤقتاً", slidesPlay: "تشغيل العرض", slideOf: "الشريحة {n} من {count}: {title}",
+  qtyLess: "واحدة أقل", qtyMore: "واحدة أكثر",
+  ratingLabel: "التقييم {avg} من 5 من {count} مراجعة. اعرض المراجعات",
 };
 
 export const DICTS: Record<Lang, Record<string, string>> = { en: { ...en }, ar: { ...ar } };

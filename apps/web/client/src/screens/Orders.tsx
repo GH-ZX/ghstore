@@ -4,19 +4,21 @@
  * details after paying.
  */
 import { ProblemCard } from "./Problem";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api, ApiFail } from "../lib/api";
-import { copyText, dateTime, usd } from "../lib/format";
+import { RequireUser } from "../lib/auth";
+import { dateTime, usd } from "../lib/format";
+import { clock, useCopy, usePoll, useSecondsLeft } from "../lib/hooks";
 import { errorText, pick } from "../lib/i18n";
 import { linkHandler, navigate } from "../lib/router";
-import { toast, useT } from "../lib/state";
+import { failText, toast, toastFail, useT } from "../lib/state";
 import { haptic } from "../lib/telegram";
 import { useApi } from "../lib/useApi";
 import type { OrderDetail, OrderRow, OrderStatus } from "../lib/types";
+import { askConfirm } from "../ui/Confirm";
 import { CheckIcon, ChevronIcon } from "../ui/icons";
 import { Empty, ErrorBox, Spinner } from "../ui/kit";
 import { Shell } from "../ui/Shell";
-import { RequireUser } from "./Login";
 
 export const STATUS_COLOR: Record<OrderStatus, string> = {
   paid: "var(--warn)",
@@ -118,18 +120,9 @@ function OrderView({ id }: { id: string }) {
 
   // While the supplier (or the team) is still working, check again every few
   // seconds; not while the customer is filling in their details.
-  useEffect(() => {
-    if (!open || hold === "info") return;
-    const timer = setInterval(() => void reload(), hold ? 15000 : 5000);
-    return () => clearInterval(timer);
-  }, [open, hold, reload]);
-
-  async function copy(v: string) {
-    if (await copyText(v)) {
-      haptic("success");
-      toast(t("copied"));
-    }
-  }
+  usePoll(reload, open && hold !== "info" ? (hold ? 15000 : 5000) : null);
+  const copyText = useCopy();
+  const copy = (v: string) => void copyText(v);
 
   if (!data) {
     return (
@@ -221,19 +214,6 @@ function OrderView({ id }: { id: string }) {
   );
 }
 
-/** "mm:ss" left until `iso`, ticking every second (null without an end). */
-function useCountdown(iso: string | null | undefined): string | null {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!iso) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [iso]);
-  if (!iso) return null;
-  const left = Math.max(0, Math.floor((Date.parse(iso) - now) / 1000));
-  return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
-}
-
 /**
  * A virtual number: the number to copy, a countdown while it waits for the
  * code, the code as soon as it arrives, and (before a code) cancel or "already
@@ -246,7 +226,8 @@ function NumberPanel({ data, onChanged, onCopy }: { data: OrderDetail; onChanged
   const phone = data.deliveries.find((d) => d.kind === "phone");
   const codes = data.deliveries.filter((d) => d.kind === "sms");
   const waiting = (o.status === "paid" || o.status === "processing") && codes.length === 0;
-  const left = useCountdown(waiting ? o.expiresAt : null);
+  const secs = useSecondsLeft(waiting ? o.expiresAt : null);
+  const left = secs === null ? null : clock(secs);
 
   /**
    * No code? Report this number (refunded) and buy the next one in one go, as
@@ -271,14 +252,14 @@ function NumberPanel({ data, onChanged, onCopy }: { data: OrderDetail; onChanged
         onChanged();
       }
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setBusy(null);
     }
   }
 
   async function close(action: "cancel" | "used") {
-    if (!window.confirm(t(action === "cancel" ? "numConfirmCancel" : "numConfirmUsed"))) return;
+    if (!(await askConfirm(t(action === "cancel" ? "numConfirmCancel" : "numConfirmUsed")))) return;
     setBusy(action);
     try {
       const r = await api<{ closed: boolean }>(`/api/orders/${o.id}/number`, { method: "POST", body: { action } });
@@ -286,7 +267,7 @@ function NumberPanel({ data, onChanged, onCopy }: { data: OrderDetail; onChanged
       haptic(r.closed ? "tap" : "success");
       onChanged();
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setBusy(null);
     }
@@ -380,7 +361,7 @@ function DetailsPanel({ data, onSent }: { data: OrderDetail; onSent: () => void 
     } catch (err) {
       const f = err instanceof ApiFail ? err : new ApiFail("internal", 0);
       if (f.field?.startsWith("answers.")) setBad(f.field.slice(8));
-      toast(errorText(lang, f.code), true);
+      toast(failText(f), true);
       haptic("error");
     } finally {
       setBusy(false);

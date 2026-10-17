@@ -21,6 +21,7 @@ export interface TgWebApp {
   setBackgroundColor?(color: string): void;
   setBottomBarColor?(color: string): void;
   disableVerticalSwipes?(): void;
+  showConfirm?(message: string, cb: (ok: boolean) => void): void;
   onEvent(event: string, cb: () => void): void;
   BackButton: { show(): void; hide(): void; onClick(cb: () => void): void; offClick(cb: () => void): void };
   HapticFeedback?: {

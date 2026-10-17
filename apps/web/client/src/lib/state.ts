@@ -6,7 +6,7 @@ import { useSyncExternalStore } from "react";
 import { googleFontsHref, isPreset, themeCss, THEMES } from "@store/ui";
 import { store as storeConfig } from "@store/config";
 import { api, ApiFail, setToken } from "./api";
-import { translate, type MsgKey } from "./i18n";
+import { errorText, translate, type MsgKey } from "./i18n";
 import { claimReferral } from "./referral";
 import { paintTelegram, tg } from "./telegram";
 import type { Lang, Me, PublicConfig } from "./types";
@@ -188,4 +188,14 @@ export function toast(text: string, bad = false): void {
   clearTimeout(toastTimer);
   setState({ toast: { text, bad, id: Date.now() } });
   toastTimer = setTimeout(() => setState({ toast: null }), 2600);
+}
+
+/** What went wrong, in the visitor's language: the API's own reason, else `fallback`. */
+export function failText(e: unknown, fallback = "internal"): string {
+  return errorText(state.lang, e instanceof ApiFail ? e.code : fallback);
+}
+
+/** Show a failure as a red toast. */
+export function toastFail(e: unknown, fallback?: string): void {
+  toast(failText(e, fallback), true);
 }

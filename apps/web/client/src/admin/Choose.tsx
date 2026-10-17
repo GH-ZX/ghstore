@@ -258,9 +258,9 @@ export function Choose({ supplierId }: { supplierId: string }) {
         </div>
       </div>
 
-      <div className="chip-row" role="tablist" aria-label={t("suppliers")}>
+      <div className="chip-row" role="group" aria-label={t("suppliers")}>
         {f.suppliers.map((x) => (
-          <button key={x.id} type="button" role="tab" className="chip chip--sm press" aria-pressed={x.id === supplierId} aria-selected={x.id === supplierId} onClick={() => switchSupplier(x.id)}>
+          <button key={x.id} type="button" className="chip chip--sm press" aria-pressed={x.id === supplierId} onClick={() => switchSupplier(x.id)}>
             {x.name}
             {!x.enabled && <span style={{ opacity: 0.7 }}> · {t("supOff")}</span>}
           </button>

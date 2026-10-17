@@ -8,10 +8,10 @@
  * The balance is credited by the server only after the provider confirms.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiFail } from "../lib/api";
-import { copyText, dollarsToCents, toLatinDigits, usd } from "../lib/format";
-import { errorText } from "../lib/i18n";
-import { getState, refreshMe, toast, useApp, useT } from "../lib/state";
+import { api } from "../lib/api";
+import { dollarsToCents, toLatinDigits, usd } from "../lib/format";
+import { clock, useCopy, usePoll, useSecondsLeft } from "../lib/hooks";
+import { failText, refreshMe, toast, toastFail, useApp, useT } from "../lib/state";
 import { haptic, openExternal, tg } from "../lib/telegram";
 import { invalidate } from "../lib/useApi";
 import type { CreatedTopup, PaymentAction, PaymentMethod, Topup } from "../lib/types";
@@ -22,24 +22,11 @@ type Step = "choose" | "pay" | "done";
 type Outcome = "paid" | "review" | "pending" | "failed" | "closed";
 
 const PRESETS = [500, 1000, 2500, 5000];
-const getLang = () => getState().lang;
 /** The payment window, for the bar under the countdown. */
 const SEND_WINDOW_S = 15 * 60;
 
 /** The local moment `seconds` from now: a deadline by this device's clock, whatever its time. */
 const deadlineIn = (seconds: number | undefined) => (seconds === undefined ? null : new Date(Date.now() + seconds * 1000).toISOString());
-
-/** Seconds left until `iso`, ticking every second (null without a time). */
-function useSecondsLeft(iso: string | null | undefined): number | null {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!iso) return;
-    setNow(Date.now()); // count from now, not from when the sheet opened
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [iso]);
-  return iso ? Math.min(SEND_WINDOW_S, Math.max(0, Math.floor((Date.parse(iso) - now) / 1000))) : null;
-}
 
 function outcomeOf(status: string): Outcome {
   if (status === "paid") return "paid";
@@ -67,7 +54,8 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
   const [method, setMethod] = useState<PaymentMethod | null>(methods[0] ?? null);
   const [topup, setTopup] = useState<{ id: string; method: PaymentMethod; amountCents: number; action: PaymentAction | null; sendBy?: string | null } | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const left = useSecondsLeft(topup?.sendBy);
+  const secs = useSecondsLeft(topup?.sendBy);
+  const left = secs === null ? null : Math.min(SEND_WINDOW_S, secs);
   const [outcome, setOutcome] = useState<Outcome>("pending");
   const [busy, setBusy] = useState(false);
   const [watching, setWatching] = useState(false);
@@ -121,7 +109,7 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
         else if (p.method !== "stars") setWatching(true);
       } catch (e) {
         if (cancelled) return;
-        toast(errorText(getLang(), e instanceof ApiFail ? e.code : "internal"), true);
+        toastFail(e);
         onCloseRef.current();
       }
     })();
@@ -132,38 +120,39 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
 
   // Watch a top-up until the provider confirms, or say we keep checking in the background.
   // Manual USDT also nudges an on-chain re-check every 20 seconds while confirmations build up.
+  // Each check waits for the one before, and none run while the app is in the background.
+  const rounds = useRef(0);
   useEffect(() => {
+    rounds.current = 0;
+  }, [watching, topup]);
+  usePoll(async () => {
     if (!watching || !topup) return;
-    let n = 0;
+    const n = ++rounds.current;
+    // The hash is the one given when watching started (the input is locked while checking).
     const hash = tx.trim();
     const limit = topup.method === "bep20" ? 30 : 45;
-    const timer = setInterval(async () => {
-      n++;
-      try {
-        if (topup.method === "bep20" && hash && n % 4 === 1) {
-          await api(`/api/topups/${topup.id}/tx`, { body: { txHash: hash } }).catch(() => {});
-        }
-        const p = await api<Topup>(`/api/topups/${topup.id}`);
-        if (p.status === "paid") return finish("paid");
-        if (p.status === "expired") return finish("closed");
-        if (p.status === "failed" || p.status === "rejected") return finish("failed");
-        if (topup.method === "bep20") {
-          if (p.stage === "mismatch") {
-            setWatching(false);
-            setTxError(tRef.current("txNoMatch"));
-            return;
-          }
-          if (p.status === "review" && p.stage !== "checking") return finish("review");
-        } else if (p.status === "review" || p.status === "partial") return finish("review");
-      } catch {
-        /* offline for a moment: keep trying until the limit */
+    try {
+      if (topup.method === "bep20" && hash && n % 4 === 1) {
+        await api(`/api/topups/${topup.id}/tx`, { body: { txHash: hash } }).catch(() => {});
       }
-      if (n >= limit) finish(topup.method === "bep20" ? "review" : "pending");
-    }, 5000);
-    return () => clearInterval(timer);
-    // The hash is read once when watching starts (the input is locked while checking).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watching, topup, finish]);
+      const p = await api<Topup>(`/api/topups/${topup.id}`);
+      if (!alive.current) return;
+      if (p.status === "paid") return finish("paid");
+      if (p.status === "expired") return finish("closed");
+      if (p.status === "failed" || p.status === "rejected") return finish("failed");
+      if (topup.method === "bep20") {
+        if (p.stage === "mismatch") {
+          setWatching(false);
+          setTxError(tRef.current("txNoMatch"));
+          return;
+        }
+        if (p.status === "review" && p.stage !== "checking") return finish("review");
+      } else if (p.status === "review" || p.status === "partial") return finish("review");
+    } catch {
+      /* offline for a moment: keep trying until the limit */
+    }
+    if (n >= limit) finish(topup.method === "bep20" ? "review" : "pending");
+  }, watching && topup ? 5000 : null);
 
   async function create() {
     if (!method || !amountOk || cents === null) return;
@@ -176,7 +165,7 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
       else if (r.action.type === "redirect") openExternal(r.action.url);
       if (method !== "bep20" && method !== "stars") setWatching(true);
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
     } finally {
       setBusy(false);
     }
@@ -209,7 +198,7 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
       else if (o === "failed") setTxError(t("txNoMatch"));
       else finish(o);
     } catch (e) {
-      setTxError(errorText(lang, e instanceof ApiFail ? e.code : "internal"));
+      setTxError(failText(e));
     } finally {
       setBusy(false);
     }
@@ -225,16 +214,15 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
       toast(t("usdtCancelled"));
       onClose();
     } catch (e) {
-      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+      toastFail(e);
       setConfirmCancel(false);
     } finally {
       setBusy(false);
     }
   }
 
-  async function copy(v: string) {
-    if (await copyText(v)) toast(t("copied"));
-  }
+  const copyText = useCopy();
+  const copy = (v: string) => void copyText(v);
 
   // ───────────── done
   if (step === "done") {
@@ -293,7 +281,7 @@ export function TopupSheet({ initialCents, paymentId, onClose }: { initialCents:
                 <div className="row-between">
                   <span className="small muted">{t("usdtSendWithin")}</span>
                   <strong className="num usdt-timer__clock">
-                    {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}
+                    {clock(left)}
                   </strong>
                 </div>
                 <div className="hbar__track">

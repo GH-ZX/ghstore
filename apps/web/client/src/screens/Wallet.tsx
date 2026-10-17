@@ -9,7 +9,7 @@ import type { Wallet as WalletData, WalletEntry } from "../lib/types";
 import { ArrowInIcon, ArrowOutIcon, PlusIcon } from "../ui/icons";
 import { Empty, ErrorBox } from "../ui/kit";
 import { Shell } from "../ui/Shell";
-import { RequireUser } from "./Login";
+import { RequireUser } from "../lib/auth";
 import { TopupSheet } from "./TopupSheet";
 
 type Filter = "all" | "topup" | "purchase";
