@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.2.0 (2026-10-17)
+
+Fixes from a full audit of the code.
+
+- **Orders**: one supplier call per order at a time (no double purchase when the
+  scheduled job and the order page meet); only failures in a row lead to a
+  refund, never for an order the supplier already accepted; a virtual number
+  that fails is cancelled at the supplier before its refund; an admin refund
+  cancels at the supplier first; corrected details no longer take an order
+  away from the owner.
+- **Money**: a pasted USDT hash reserves nothing (someone else's public hash
+  blocks nobody); staff in support credit only top-ups under review, up to the
+  amount asked, never their own; delivered codes are hidden in the admin until
+  "Show", and every look is in the audit log; paid Stars are delivered again by
+  Telegram if the database blinked; a SYP invoice paid in full credits its own
+  dollars; late provider payments go to review; supplier costs round up to the
+  cent; no invite reward or cashback on an order whose cost is unknown.
+- **Security**: limits on sign-in, coupon tries, problem reports and reviews;
+  Mini App sign-in data accepted for an hour (was a day); at most 20 sessions
+  per customer and channel; at most 2 open USDT requests per customer; webhook
+  secrets kept out of error texts.
+- **Reliability**: time limits on every outside call and on database queries;
+  one failing supplier group no longer blocks a supplier's price check (it backs
+  off on its own); public pages cached for a minute; nightly clean-up of old
+  messages and sessions; health alerts for stuck messages and jobs that never
+  finish; browser notifications off until switched on (Admin → Settings).
+- **Store**: a product opens over the screen you were on and closing it brings
+  that screen back as it was; the Mini App opens even when telegram.org is slow;
+  a network blip no longer signs anyone out; signing out clears the device's
+  data and notifications; better for screen readers and keyboards; admin
+  settings cards save on their own; Arabic digits in admin number boxes.
+
 ## v1.1.0 (2026-10-18)
 
 - **Loyalty levels**: customers move up by what they spent on delivered orders

@@ -16,6 +16,12 @@ posts (off until switched on in Admin → Broadcast; make the bot a channel
 admin), browser notifications, safer top-ups, lighter first load. Migrations up
 to `0029_loyalty_channel_push.sql` are live.
 
+## v1.2 (2026-10-17)
+
+Audit fixes (orders, money, security, reliability, store). Migrations up to
+`0032_rate_limits.sql` are live. Browser notifications stay off (Admin →
+Settings) until the Workers paid plan.
+
 ## The owner's to-do
 
 - **Supplier balances**: top up 5SIM (numbers can't sell without it) and the
