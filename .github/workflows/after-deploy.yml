@@ -53,5 +53,6 @@ jobs:
           check /robots.txt 200 'Sitemap:'
           check /tg 200 'id="root"'
           check /legal/no-such-page 404 ''
-          slug=$(curl -s --max-time 20 "$STORE_URL/api/catalog" | grep -o '"slug":"[a-z0-9-]*"' | head -1 | cut -d'"' -f4)
+          # The first product (the catalogue lists the categories first).
+          slug=$(curl -s --max-time 20 "$STORE_URL/api/catalog" | sed 's/.*"products":\[//' | grep -o '"slug":"[a-z0-9-]*"' | head -1 | cut -d'"' -f4)
           check "/p/$slug" 200 '"@type":"Product"'
