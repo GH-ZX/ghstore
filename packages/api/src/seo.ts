@@ -39,6 +39,8 @@ export interface ProductMeta {
   reviews?: { name: string; rating: number; comment: string; date: string }[];
   /** A product opened from a link shows over the home page: its showcase picture, to preload. */
   preload?: ImagePreload[];
+  /** Other products of its category (links between the store's pages). */
+  related?: { slug: string; nameAr: string; nameEn: string; fromCents: number }[];
 }
 
 export const PRODUCT_PATH = /^\/p\/([a-z0-9-]{1,80})\/?$/;
@@ -273,8 +275,20 @@ export function renderPage(indexHtml: string, head: PageHead, o: PageOpts): stri
 // ─────────────────────────────────────────────────────────────── content for crawlers
 
 const WORDS = {
-  ar: { home: "الرئيسية", categories: "الأقسام", popular: "الأكثر طلباً", from: "من", packages: "الباقات", instant: "تسليم فوري", updated: "آخر تحديث" },
-  en: { home: "Home", categories: "Categories", popular: "Popular", from: "from", packages: "Packages", instant: "Instant delivery", updated: "Last updated" },
+  ar: {
+    home: "الرئيسية", categories: "الأقسام", popular: "الأكثر طلباً", from: "من", packages: "الباقات", instant: "تسليم فوري", updated: "آخر تحديث",
+    otherCategories: "أقسام أخرى", moreIn: "المزيد في", products: (k: number) => (k === 1 ? "منتج واحد" : k === 2 ? "منتجان" : k <= 10 ? `${k} منتجات` : `${k} منتجاً`),
+    intro: (store: string) =>
+      `${store} متجر رقمي لشحن الألعاب وبطاقات الهدايا والاشتراكات والأرقام الافتراضية. الأسعار بالدولار، والدفع من محفظتك في المتجر، ومعظم الطلبات تصلك تلقائياً خلال ثوانٍ.`,
+    categoryIntro: (name: string, k: number) => `في قسم ${name} ${k === 1 ? "منتج واحد" : `${k} من المنتجات`}، بأسعار بالدولار وتسليم فوري لمعظم الطلبات.`,
+  },
+  en: {
+    home: "Home", categories: "Categories", popular: "Popular", from: "from", packages: "Packages", instant: "Instant delivery", updated: "Last updated",
+    otherCategories: "Other categories", moreIn: "More in", products: (k: number) => (k === 1 ? "1 product" : `${k} products`),
+    intro: (store: string) =>
+      `${store} is a digital store for game top-ups, gift cards, subscriptions and virtual numbers. Prices are in US dollars, you pay from your store wallet, and most orders arrive automatically within seconds.`,
+    categoryIntro: (name: string, k: number) => `${name}: ${k === 1 ? "1 product" : `${k} products`}, priced in US dollars, with instant delivery for most orders.`,
+  },
 };
 
 /** Page text (parseDoc's marks) as HTML. */
@@ -304,7 +318,17 @@ function breadcrumbLd(o: PageOpts, items: { name: string; path: string }[]) {
 
 const pick = (l: Locale, ar: string, en: string) => ((l === "ar" ? ar || en : en || ar) ?? "").trim();
 
-interface ProductCardRow { slug: string; name_ar: string; name_en: string; from_cents: string | number }
+interface ProductCardRow { slug: string; name_ar: string; name_en: string; from_cents: string | number; category: string }
+interface CategoryRow { slug: string; name_ar: string; name_en: string }
+
+/** The categories with something on sale, in the owner's order. */
+function categoriesOnShow(db: Db): Promise<CategoryRow[]> {
+  return db.query<CategoryRow>(
+    `select c.slug, c.name_ar, c.name_en from app.categories c
+      where c.active and exists (select 1 from app.products p join app.offers o on o.product_id = p.id and ${ON_SALE} where p.category_id = c.id and p.active)
+      order by c.sort, c.slug`,
+  );
+}
 
 function productList(o: PageOpts, rows: ProductCardRow[]): string {
   const w = WORDS[o.locale];
@@ -313,14 +337,15 @@ function productList(o: PageOpts, rows: ProductCardRow[]): string {
     .join("")}</ul>`;
 }
 
-async function productsOnSale(db: Db, category: string | null, limit: number): Promise<ProductCardRow[]> {
+/** Products on sale (in one category, or all), featured first; `byCategory` groups them by category, in its order. */
+async function productsOnSale(db: Db, category: string | null, limit: number, byCategory = false): Promise<ProductCardRow[]> {
   return db.query<ProductCardRow>(
-    `select p.slug, p.name_ar, p.name_en, min(o.price_cents) as from_cents
+    `select p.slug, p.name_ar, p.name_en, c.slug as category, min(o.price_cents) as from_cents
        from app.products p join app.categories c on c.id = p.category_id
        join app.offers o on o.product_id = p.id and ${ON_SALE}
       where p.active and c.active and ($1::text is null or c.slug = $1)
-      group by p.id
-      order by p.featured desc, p.sort, p.name_en
+      group by p.id, c.id
+      order by ${byCategory ? "c.sort, c.slug, " : ""}p.featured desc, p.sort, p.name_en
       limit $2`,
     [category, limit],
   );
@@ -335,22 +360,27 @@ export async function homeHead(svc: Pick<Services, "db">, o: PageOpts): Promise<
   const tagline = store.tagline[l];
   const title = (l === "ar" ? o.seo?.titleAr : o.seo?.titleEn) ?? `${o.storeName} | ${tagline.replace(/[.。]$/, "")}`;
   const description = (l === "ar" ? o.seo?.descriptionAr : o.seo?.descriptionEn) ?? tagline;
-  const [cats, products, channel, preload] = await Promise.all([
-    svc.db.query<{ slug: string; name_ar: string; name_en: string }>(
-      `select c.slug, c.name_ar, c.name_en from app.categories c
-        where c.active and exists (select 1 from app.products p join app.offers o on o.product_id = p.id and ${ON_SALE} where p.category_id = c.id and p.active)
-        order by c.sort, c.slug`,
-    ),
+  const [cats, products, all, channel, preload] = await Promise.all([
+    categoriesOnShow(svc.db),
     productsOnSale(svc.db, null, 40),
+    productsOnSale(svc.db, null, 1000, true),
     channelUrl(svc.db),
     showcasePreloads(svc.db),
   ]);
+  // Each category with a line about it: how many products, and the first few by name.
+  const sep = l === "ar" ? "، " : ", ";
+  const catLine = (c: CategoryRow) => {
+    const items = all.filter((p) => p.category === c.slug);
+    const names = items.slice(0, 4).map((p) => pick(l, p.name_ar, p.name_en)).join(sep);
+    return `<li><a href="${escapeHtml(localUrl(o, `/c/${c.slug}`, l, false))}">${escapeHtml(pick(l, c.name_ar, c.name_en))}</a> — ${escapeHtml(w.products(items.length))}${names ? `: ${escapeHtml(names)}` : ""}</li>`;
+  };
   const body = [
     `<main>`,
     `<h1>${escapeHtml(o.storeName)}</h1>`,
     `<p>${escapeHtml(description)}</p>`,
+    `<p>${escapeHtml(w.intro(o.storeName))}</p>`,
     `<h2>${w.categories}</h2>`,
-    `<ul>${cats.map((c) => `<li><a href="${escapeHtml(localUrl(o, `/c/${c.slug}`, l, false))}">${escapeHtml(pick(l, c.name_ar, c.name_en))}</a></li>`).join("")}</ul>`,
+    `<ul>${cats.map(catLine).join("")}</ul>`,
     `<h2>${w.popular}</h2>`,
     productList(o, products),
     `</main>`,
@@ -369,7 +399,21 @@ export async function homeHead(svc: Pick<Services, "db">, o: PageOpts): Promise<
         logo: `${o.baseUrl}/icon-512.png`,
         ...(channel ? { sameAs: [channel] } : {}),
       },
-      { "@context": "https://schema.org", "@type": "WebSite", name: o.storeName, url: `${o.baseUrl}/`, inLanguage: l },
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        name: o.storeName,
+        url: `${o.baseUrl}/`,
+        inLanguage: l,
+        // /?q=… opens the store's search with that text (client ui/Shell.tsx).
+        potentialAction: { "@type": "SearchAction", target: { "@type": "EntryPoint", urlTemplate: `${o.baseUrl}/?q={search_term_string}` }, "query-input": "required name=search_term_string" },
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        name: w.categories,
+        itemListElement: cats.map((c, i) => ({ "@type": "ListItem", position: i + 1, url: localUrl(o, `/c/${c.slug}`, l), name: pick(l, c.name_ar, c.name_en) })),
+      },
     ],
     body,
     preload,
@@ -385,15 +429,17 @@ export async function categoryHead(svc: Pick<Services, "db">, slug: string, o: P
     [slug],
   );
   if (!cat) return null;
-  const products = await productsOnSale(svc.db, slug, 200);
+  const [products, cats] = await Promise.all([productsOnSale(svc.db, slug, 200), categoriesOnShow(svc.db)]);
   const name = pick(l, cat.name_ar, cat.name_en);
   const names = products.slice(0, 6).map((p) => pick(l, p.name_ar, p.name_en)).join(l === "ar" ? "، " : ", ");
+  // Search results show about 160 characters.
   const description = plain(
     l === "ar"
       ? `${name} من ${o.storeName}${names ? `: ${names}` : ""}. أسعار بالدولار وتسليم فوري.`
       : `${name} at ${o.storeName}${names ? `: ${names}` : ""}. Prices in US dollars, instant delivery.`,
-    200,
+    160,
   );
+  const others = cats.filter((c) => c.slug !== cat.slug);
   const path = `/c/${cat.slug}`;
   return {
     path,
@@ -409,7 +455,17 @@ export async function categoryHead(svc: Pick<Services, "db">, slug: string, o: P
       },
       breadcrumbLd(o, [{ name, path }]),
     ],
-    body: [`<main>`, crumbs(o, [{ name, path }]), `<h1>${escapeHtml(name)}</h1>`, `<p>${escapeHtml(description)}</p>`, productList(o, products), `</main>`].join("\n"),
+    body: [
+      `<main>`,
+      crumbs(o, [{ name, path }]),
+      `<h1>${escapeHtml(name)}</h1>`,
+      `<p>${escapeHtml(WORDS[l].categoryIntro(name, products.length))}</p>`,
+      productList(o, products),
+      others.length
+        ? `<h2>${WORDS[l].otherCategories}</h2><ul>${others.map((c) => `<li><a href="${escapeHtml(localUrl(o, `/c/${c.slug}`, l, false))}">${escapeHtml(pick(l, c.name_ar, c.name_en))}</a></li>`).join("")}</ul>`
+        : "",
+      `</main>`,
+    ].filter(Boolean).join("\n"),
   };
 }
 
@@ -477,8 +533,11 @@ export async function productMeta(svc: Pick<Services, "db">, slug: string): Prom
     ),
     showcasePreloads(svc.db),
   ]);
+  // Other products of its category, for links between the store's pages.
+  const related = r.cat_slug ? (await productsOnSale(svc.db, r.cat_slug, 9)).filter((p) => p.slug !== r.slug).slice(0, 8) : [];
   return {
     preload,
+    related: related.map((p) => ({ slug: p.slug, nameAr: p.name_ar, nameEn: p.name_en, fromCents: n(p.from_cents) })),
     rating: rating && n(rating.count) > 0 ? { average: Math.round(Number(rating.average) * 10) / 10, count: n(rating.count) } : null,
     reviews: reviews.map((v) => ({
       name: (v.display_name.trim().split(/\s+/)[0] ?? "").slice(0, 24),
@@ -509,7 +568,7 @@ export function productHead(meta: ProductMeta, o: PageOpts): PageHead {
   const ownDescription = (ar ? meta.seoDescriptionAr : meta.seoDescriptionEn)?.trim();
   const description = ownDescription
     ? plain(ownDescription, 320)
-    : plain([price, WORDS[l].instant, other && other !== name ? other : "", desc].filter(Boolean).join(" · "), 200);
+    : plain([price, WORDS[l].instant, other && other !== name ? other : "", desc].filter(Boolean).join(" · "), 160);
   const ownTitle = (ar ? meta.seoTitleAr : meta.seoTitleEn)?.trim();
   const path = `/p/${meta.slug}`;
   const trail = [...(meta.category ? [{ name: pick(l, meta.category.nameAr, meta.category.nameEn), path: `/c/${meta.category.slug}` }] : []), { name, path }];
@@ -522,7 +581,6 @@ export function productHead(meta: ProductMeta, o: PageOpts): PageHead {
     image: image ?? `${o.baseUrl}/icon-512.png`,
     url: localUrl(o, path, l),
     ...(desc ? { description: desc } : {}),
-    brand: { "@type": "Brand", name: o.storeName },
     ...(meta.minCents !== null && meta.maxCents !== null
       ? {
           offers: {
@@ -532,6 +590,8 @@ export function productHead(meta: ProductMeta, o: PageOpts): PageHead {
             highPrice: (meta.maxCents / 100).toFixed(2),
             offerCount: meta.offers,
             availability: meta.offers > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+            url: localUrl(o, path, l),
+            seller: { "@type": "Organization", name: o.storeName },
           },
         }
       : {}),
@@ -559,6 +619,10 @@ export function productHead(meta: ProductMeta, o: PageOpts): PageHead {
     meta.rating ? `<p>★ ${meta.rating.average} (${meta.rating.count})</p>` : "",
     packages.length
       ? `<h2>${WORDS[l].packages}</h2><ul>${packages.map((p) => `<li>${escapeHtml(pick(l, p.nameAr, p.nameEn))} — ${formatUsd(p.priceCents)}</li>`).join("")}</ul>`
+      : "",
+    meta.category && meta.related?.length
+      ? `<h2>${WORDS[l].moreIn} <a href="${escapeHtml(localUrl(o, `/c/${meta.category.slug}`, l, false))}">${escapeHtml(pick(l, meta.category.nameAr, meta.category.nameEn))}</a></h2>` +
+        productList(o, meta.related.map((p) => ({ slug: p.slug, name_ar: p.nameAr, name_en: p.nameEn, from_cents: p.fromCents, category: meta.category!.slug })))
       : "",
     `</main>`,
   ].filter(Boolean).join("\n");

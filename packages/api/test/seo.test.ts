@@ -158,8 +158,13 @@ describe("store pages and search engines", () => {
     expect(html).toContain('<link rel="alternate" hreflang="x-default" href="https://gh-store.me/">');
     expect(html).toContain('"@type":"Organization"');
     expect(html).toContain('<div id="root"><main>');
+    // A search action agents and search engines can use (/?q=…), and a line per category
+    expect(html).toContain('"urlTemplate":"https://gh-store.me/?q={search_term_string}"');
+    expect(home.body).toMatch(/<li><a href="\/c\/games\?lang=en">[^<]+<\/a> — \d+ products?/);
     const cat = await categoryHead({ db }, "games", { ...o, locale: "ar" });
     expect(cat?.title).toMatch(/ \| GH Store$/);
+    expect(cat?.body).toContain("<h1>");
+    expect(cat!.description.length).toBeLessThanOrEqual(160);
     expect(await categoryHead({ db }, `nope-${run}`, o)).toBeNull();
   });
 

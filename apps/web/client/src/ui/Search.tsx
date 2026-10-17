@@ -41,11 +41,12 @@ function popular(products: ProductCard[]): ProductCard[] {
   return [...products].sort((a, b) => rank(a) - rank(b) || b.packages - a.packages).slice(0, 6);
 }
 
-export function SearchOverlay({ onClose }: { onClose: () => void }) {
+/** `initial`: a search opened from a link (/?q=…, the home page's search action for search engines and agents). */
+export function SearchOverlay({ onClose, initial = "" }: { onClose: () => void; initial?: string }) {
   const { t, lang } = useT();
   const { miniApp } = useApp();
   const { data } = useApi<{ categories: Category[]; products: ProductCard[] }>("/api/catalog");
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initial);
   const query = useDeferredValue(q.trim());
   const [recent, setRecent] = useState(readRecent);
   const [leaving, setLeaving] = useState(false);

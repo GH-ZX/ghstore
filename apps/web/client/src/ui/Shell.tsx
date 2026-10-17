@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { store } from "@store/config";
 import { usd } from "../lib/format";
-import { linkHandler, usePath, back } from "../lib/router";
+import { linkHandler, navigate, usePath, back } from "../lib/router";
 import { setLang, useApp, useT } from "../lib/state";
 import { pushBack } from "../lib/telegram";
 import type { MsgKey } from "../lib/i18n";
@@ -39,7 +39,13 @@ export function Shell({ title, children, narrow }: { title?: string; children: R
   const { t } = useT();
   const path = usePath();
   const isRoot = TABS.some((x) => x.to === path);
-  const [searching, setSearching] = useState(false);
+  // /?q=… opens the search with that text (the home page's search action in its structured data).
+  const [linked] = useState(() => (path === "/" ? new URLSearchParams(location.search).get("q")?.trim().slice(0, 80) ?? "" : ""));
+  const [searching, setSearching] = useState(!!linked);
+  const closeSearch = () => {
+    setSearching(false);
+    if (linked && new URLSearchParams(location.search).has("q")) navigate("/", { replace: true });
+  };
 
   // In Telegram, show its back button on inner pages (an order, a product).
   useEffect(() => {
@@ -100,7 +106,7 @@ export function Shell({ title, children, narrow }: { title?: string; children: R
           );
         })}
       </nav>
-      {searching && <SearchOverlay onClose={() => setSearching(false)} />}
+      {searching && <SearchOverlay onClose={closeSearch} initial={linked} />}
       <Toast />
       <ConfirmHost />
     </>
