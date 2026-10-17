@@ -66,6 +66,7 @@ generated password, is in the `setup:store` output):
 ```sql
 create role store_app login password '...' in role store_server;
 alter role store_app set search_path = app, public;
+alter role store_app set statement_timeout = '30s';
 ```
 
 `store_app` can do only what `store_server` allows: no direct wallet or ledger

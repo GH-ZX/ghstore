@@ -42,6 +42,7 @@ ${line}
 ${line}
 create role store_app login password '${secrets.DB_APP_PASSWORD}' in role store_server;
 alter role store_app set search_path = app, public;
+alter role store_app set statement_timeout = '30s';
 
 ${line}
  2. Hyperdrive (connection pooling from the Worker to Postgres)
