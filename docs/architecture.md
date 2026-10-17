@@ -313,15 +313,16 @@ several MB).
 | --- | --- |
 | `orders` | Fulfil/re-check due orders (leased, so overlapping runs are safe) |
 | `stuck_orders` | Flag orders open too long, alert owners |
-| `health_watch` | Every 5 min: server errors piling up, suppliers not answering, the USDT checker failing, customer jobs stuck; each alert once (`app.alert_state`) |
+| `health_watch` | Every 5 min: server errors piling up, suppliers not answering (balance check) or their price check failing (sync), the USDT checker failing, customer jobs stuck, any job started 3 times without finishing (`job_heartbeats.unfinished`); each alert once (`app.alert_state`) |
 | `review_ask` | Every 15 min: review requests some hours after delivery |
-| `payments` | Re-check pending SAM/NOWPayments top-ups; expire old ones |
+| `payments` | Re-check pending SAM/NOWPayments top-ups first; top-ups the store closed are re-checked every tenth of their age (2 min to 3 h) for two days; expire old ones |
 | `usdt_deposits` | Every 2 min (odd minutes), only while a USDT request is open: credit transfers found by their exact amount |
 | `supplier_balances` | Every 15 min; alert once when a balance drops under its threshold |
-| `supplier_sync` | Every minute, for each supplier whose own interval is up (5 min to 24 h, Admin → Suppliers → Price and stock checks): costs, availability, margin guard |
-| `supplier_catalogue` | Every 5 min, with spare requests only: refresh up to 3 groups of the saved supplier lists (Choose packages); suppliers that list everything in one request go first, and new items of clean-name suppliers are named |
+| `supplier_sync` | Every minute, for each supplier whose own interval is up (5 min to 24 h, Admin → Suppliers → Price and stock checks): costs, availability, margin guard. Each supplier is leased while checked (`sync_lease_until`); a failing supplier backs off 2, 4 … 60 min (`sync_retry_at`), and so does a failing group of a big catalogue (`supplier_sync_groups`) while the other groups go on. Its state is `sync_health`/`sync_error`, apart from the balance check's `health`/`last_error` |
+| `supplier_catalogue` | Every 5 min, with spare requests only: refresh up to 3 groups (and at most 2000 items) of the saved supplier lists (Choose packages); suppliers that list everything in one request go first, and new items of clean-name suppliers are named |
 | `store_images` | Every 10 min, once the storage key is set: copy pictures linked from other sites into the store's Storage bucket |
-| `outbox` | Send queued Telegram notifications |
+| `outbox` | Send queued Telegram notifications (and browser notifications when `push.enabled` is on); each message is budgeted at 1 + its browsers, what does not fit waits for the next run |
+| `housekeeping` | Once a night (00:x6 UTC): `app.housekeep()` deletes, in batches, messages sent a month ago (a broadcast's after half a year), sessions ended a week ago, expired link requests, price changes after 180 days, channel posts after 90, old alert state and throttle counters. Never money, orders or the audit log |
 | `buy_again` | Twice an hour: queue due "buy again" reminders |
 | `erase_details` | Twice an hour: erase the details customers gave after paying, two weeks after their order closed |
 | `daily_summary` | Every 10 minutes; in the owner's chosen local hour (default 09:00), queue yesterday's summary once |
