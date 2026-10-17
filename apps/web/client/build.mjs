@@ -110,6 +110,8 @@ await writeFile(
 );
 
 await copyFile(join(here, "public", "_headers"), join(out, "_headers"));
+// The service worker for browser notifications (lib/push.ts), at the root so it covers every page.
+await copyFile(join(here, "public", "sw.js"), join(out, "sw.js"));
 // Static pictures: payment providers' logos (pay/, ShamCash) and promo pictures (promo/, the Numbers slide).
 for (const dir of ["pay", "promo", "services"]) await cp(join(here, "public", dir), join(out, dir), { recursive: true });
 

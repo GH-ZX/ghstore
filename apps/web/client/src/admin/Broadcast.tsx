@@ -1,4 +1,5 @@
 /** Broadcast: one Telegram message to every customer or to a product's buyers. Owner only. */
+import { ChannelCard } from "./Channel";
 import { useState } from "react";
 import { dateTime } from "../lib/format";
 import { pick } from "../lib/i18n";
@@ -81,6 +82,7 @@ export function Broadcast() {
 
   return (
     <div className="stack">
+      <ChannelCard />
       <p className="hint">{t("broadcastHint")}</p>
       <div className="pref-row">
         <span>{t("audience")}</span>

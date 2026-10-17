@@ -1,6 +1,8 @@
 /** Profile: who you are, totals, preferences, ways to sign in, support, admin link and sign-out. */
+import { disablePush, enablePush, needsHomeScreen, pushState, type PushState } from "../lib/push";
+import { LevelCard } from "./Level";
 import { store } from "@store/config";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api, ApiFail, setToken } from "../lib/api";
 import { errorText, pick } from "../lib/i18n";
 import { copyText, usd } from "../lib/format";
@@ -10,7 +12,7 @@ import { haptic, openExternal, openTelegramLink } from "../lib/telegram";
 import type { Favorites, Referral } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { ChevronIcon, ContactMark, GiftIcon, HeartIcon, WalletIcon } from "../ui/icons";
-import { Seg, Sheet, Switch, Tile } from "../ui/kit";
+import { Seg, Sheet, Switch, Tile, Spinner } from "../ui/kit";
 import { SiteFooter } from "../ui/Footer";
 import { AdminLink, Shell } from "../ui/Shell";
 import { EmailCode, linkWebLogin, RequireUser, startLink } from "./Login";
@@ -90,6 +92,8 @@ function ProfileView() {
         </button>
       </div>
 
+      <LevelCard />
+
       <FavoritesCard />
 
       <InviteCard />
@@ -102,6 +106,7 @@ function ProfileView() {
           <span>{t("notifications")}</span>
           <Switch checked={u.notify} onChange={setNotify} label={t("notifications")} />
         </div>
+        {!miniApp && <DevicePushRow />}
         <div className="pref-row">
           <span>{t("language")}</span>
           <Seg
@@ -174,6 +179,42 @@ function ProfileView() {
         )}
       </div>
       <SiteFooter />
+    </div>
+  );
+}
+
+/** Website: browser notifications on this device (Telegram notifies inside the Mini App). */
+function DevicePushRow() {
+  const { t } = useT();
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void pushState().then(setState);
+  }, []);
+  if (state === null) return null;
+  if (state === "unsupported") {
+    return needsHomeScreen() ? <p className="small muted" style={{ padding: "4px 0 10px" }}>{t("pushHome")}</p> : null;
+  }
+  async function toggle(on: boolean) {
+    setBusy(true);
+    try {
+      const next = on ? await enablePush() : await disablePush();
+      setState(next);
+      if (next === "blocked") toast(t("pushBlocked"), true);
+      else if (next === "on") toast(t("pushOn"));
+    } catch {
+      toast(t("pushFailed"), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="pref-row">
+      <span className="stack-xs">
+        <span>{t("pushDevice")}</span>
+        <span className="small muted">{state === "blocked" ? t("pushBlocked") : t("pushHint")}</span>
+      </span>
+      {busy ? <Spinner small /> : <Switch checked={state === "on"} onChange={(v) => void toggle(v)} label={t("pushDevice")} />}
     </div>
   );
 }

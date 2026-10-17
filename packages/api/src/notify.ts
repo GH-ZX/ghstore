@@ -2,12 +2,14 @@
  * Telegram notifications from app.outbox. Short, bilingual templates; the user's
  * language decides. Sent by the scheduled job, never inside a money transaction.
  */
+import { store } from "@store/config";
 import { formatUsd } from "@store/core";
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
 import { EMAIL_INSTEAD, emailReady, emailSettings, RECEIPT_TEMPLATES, renderReceipt, sendEmail } from "./email";
 import { effectiveEnv } from "./keys";
-import { botUsername } from "./settings";
+import { botUsername, supportContacts } from "./settings";
+import { pushToUser } from "./push";
 import { summaryText, type DaySummary } from "./reports";
 
 type Data = Record<string, unknown>;
@@ -57,6 +59,10 @@ const TEMPLATES: Record<string, { ar: (d: Data) => string; en: (d: Data) => stri
     ar: (d) => String(d.text_ar ?? d.text_en ?? ""),
     en: (d) => String(d.text_en ?? d.text_ar ?? ""),
   },
+  level_up: {
+    ar: (d) => `🎉 وصلت إلى المستوى ${d.level}! من الآن تعود إليك ${d.percent}% من قيمة كل طلب في رصيدك.`,
+    en: (d) => `🎉 You reached level ${d.level}! From now on ${d.percent}% of every order comes back to your balance.`,
+  },
   review_ask: {
     ar: (d) => `كيف كان ${String(d.name_ar ?? "")}؟ ⭐\nقيّمه بضغطة واحدة، فرأيك يساعد غيرك من العملاء.`,
     en: (d) => `How was ${String(d.name_en ?? "")}? ⭐\nRate it in one tap: it helps other customers.`,
@@ -73,6 +79,24 @@ const TEMPLATES: Record<string, { ar: (d: Data) => string; en: (d: Data) => stri
 
 /** Telegram errors that mean this chat can never receive the bot's messages. */
 const UNREACHABLE = /bot was blocked by the user|user is deactivated|chat not found|bot can't initiate conversation/i;
+
+/** Customer messages that also go to the browsers they turned notifications on for (Profile). */
+const PUSH_TEMPLATES = new Set([
+  "order_delivered", "order_refunded", "payment_credited", "order_needs_info", "back_in_stock",
+  "problem_reply", "review_ask", "level_up", "referral_reward",
+]);
+
+/** Where a notification opens on the website. */
+function pushUrl(template: string, data: Data): string {
+  const slug = typeof data.slug === "string" && /^[a-z0-9-]{1,80}$/.test(data.slug) ? data.slug : null;
+  const order = typeof data.order_id === "string" && /^[0-9a-f-]{36}$/.test(data.order_id) ? data.order_id : null;
+  if (template === "review_ask" && slug) return `/p/${slug}?review=1`;
+  if (slug) return `/p/${slug}`;
+  if (order) return `/orders/${order}`;
+  if (template.startsWith("order_")) return "/orders";
+  if (template === "payment_credited" || template === "level_up" || template === "referral_reward") return "/wallet";
+  return "/";
+}
 
 /** Messages for the people running the store, never for customers. */
 const STAFF_TEMPLATES = new Set(["staff_alert", "staff_order", "daily_summary"]);
@@ -154,6 +178,16 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
         r.template,
         JSON.stringify(r.data ?? {}),
       ]);
+    }
+
+    // Browser notifications, once per message, for the devices the customer turned them on for.
+    if (r.attempts === 1 && r.notify && PUSH_TEMPLATES.has(r.template)) {
+      const body = renderTemplate(r.template, locale, r.data ?? {});
+      if (body) {
+        const contact = (await supportContacts(svc.db)).email;
+        await pushToUser(svc, env, r.user_id, { title: store.name, body: body.slice(0, 240), url: pushUrl(r.template, r.data ?? {}), lang: locale }, contact ? `mailto:${contact}` : env.PUBLIC_BASE_URL)
+          .catch((e) => console.error("push failed", e instanceof Error ? e.message : String(e)));
+      }
     }
 
     // A website customer (no Telegram) gets these by email instead.

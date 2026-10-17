@@ -18,7 +18,7 @@ import { effectiveEnv } from "./keys";
 /** Telegram templates that also go out as an email receipt. */
 export const RECEIPT_TEMPLATES = new Set(["order_delivered", "order_refunded", "payment_credited"]);
 /** Messages a website customer (no Telegram) gets by email instead. */
-export const EMAIL_INSTEAD = new Set(["order_needs_info", "back_in_stock", "problem_reply", "review_ask"]);
+export const EMAIL_INSTEAD = new Set(["order_needs_info", "back_in_stock", "problem_reply", "review_ask", "level_up"]);
 
 /** "Name <address@domain>" or a bare address. */
 export const EMAIL_FROM = /^(?:[^<>\r\n"]{1,60} <[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}>|[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24})$/;
@@ -79,7 +79,13 @@ export async function renderReceipt(
   let button = ar ? "افتح المتجر" : "Open the store";
   const slug = typeof data.slug === "string" && /^[a-z0-9-]{1,80}$/.test(data.slug) ? data.slug : null;
 
-  if (template === "back_in_stock" || template === "review_ask") {
+  if (template === "level_up") {
+    subject = ar ? `🎉 وصلت إلى المستوى ${n(data.level)}` : `🎉 You reached level ${n(data.level)}`;
+    lead = ar
+      ? `من الآن تعود إليك ${Number(data.percent)}% من قيمة كل طلب في رصيدك في ${store.name}.`
+      : `From now on ${Number(data.percent)}% of every order comes back to your ${store.name} balance.`;
+    link = `${baseUrl}/profile`;
+  } else if (template === "back_in_stock" || template === "review_ask") {
     if (!slug) return null;
     const name = String((ar ? data.name_ar : data.name_en) ?? "");
     if (template === "back_in_stock") {

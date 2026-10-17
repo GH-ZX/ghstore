@@ -11,6 +11,7 @@ import { queueDailySummary } from "./reports";
 import { CLOSED_NOTES, detectUsdtDeposits, settlePayment, TOPUP_CLOSE_AFTER, USDT_CLOSE_AFTER } from "./payments";
 import { copyLinkedImages } from "./images";
 import { watchHealth } from "./health";
+import { queueChannelPosts, sendChannelPosts } from "./channel";
 import { refreshDueCatalogues } from "./supplier-catalogue";
 import { syncDueSuppliers } from "./sync";
 
@@ -156,6 +157,13 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   if (minute % 10 === 5) await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
   // Errors piling up, a supplier not answering, a customer job stuck: the owner hears once.
   if (minute % 5 === 3) await heartbeat(svc, "health_watch", () => watchHealth(svc));
+  // The store's channel: new products and price drops queued, one post sent at a time (a few a day).
+  if (minute % 5 === 2 && room(svc, 4) > 0) {
+    await heartbeat(svc, "channel_posts", async () => {
+      await queueChannelPosts(svc.db);
+      await sendChannelPosts(svc, env);
+    });
+  }
   // "How was it?": a review request some hours after delivery (Admin → Settings).
   if (minute % 15 === 13) await heartbeat(svc, "review_ask", () => queueReviewAsks(svc));
   if (minute % 15 === 7 && room(svc, 2) > 0) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));

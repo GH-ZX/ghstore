@@ -31,6 +31,9 @@ import * as pages from "./pages";
 import * as reviews from "./reviews";
 import * as problems from "./problems";
 import { health, logError } from "./health";
+import * as loyalty from "./loyalty";
+import * as channel from "./channel";
+import * as push from "./push";
 
 export type { ApiEnv, AuthedUser, Ctx, Services } from "./context";
 export type { Db } from "./db";
@@ -67,6 +70,10 @@ const router = new Router()
   .on("POST", "/api/me/link/telegram", auth.linkTelegram)
   .on("POST", "/api/me/unlink", auth.unlink)
   .on("GET", "/api/me/referral", promo.getReferral)
+  .on("GET", "/api/me/level", loyalty.myLevel)
+  .on("GET", "/api/push/key", push.pushKey)
+  .on("POST", "/api/push/subscribe", push.subscribePush)
+  .on("POST", "/api/push/unsubscribe", push.unsubscribePush)
   .on("POST", "/api/me/referral", promo.claimReferral)
   // catalog
   .on("GET", "/api/catalog", catalog.listCatalog)
@@ -108,6 +115,8 @@ const router = new Router()
   .on("POST", "/api/admin/orders/:id/deliver", adminOrders.deliverOrder)
   .on("POST", "/api/admin/orders/:id/refund", admin.refundOrder)
   .on("POST", "/api/admin/orders/:id/retry", admin.retryOrder)
+  .on("GET", "/api/admin/channel", channel.adminChannel)
+  .on("POST", "/api/admin/channel/test", channel.testChannelPost)
   .on("GET", "/api/admin/problems", problems.adminProblems)
   .on("POST", "/api/admin/problems/:id/resolve", problems.resolveProblem)
   .on("GET", "/api/admin/reviews", reviews.adminReviews)

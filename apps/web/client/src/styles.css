@@ -1355,3 +1355,15 @@ textarea.input { padding: 10px 14px; min-height: 0; resize: vertical; line-heigh
 .problem__text { margin: 0; font-size: 14px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
 .problem-admin--done { opacity: .72; }
 .problem-admin__reply { padding: 10px 12px; border-radius: 14px; background: var(--surface-2); }
+
+/* ───────────────────────────── loyalty level (Profile) */
+.level { position: relative; overflow: hidden; }
+.level::before { content: ""; position: absolute; inset: 0 0 auto auto; width: 140px; height: 140px; border-radius: 50%; translate: 40% -40%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--lvl, var(--accent)) 30%, transparent), transparent 70%); pointer-events: none; }
+.level--1 { --lvl: #94a3b8; }
+.level--2 { --lvl: #f5b301; }
+.level--3 { --lvl: #22d3ee; }
+.level__name { font-size: 20px; }
+.level__pct { font-size: 26px; font-weight: 800; color: var(--accent-text); }
+.level__bar { height: 8px; border-radius: 8px; background: var(--surface-2); overflow: hidden; }
+.level__bar i { display: block; height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--accent), var(--lvl, var(--accent))); transition: width .6s ease; }

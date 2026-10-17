@@ -152,6 +152,17 @@ export function effectiveBadge(badge: string | null, auto: Map<string, string>, 
 export const TOPUP_LIMITS = { minCents: 100, maxCents: 100_000 } as const;
 
 /** The smallest and largest top-up a customer may ask for (the largest never below the smallest). */
+/**
+ * Safer top-ups (Admin → Settings): a new account (under a day old, nothing
+ * delivered yet) can't top up more than `newAccountMaxCents` at once, and
+ * nobody starts more than `perHour` top-ups an hour.
+ */
+export async function topupSafety(db: Db): Promise<{ newAccountMaxCents: number; perHour: number }> {
+  const s = await readSettings(db, ["payments.new_account_max_cents", "payments.topups_per_hour"]);
+  const int = (v: unknown, fallback: number) => (typeof v === "number" && Number.isInteger(v) && v > 0 ? v : fallback);
+  return { newAccountMaxCents: int(s["payments.new_account_max_cents"], 5000), perHour: int(s["payments.topups_per_hour"], 6) };
+}
+
 export async function topupLimits(db: Db): Promise<{ minCents: number; maxCents: number }> {
   const s = await readSettings(db, ["payments.min_topup_cents", "payments.max_topup_cents"]);
   const int = (v: unknown, fallback: number) => (typeof v === "number" && Number.isInteger(v) && v > 0 ? v : fallback);

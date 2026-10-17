@@ -75,6 +75,22 @@ export async function watchHealth(svc: Services): Promise<void> {
     await alertOnce(svc, `stale:${j.name}`, 2, `⚠️ Job "${j.name}" hasn't finished for ${n(j.minutes)} minutes.`);
   }
 
+  // Unusual activity: many top-ups in an hour, or many problem reports in a week, from one customer.
+  const busy = await svc.db.query<{ id: string; name: string; count: string | number }>(
+    `select u.id, u.display_name as name, count(*) as count from app.payments p join app.users u on u.id = p.user_id
+      where p.created_at > now() - interval '1 hour' and u.role = 'customer' group by u.id having count(*) >= 5`,
+  );
+  for (const u of busy) {
+    await alertOnce(svc, `topups:${u.id}`, 24, `👀 ${u.name || "A customer"} started ${n(u.count)} top-ups in the last hour (Admin → Top-ups, Users).`);
+  }
+  const reports = await svc.db.query<{ id: string; name: string; count: string | number }>(
+    `select u.id, u.display_name as name, count(*) as count from app.order_problems r join app.users u on u.id = r.user_id
+      where r.created_at > now() - interval '7 days' group by u.id having count(*) >= 3`,
+  );
+  for (const u of reports) {
+    await alertOnce(svc, `problems:${u.id}`, 72, `👀 ${u.name || "A customer"} reported ${n(u.count)} problems this week (Admin → Orders → Problems).`);
+  }
+
   await svc.db.query(`delete from app.error_log where at < now() - interval '7 days'`);
 }
 

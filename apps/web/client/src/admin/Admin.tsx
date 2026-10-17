@@ -1,5 +1,7 @@
 /** Admin: layout, navigation and access. Monitors look, support staff also act on orders and top-ups, owners see everything. */
 import { useEffect, type ReactNode } from "react";
+// The admin's strings (kept out of what customers download).
+import "./messages";
 import { store } from "@store/config";
 import { linkHandler, navigate, usePath } from "../lib/router";
 import { useApp, useT } from "../lib/state";

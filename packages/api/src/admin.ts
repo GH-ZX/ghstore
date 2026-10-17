@@ -13,6 +13,8 @@ import { fulfilOrder } from "./fulfilment";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { settlePayment } from "./payments";
 import { openProblems } from "./problems";
+import { validTiers } from "./loyalty";
+import { CHANNEL_CHAT } from "./channel";
 import { room } from "./jobs";
 import { syncSupplier } from "./sync";
 
@@ -231,6 +233,18 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "reviews.ask_hours": (v) => typeof v === "number" && [0, 1, 3, 6, 12, 24, 48].includes(v),
   // Product pictures resized by Cloudflare (Images → Transformations on for the domain).
   "images.resize": (v) => typeof v === "boolean",
+  // Safer top-ups: a new account's largest top-up, and top-ups per hour per customer.
+  "payments.new_account_max_cents": (v) => typeof v === "number" && Number.isInteger(v) && v >= 100 && v <= 1_000_000,
+  "payments.topups_per_hour": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 50,
+  // Loyalty levels: cashback on delivered orders by what was spent in 30 days.
+  "loyalty.enabled": (v) => typeof v === "boolean",
+  "loyalty.tiers": (v) => validTiers(v),
+  // Posts to the store's channel: where (a public @name or a -100… id; null = the channel link), what, how many a day.
+  "channel.chat": (v) => v === null || (typeof v === "string" && CHANNEL_CHAT.test(v)),
+  "channel.post_new": (v) => typeof v === "boolean",
+  "channel.post_back": (v) => typeof v === "boolean",
+  "channel.post_drops": (v) => typeof v === "boolean",
+  "channel.max_per_day": (v) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 30,
   // Cloudflare Web Analytics: the site's beacon token (null = off).
   "analytics.cf_token": (v) => v === null || (typeof v === "string" && /^[a-f0-9]{32}$/.test(v)),
   // Virtual numbers: how many times in a row a customer may report a number and get the next one.

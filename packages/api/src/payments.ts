@@ -12,7 +12,7 @@ import type { ApiEnv, Ctx, Services } from "./context";
 import { call, isUniqueViolation, n, one } from "./db";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { effectiveEnv } from "./keys";
-import { starsPerUsd, topupLimits } from "./settings";
+import { starsPerUsd, topupLimits, topupSafety } from "./settings";
 
 const ALL_METHODS: PaymentMethod[] = ["sam", "nowpayments", "bep20", "stars"];
 /** Note on a manual USDT top-up whose submitted hash did not match; the customer may paste another. */
@@ -67,6 +67,19 @@ export async function createTopup(ctx: Ctx): Promise<Response> {
   if (method === "stars" && rate === null) throw new ApiError("payment_method_unavailable");
   const adapter = rate === null ? ctx.svc.payment(method) : ctx.svc.payment(method, { STARS_PER_USD: String(rate) });
   if (!adapter) throw new ApiError("payment_method_unavailable");
+
+  // Safer top-ups: a brand-new account starts with a smaller limit, and top-ups per hour are capped.
+  const safety = await topupSafety(ctx.svc.db);
+  const acct = await one<{ fresh: boolean; recent: string | number }>(
+    ctx.svc.db,
+    `select (u.created_at > now() - interval '1 day'
+             and not exists (select 1 from app.orders o where o.user_id = u.id and o.status = 'delivered')) as fresh,
+            (select count(*) from app.payments p where p.user_id = u.id and p.created_at > now() - interval '1 hour') as recent
+       from app.users u where u.id = $1`,
+    [user.id],
+  );
+  if (acct?.fresh && amountCents > safety.newAccountMaxCents) throw new ApiError("limit_new_account", String(safety.newAccountMaxCents));
+  if (n(acct?.recent) >= safety.perHour) throw new ApiError("rate_limited");
 
   // Limit open top-ups per user so nobody floods the providers.
   const open = await one<{ c: string | number }>(
@@ -214,14 +227,14 @@ export const TOPUP_CLOSE_AFTER = "17 minutes";
 export async function walletHistory(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
   const kind = ctx.url.searchParams.get("kind");
-  const kinds = kind === "topup" ? ["topup"] : kind === "purchase" ? ["purchase", "refund"] : ["topup", "purchase", "refund", "adjustment", "referral"];
+  const kinds = kind === "topup" ? ["topup"] : kind === "purchase" ? ["purchase", "refund"] : ["topup", "purchase", "refund", "adjustment", "referral", "cashback"];
   const balance = await one<{ balance_cents: string | number }>(ctx.svc.db, `select balance_cents from app.wallets where user_id = $1`, [user.id]);
   const rows = await ctx.svc.db.query<{ id: string | number; amount_cents: string | number; kind: string; ref_type: string; ref_id: string; created_at: string; note: string | null; method: string | null; product_ar: string | null; product_en: string | null }>(
     `select l.id, l.amount_cents, l.kind, l.ref_type, l.ref_id, l.created_at, l.note, pay.method, p.name_ar as product_ar, p.name_en as product_en
        from app.ledger l
        left join app.payments pay on l.ref_type = 'payment' and pay.id = l.ref_id
        -- Referral rewards point at the friend's order: never show what the friend bought.
-       left join app.orders o on l.ref_type = 'order' and l.kind in ('purchase', 'refund') and o.id = l.ref_id
+       left join app.orders o on l.ref_type = 'order' and l.kind in ('purchase', 'refund', 'cashback') and o.id = l.ref_id
        left join app.products p on p.id = o.product_id
       where l.user_id = $1 and l.kind = any(string_to_array($2::text, ','))
       order by l.id desc limit 50`,

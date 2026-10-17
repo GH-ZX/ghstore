@@ -12,6 +12,7 @@
  * (the price check finds stock, the owner adds codes or lifts a pause), everyone
  * waiting gets one Telegram message (`back_in_stock`) and the request is done.
  */
+import { queueBackInStockPosts } from "./channel";
 import { requireUser } from "./auth";
 import type { Ctx, Services } from "./context";
 import { n } from "./db";
@@ -105,6 +106,8 @@ export async function removeStockAlert(ctx: Ctx): Promise<Response> {
  */
 export async function notifyBackInStock(svc: Pick<Services, "db">, offerIds: string[]): Promise<number> {
   if (!offerIds.length) return 0;
+  // The store's channel hears about it too (Admin → Broadcast → Channel posts).
+  await queueBackInStockPosts(svc.db, offerIds);
   const rows = await svc.db.query<{ user_id: string }>(
     `with back as (
        select o.id, o.name_ar, o.name_en, p.slug, p.name_ar as product_ar, p.name_en as product_en

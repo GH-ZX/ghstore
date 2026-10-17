@@ -25,6 +25,7 @@ export type ErrorCode =
   | "coupon_min_order"
   | "account_in_use"
   | "already_linked"
+  | "limit_new_account"
   | "internal";
 
 const STATUS: Record<ErrorCode, number> = {
@@ -34,6 +35,7 @@ const STATUS: Record<ErrorCode, number> = {
   not_found: 404,
   conflict: 409,
   rate_limited: 429,
+  limit_new_account: 403,
   insufficient_balance: 402,
   offer_unavailable: 409,
   out_of_stock: 409,

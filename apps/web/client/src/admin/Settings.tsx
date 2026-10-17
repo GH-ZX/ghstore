@@ -1,4 +1,5 @@
 /** Store settings: the Telegram bot connection, the theme for everyone, the SYP rate, how long orders wait for a person, invite rewards. */
+import { LoyaltyCard, SafetyCard } from "./Loyalty";
 import { useEffect, useState } from "react";
 import { THEMES, type ThemePreset } from "@store/ui";
 import { store } from "@store/config";
@@ -403,6 +404,9 @@ export function Settings() {
           {t("save")}
         </button>
       </section>
+
+      <LoyaltyCard />
+      <SafetyCard />
 
       <section className="card card--pad stack-sm">
         <div>
