@@ -4,6 +4,7 @@ import { pick } from "../lib/i18n";
 import { useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
 import { Stars } from "../screens/Reviews";
+import { askConfirm } from "../ui/Confirm";
 import { Empty, ErrorBox, Seg } from "../ui/kit";
 import { ago, useAction } from "./common";
 
@@ -31,7 +32,7 @@ export function ReviewsAdmin({ owner }: { owner: boolean }) {
   }
 
   async function remove(r: AdminReview) {
-    if (!confirm(t("reviewDeleteConfirm"))) return;
+    if (!(await askConfirm(t("reviewDeleteConfirm"), { danger: true }))) return;
     if (await action.run(`/api/admin/reviews/${r.id}`, { method: "DELETE" })) await reload();
   }
 

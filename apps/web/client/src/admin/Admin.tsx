@@ -1,29 +1,34 @@
 /** Admin: layout, navigation and access. Monitors look, support staff also act on orders and top-ups, owners see everything. */
-import { useEffect, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 // The admin's strings (kept out of what customers download).
 import "./messages";
 import { store } from "@store/config";
-import { linkHandler, navigate, usePath } from "../lib/router";
+import { ApiFail } from "../lib/api";
+import { back, linkHandler, navigate, usePath } from "../lib/router";
 import { useApp, useT } from "../lib/state";
+import { pushBack } from "../lib/telegram";
 import type { MsgKey } from "../lib/i18n";
-import { Logo, Toast } from "../ui/kit";
+import { ConfirmHost } from "../ui/Confirm";
+import { ErrorBox, Logo, Toast } from "../ui/kit";
 import { LangButton } from "../ui/Shell";
 import {
   BoxIcon, ChartIcon, ExitIcon, GearIcon, HomeIcon, MegaphoneIcon, OverviewIcon, ReceiptIcon, SearchIcon, StarIcon, TicketIcon, TopupIcon, TruckIcon, UsersIcon,
 } from "../ui/icons";
-import { AdminOrders } from "./Orders";
-import { Broadcast } from "./Broadcast";
-import { Catalog } from "./Catalog";
-import { HomeAdmin } from "./Home";
-import { SeoAdmin } from "./Seo";
-import { ReviewsAdmin } from "./Reviews";
-import { Coupons } from "./Coupons";
-import { Overview } from "./Overview";
-import { Profit } from "./Profit";
-import { Settings } from "./Settings";
-import { Suppliers } from "./Suppliers";
-import { Topups } from "./Topups";
-import { Users } from "./Users";
+
+// Each section loads when first opened, so the admin's first screen comes quickly.
+const AdminOrders = lazy(() => import("./Orders").then((m) => ({ default: m.AdminOrders })));
+const Broadcast = lazy(() => import("./Broadcast").then((m) => ({ default: m.Broadcast })));
+const Catalog = lazy(() => import("./Catalog").then((m) => ({ default: m.Catalog })));
+const HomeAdmin = lazy(() => import("./Home").then((m) => ({ default: m.HomeAdmin })));
+const SeoAdmin = lazy(() => import("./Seo").then((m) => ({ default: m.SeoAdmin })));
+const ReviewsAdmin = lazy(() => import("./Reviews").then((m) => ({ default: m.ReviewsAdmin })));
+const Coupons = lazy(() => import("./Coupons").then((m) => ({ default: m.Coupons })));
+const Overview = lazy(() => import("./Overview").then((m) => ({ default: m.Overview })));
+const Profit = lazy(() => import("./Profit").then((m) => ({ default: m.Profit })));
+const Settings = lazy(() => import("./Settings").then((m) => ({ default: m.Settings })));
+const Suppliers = lazy(() => import("./Suppliers").then((m) => ({ default: m.Suppliers })));
+const Topups = lazy(() => import("./Topups").then((m) => ({ default: m.Topups })));
+const Users = lazy(() => import("./Users").then((m) => ({ default: m.Users })));
 
 const SECTIONS: { path: string; key: MsgKey; icon: ReactNode; owner?: boolean }[] = [
   { path: "/admin", key: "overview", icon: <OverviewIcon /> },
@@ -44,14 +49,30 @@ const SECTIONS: { path: string; key: MsgKey; icon: ReactNode; owner?: boolean }[
 export function Admin() {
   const { me, authChecked } = useApp();
   const { t } = useT();
+  const { miniApp } = useApp();
   const path = usePath();
 
   useEffect(() => {
     if (!authChecked) return;
-    if (!me) navigate(`/login?next=${encodeURIComponent(path)}`, { replace: true });
-    else if (me.user.role === "customer") navigate("/", { replace: true });
-  }, [authChecked, me, path]);
+    // In the Mini App Telegram signs people in: there is no sign-in page to go to.
+    if (!me) {
+      if (!miniApp) navigate(`/login?next=${encodeURIComponent(path)}`, { replace: true });
+    } else if (me.user.role === "customer") navigate("/", { replace: true });
+  }, [authChecked, me, path, miniApp]);
 
+  // Telegram's back button: a section goes back to the overview, the overview to the store.
+  useEffect(() => {
+    if (!miniApp) return;
+    return pushBack(() => back(path === "/admin" ? "/" : "/admin"));
+  }, [miniApp, path]);
+
+  if (authChecked && !me && miniApp) {
+    return (
+      <div className="admin__main screen">
+        <ErrorBox error={new ApiFail("unauthorized", 401)} onRetry={() => location.reload()} />
+      </div>
+    );
+  }
   if (!me || me.user.role === "customer") {
     return (
       <div className="boot">
@@ -89,6 +110,7 @@ export function Admin() {
           <h1>{t(section.key)}</h1>
           <LangButton />
         </div>
+        <Suspense fallback={<div className="skeleton" style={{ height: 240 }} />}>
         {section.key === "overview" && <Overview />}
         {section.key === "profit" && <Profit />}
         {section.key === "topups" && <Topups canAct={canAct} />}
@@ -102,8 +124,10 @@ export function Admin() {
         {section.key === "seoPages" && <SeoAdmin />}
         {section.key === "reviews" && <ReviewsAdmin owner={owner} />}
         {section.key === "settings" && <Settings />}
+        </Suspense>
       </main>
       <Toast />
+      <ConfirmHost />
     </div>
   );
 }

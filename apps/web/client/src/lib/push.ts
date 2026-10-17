@@ -53,6 +53,24 @@ export async function enablePush(): Promise<PushState> {
   return "on";
 }
 
+/**
+ * Signing out: drop this browser's subscription, so a shared device stops
+ * getting the previous customer's notifications. Call it while the session is
+ * still valid (the store forgets the endpoint first). Never throws, and gives
+ * up after a few seconds so sign-out is never held up.
+ */
+export async function forgetPush(): Promise<void> {
+  if (!pushSupported()) return;
+  const work = (async () => {
+    const reg = await navigator.serviceWorker.getRegistration("/");
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    if (!sub) return;
+    await api("/api/push/unsubscribe", { body: { endpoint: sub.endpoint } }).catch(() => undefined);
+    await sub.unsubscribe().catch(() => false);
+  })().catch(() => undefined);
+  await Promise.race([work, new Promise<void>((r) => setTimeout(r, 3000))]);
+}
+
 export async function disablePush(): Promise<PushState> {
   const reg = await navigator.serviceWorker.getRegistration("/");
   const sub = reg ? await reg.pushManager.getSubscription() : null;

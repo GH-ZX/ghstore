@@ -1,6 +1,7 @@
 /** Helpers shared by admin screens. */
 import { useState } from "react";
 import { api, ApiFail } from "../lib/api";
+import { toLatinDigits } from "../lib/format";
 import { errorText } from "../lib/i18n";
 import { toast, useT } from "../lib/state";
 
@@ -23,6 +24,26 @@ export function useAction() {
     }
   }
   return { busy, run };
+}
+
+/** What an owner typed in a number box, as 0-9 and ".": Arabic and Persian digits and the Arabic decimal sign work too. */
+export function decimalText(v: string, max = 10): string {
+  return toLatinDigits(v).replace(/[^\d.]/g, "").slice(0, max);
+}
+
+/** Whole numbers only (hours, counts), Arabic digits included. */
+export function intText(v: string, max = 6): string {
+  return toLatinDigits(v).replace(/\D/g, "").slice(0, max);
+}
+
+/** A dollar amount box ("$" before it), taking Arabic digits as well. */
+export function MoneyInput({ value, onChange, max = 10, placeholder, disabled, label }: { value: string; onChange: (v: string) => void; max?: number; placeholder?: string; disabled?: boolean; label?: string }) {
+  return (
+    <span className="input-wrap">
+      <span className="input-wrap__pre muted">$</span>
+      <input className="input num" inputMode="decimal" value={value} placeholder={placeholder} disabled={disabled} aria-label={label} onChange={(e) => onChange(decimalText(e.target.value, max))} />
+    </span>
+  );
 }
 
 export function ago(iso: string | null | undefined, lang: "ar" | "en"): string {

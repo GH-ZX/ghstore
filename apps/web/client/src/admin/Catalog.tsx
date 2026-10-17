@@ -3,7 +3,7 @@
  * to sell from a supplier is chosen in Suppliers → Choose packages (Choose.tsx).
  * Prices preview with the same rule the server enforces.
  */
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { matchesQuery, minimumPrice, priceFromCost, type MarkupMode } from "@store/core";
 import { linkHandler } from "../lib/router";
 import { dollarsToCents, usd } from "../lib/format";
@@ -13,7 +13,7 @@ import { invalidate, useApi } from "../lib/useApi";
 import type { AfterFieldDef, AfterType, InputField, Kind, ProductBadge } from "../lib/types";
 import { PlusIcon } from "../ui/icons";
 import { Empty, ErrorBox, Sheet, Spinner, Switch } from "../ui/kit";
-import { useAction } from "./common";
+import { decimalText, intText, useAction } from "./common";
 import { ImageField } from "./ImageField";
 
 interface Cat {
@@ -100,11 +100,29 @@ type Editing =
   | { kind: "offer"; product: Prod; offer: Off | null; preset?: Partial<OfferDraft> }
   | { kind: "stock"; offer: Off };
 
+const NO_OFFERS: Off[] = [];
+
 export function Catalog() {
   const { t, lang } = useT();
   const { data, error, reload } = useApi<CatalogData>("/api/admin/catalog");
   const [editing, setEditing] = useState<Editing | null>(null);
   const [q, setQ] = useState("");
+  // Typing stays quick on a big catalogue: the list follows a moment later.
+  const query = useDeferredValue(q);
+  // Each product's packages, grouped once per load instead of filtered per product.
+  const offersBy = useMemo(() => {
+    const m = new Map<string, CatalogData["offers"]>();
+    for (const o of data?.offers ?? []) {
+      const list = m.get(o.product_id);
+      if (list) list.push(o);
+      else m.set(o.product_id, [o]);
+    }
+    return m;
+  }, [data]);
+  const products = useMemo(
+    () => (data?.products ?? []).filter((p) => !query || matchesQuery(`${p.name_ar} ${p.name_en} ${p.slug} ${p.search_terms}`, query)),
+    [data, query],
+  );
 
   const close = () => {
     setEditing(null);
@@ -113,12 +131,11 @@ export function Catalog() {
   };
 
   if (!data) return error ? <ErrorBox error={error} onRetry={reload} /> : <div className="skeleton" style={{ height: 320 }} />;
-  const products = data.products.filter((p) => !q || matchesQuery(`${p.name_ar} ${p.name_en} ${p.slug} ${p.search_terms}`, q));
 
   return (
     <div className="stack">
       <div className="toolbar">
-        <input className="input" style={{ maxWidth: 320, minHeight: 42 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchLabel")} />
+        <input className="input" type="search" style={{ maxWidth: 320, minHeight: 42 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("searchLabel")} aria-label={t("catalogSearch")} />
         <div className="wrap">
           {data.suppliers
             .filter((s) => s.enabled)
@@ -142,7 +159,7 @@ export function Catalog() {
           <section key={c.id} className="stack-sm">
             <h2>{pick(lang, c.name_ar, c.name_en)}</h2>
             {list.map((p) => (
-              <ProductBlock key={p.id} p={p} offers={data.offers.filter((o) => o.product_id === p.id)} onEdit={setEditing} />
+              <ProductBlock key={p.id} p={p} offers={offersBy.get(p.id) ?? NO_OFFERS} onEdit={setEditing} />
             ))}
           </section>
         );
@@ -576,7 +593,7 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
         )}
         <label className="field">
           <span>{t("cost")} (USD)</span>
-          <input className="input num" inputMode="decimal" value={d.cost} disabled={!!offer && !!offer.supplier_id} onChange={(e) => set("cost", e.target.value)} />
+          <input className="input num" inputMode="decimal" value={d.cost} disabled={!!offer && !!offer.supplier_id} onChange={(e) => set("cost", decimalText(e.target.value, 12))} />
         </label>
         <label className="field">
           <span>{t("markup")}</span>
@@ -589,23 +606,23 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
         {d.markupMode === "manual" ? (
           <label className="field">
             <span>{t("price")} (USD)</span>
-            <input className="input num" inputMode="decimal" value={d.price} onChange={(e) => set("price", e.target.value)} />
+            <input className="input num" inputMode="decimal" value={d.price} onChange={(e) => set("price", decimalText(e.target.value, 12))} />
           </label>
         ) : (
           <label className="field">
             <span>
               {t("markupValue")} {d.markupMode === "percent" ? "%" : "(USD)"}
             </span>
-            <input className="input num" inputMode="decimal" value={d.markupValue} onChange={(e) => set("markupValue", e.target.value)} />
+            <input className="input num" inputMode="decimal" value={d.markupValue} onChange={(e) => set("markupValue", decimalText(e.target.value, 8))} />
           </label>
         )}
         <label className="field">
           <span>{t("minMargin")}</span>
-          <input className="input num" inputMode="decimal" value={d.minMarginPct} onChange={(e) => set("minMarginPct", e.target.value)} />
+          <input className="input num" inputMode="decimal" value={d.minMarginPct} onChange={(e) => set("minMarginPct", decimalText(e.target.value, 5))} />
         </label>
         <label className="field">
           <span>{t("rounding")}</span>
-          <input className="input num" inputMode="numeric" value={d.roundToCents} onChange={(e) => set("roundToCents", e.target.value)} />
+          <input className="input num" inputMode="numeric" value={d.roundToCents} onChange={(e) => set("roundToCents", intText(e.target.value, 4))} />
         </label>
         <label className="field">
           <span>{t("maxQty")}</span>
@@ -617,7 +634,7 @@ function OfferEditor({ product, offer, preset, suppliers, onClose }: { product: 
         </label>
         <label className="field">
           <span>{t("remindAfter")}</span>
-          <input className="input num" inputMode="numeric" value={d.remindDays} placeholder="—" onChange={(e) => set("remindDays", e.target.value.replace(/\D/g, "").slice(0, 3))} />
+          <input className="input num" inputMode="numeric" value={d.remindDays} placeholder="—" onChange={(e) => set("remindDays", intText(e.target.value, 3))} />
           <span className="hint">{t("remindHint")}</span>
         </label>
         <div className="pref-row">

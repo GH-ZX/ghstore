@@ -12,7 +12,7 @@ import { pick } from "../lib/i18n";
 import { useT } from "../lib/state";
 import { useApi } from "../lib/useApi";
 import { ErrorBox, Seg } from "../ui/kit";
-import { methodLabel } from "./common";
+import { decimalText, intText, methodLabel } from "./common";
 
 interface Money {
   salesCents: number;
@@ -554,7 +554,7 @@ function Calculator() {
       <span>{label}</span>
       <span className="input-wrap">
         <span className="input-wrap__pre muted">$</span>
-        <input className="input num" inputMode="decimal" value={v} onChange={(e) => set(e.target.value.replace(/[^\d.]/g, "").slice(0, 10))} />
+        <input className="input num" inputMode="decimal" value={v} onChange={(e) => set(decimalText(e.target.value, 10))} />
       </span>
       {hint && <span className="hint">{hint}</span>}
     </label>
@@ -599,7 +599,7 @@ function Calculator() {
           <label className="field">
             <span>{t("calcMarkup")}</span>
             <span className="input-wrap">
-              <input className="input num" inputMode="decimal" value={markup} onChange={(e) => setMarkup(e.target.value.replace(/[^\d.]/g, "").slice(0, 8))} />
+              <input className="input num" inputMode="decimal" value={markup} onChange={(e) => setMarkup(decimalText(e.target.value, 8))} />
               <Seg
                 label={t("calcMarkup")}
                 value={markupMode}
@@ -626,17 +626,17 @@ function Calculator() {
         </label>
         <label className="field">
           <span>{t("calcMinMargin")}</span>
-          <input className="input num" inputMode="decimal" value={minMargin} onChange={(e) => setMinMargin(e.target.value.replace(/[^\d.]/g, "").slice(0, 5))} />
+          <input className="input num" inputMode="decimal" value={minMargin} onChange={(e) => setMinMargin(decimalText(e.target.value, 5))} />
           <span className="hint">{t("calcMinMarginHint", { n: usd(floor) })}</span>
         </label>
         <label className="field">
           <span>{t("calcFee")}</span>
-          <input className="input num" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value.replace(/[^\d.]/g, "").slice(0, 5))} />
+          <input className="input num" inputMode="decimal" value={fee} onChange={(e) => setFee(decimalText(e.target.value, 5))} />
           <span className="hint">{t("calcFeeHint")}</span>
         </label>
         <label className="field">
           <span>{t("calcPerDay")}</span>
-          <input className="input num" inputMode="numeric" value={perDay} onChange={(e) => setPerDay(e.target.value.replace(/\D/g, "").slice(0, 5))} />
+          <input className="input num" inputMode="numeric" value={perDay} onChange={(e) => setPerDay(intText(e.target.value, 5))} />
         </label>
       </div>
 

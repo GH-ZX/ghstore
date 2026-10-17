@@ -82,7 +82,7 @@ export function Overview() {
         <table className="table">
           <thead>
             <tr>
-              <th>Job</th>
+              <th>{t("jobCol")}</th>
               <th>{t("lastOk")}</th>
               <th>{t("lastError")}</th>
             </tr>

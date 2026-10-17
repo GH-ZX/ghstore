@@ -7,6 +7,7 @@ import { googleFontsHref, isPreset, themeCss, THEMES } from "@store/ui";
 import { store as storeConfig } from "@store/config";
 import { api, ApiFail, setToken } from "./api";
 import { errorText, translate, type MsgKey } from "./i18n";
+import { forgetPush } from "./push";
 import { claimReferral } from "./referral";
 import { paintTelegram, tg } from "./telegram";
 import type { Lang, Me, PublicConfig } from "./types";
@@ -174,6 +175,8 @@ export async function refreshMe(): Promise<Me | null> {
 }
 
 export async function signOut(): Promise<void> {
+  // First, while still signed in: this browser stops getting this person's notifications.
+  await forgetPush();
   await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
   setToken(null);
   // A shared device: the next person must not see this one's orders, wallet or favourites.

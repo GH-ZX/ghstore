@@ -8,12 +8,13 @@
 import { useEffect, useState } from "react";
 import { store } from "@store/config";
 import { api, ApiFail } from "../lib/api";
-import { copyText } from "../lib/format";
+import { useCopy } from "../lib/hooks";
 import { errorText, pick } from "../lib/i18n";
 import { toast, useT } from "../lib/state";
 import { openExternal } from "../lib/telegram";
 import { useApi } from "../lib/useApi";
 import { Prose } from "../screens/Legal";
+import { askConfirm } from "../ui/Confirm";
 import { ErrorBox, Seg, Sheet, Spinner, Switch } from "../ui/kit";
 import { useAction } from "./common";
 import { ImageField } from "./ImageField";
@@ -196,6 +197,7 @@ function SearchCard() {
 
 function ConsoleCard() {
   const { t } = useT();
+  const copy = useCopy();
   const sitemap = `${store.url}/sitemap.xml`;
   const enc = encodeURIComponent(`${store.url}/`);
   const tools = [
@@ -212,7 +214,7 @@ function ConsoleCard() {
       </div>
       <div className="copy-box">
         <code dir="ltr">{sitemap}</code>
-        <button type="button" className="btn btn--sm btn--soft press" onClick={() => void copyText(sitemap).then((ok) => ok && toast(t("copied")))}>
+        <button type="button" className="btn btn--sm btn--soft press" onClick={() => void copy(sitemap)}>
           {t("copy")}
         </button>
       </div>
@@ -363,7 +365,7 @@ function PageEditor({ page, onClose }: { page: AdminPage | null; onClose: (pages
   }
 
   async function remove() {
-    if (!page || !confirm(page.builtIn ? t("pageResetConfirm") : t("pageDeleteConfirm"))) return;
+    if (!page || !(await askConfirm(page.builtIn ? t("pageResetConfirm") : t("pageDeleteConfirm"), { danger: true }))) return;
     const r = await action.run<{ pages: AdminPage[] }>(`/api/admin/pages/${page.slug}`, { method: "DELETE" });
     if (r) onClose(r.pages);
   }
