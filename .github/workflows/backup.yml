@@ -1,0 +1,72 @@
+# Every night: a copy of the store's database (the app and legacy schemas, and
+# the Supabase logins), encrypted with your passphrase and kept 30 days as a
+# workflow artifact (Actions → Database backup → a run → Artifacts).
+#
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   BACKUP_DATABASE_URL  Supabase → Connect → "Session pooler" connection string
+#                        (with the database password in it)
+#   BACKUP_PASSPHRASE    a long passphrase you keep somewhere safe: without it a
+#                        backup can't be opened
+# How to restore: docs/operations.md → Backups.
+name: Database backup
+
+on:
+  schedule:
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check the secrets are set
+        env:
+          URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$PASS" ]; then
+            echo "::error::Set BACKUP_DATABASE_URL and BACKUP_PASSPHRASE in Settings → Secrets and variables → Actions (docs/operations.md → Backups)."
+            exit 1
+          fi
+
+      - name: Copy the database
+        env:
+          URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          mkdir -p backup
+          docker run --rm -e URL -v "$PWD/backup:/backup" postgres:17 \
+            sh -c 'pg_dump "$URL" --format=custom --no-owner --no-privileges --schema=app --schema=legacy --file=/backup/store.dump'
+          docker run --rm -e URL -v "$PWD/backup:/backup" postgres:17 \
+            sh -c 'pg_dump "$URL" --format=custom --no-owner --no-privileges --data-only --table=auth.users --table=auth.identities --file=/backup/auth.dump'
+          # The copy can be read back and holds the store's tables.
+          docker run --rm -v "$PWD/backup:/backup" postgres:17 pg_restore --list /backup/store.dump > backup/store.list
+          tables=$(grep -c "TABLE DATA app " backup/store.list || true)
+          echo "app tables with data: $tables"
+          if [ "$tables" -lt 20 ]; then echo "::error::The backup looks incomplete ($tables app tables)."; exit 1; fi
+
+      - name: Encrypt
+        env:
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          day=$(date -u +%F)
+          tar -C backup -czf store-backup.tar.gz store.dump auth.dump
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$PASS" --symmetric --cipher-algo AES256 \
+            -o "store-backup-$day.tar.gz.gpg" store-backup.tar.gz
+          rm -rf backup store-backup.tar.gz
+          ls -la store-backup-*.gpg
+
+      - name: Keep it 30 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-backup-${{ github.run_id }}
+          path: store-backup-*.tar.gz.gpg
+          retention-days: 30
+          if-no-files-found: error

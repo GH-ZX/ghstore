@@ -78,6 +78,16 @@
 - The owner is told when a background job keeps failing, and when it recovers.
 - A one-time script retires the old setup's tables into a private schema.
 
+## Done in v1.0
+
+- SEO for every public page in both languages, legal pages, reviews, problem
+  reports, review requests, emails for website customers, Cloudflare Web
+  Analytics, smaller first load and Cloudflare-resized pictures.
+- Orders a supplier can't deliver wait for the owner instead of a refund.
+- Owner alerts for server errors, suppliers not answering and stuck jobs; an
+  outside watchdog, checks after every deploy and nightly encrypted backups.
+- Old customer accounts linked to the store and their small balances moved.
+
 ## After that
 
 - Syriatel Cash through SAM, if wanted later (not planned now).

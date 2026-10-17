@@ -4,8 +4,9 @@ A multi-supplier digital-goods store (game top-ups, vouchers, subscriptions,
 virtual numbers): one Cloudflare Worker serves the website, the Telegram Mini
 App, the bot webhook, the API and the scheduled jobs, over one Postgres
 (Supabase, private `app` schema). Start with `docs/architecture.md`; the launch
-guide is `docs/launch-a-store.md`, security notes `docs/security.md`, what is
-done `README.md` and `docs/roadmap.md`. Work in progress: `docs/next-up.md`.
+guide is `docs/launch-a-store.md`, running it (alerts, backups, rollback)
+`docs/operations.md`, security notes `docs/security.md`, what is done
+`CHANGELOG.md`, `README.md` and `docs/roadmap.md`. Work in progress: `docs/next-up.md`.
 
 ## Layout
 
@@ -48,7 +49,7 @@ If no Supabase connector is available, stop and give the owner the SQL to run
 in Supabase → SQL Editor, then wait for "done" before pushing.
 Keep migrations additive (new tables/columns, `if not exists`); anything that
 drops or rewrites data needs the owner's explicit OK first. Live is at
-`0027_reviews.sql`; check `select max(name) from app.schema_migrations`.
+`0028_problems_health.sql`; check `select max(name) from app.schema_migrations`.
 
 ## Checking your work
 

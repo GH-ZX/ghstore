@@ -149,6 +149,11 @@ automatically.
 publishable key) are plain vars in `wrangler.jsonc`: both are meant for browsers,
 and the website reads them from `/api/config`.
 
+## Running it
+
+Alerts, the watchdog, checks after each deploy, backups and rollback are in
+`docs/operations.md`. Set the backup secrets in GitHub right after launch.
+
 ## 7. Worker secrets
 
 From `apps/web`, one `npx wrangler secret put NAME` per line of the `setup:store`

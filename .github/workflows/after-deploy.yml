@@ -1,0 +1,57 @@
+# Each push to main deploys (Cloudflare Workers Builds). This waits until the
+# new version is live (/version.txt shows the commit), then opens the main pages
+# and checks each answers as it should. A failed run emails you; to go back to
+# the previous version see docs/operations.md → Rollback.
+name: After deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: after-deploy
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      STORE_URL: ${{ vars.STORE_URL || 'https://gh-store.me' }}
+      SHA: ${{ github.sha }}
+    steps:
+      - name: Wait for this version to be live
+        run: |
+          for i in $(seq 1 60); do
+            live=$(curl -fsS --max-time 10 "$STORE_URL/version.txt?check=$i" | tr -d '[:space:]' || true)
+            if [ "$live" = "$SHA" ]; then echo "live after $i checks"; exit 0; fi
+            sleep 15
+          done
+          echo "::error::$SHA was not live after 15 minutes: check the build in Cloudflare → Workers → ghstore → Deployments."
+          exit 1
+
+      - name: The main pages answer
+        run: |
+          check() {
+            code=$(curl -s -o /tmp/body -w '%{http_code}' --max-time 20 "$STORE_URL$1")
+            if [ "$code" != "$2" ]; then echo "::error::$1 answered $code (expected $2)"; return 1; fi
+            if [ -n "$3" ] && ! grep -q -- "$3" /tmp/body; then echo "::error::$1 is missing: $3"; return 1; fi
+            echo "ok $1"
+          }
+          set -e
+          check / 200 'hreflang="en"'
+          check "/?lang=en" 200 '<html lang="en"'
+          check /api/health 200 '"ok":true'
+          check /api/config 200 '"payments"'
+          check /api/catalog 200 '"products":\[{'
+          check /legal/terms 200 '<h1>'
+          check /sitemap.xml 200 '<urlset'
+          check /robots.txt 200 'Sitemap:'
+          check /tg 200 'id="root"'
+          check /legal/no-such-page 404 ''
+          slug=$(curl -s --max-time 20 "$STORE_URL/api/catalog" | grep -o '"slug":"[a-z0-9-]*"' | head -1 | cut -d'"' -f4)
+          check "/p/$slug" 200 '"@type":"Product"'

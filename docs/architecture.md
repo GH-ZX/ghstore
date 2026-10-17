@@ -313,6 +313,8 @@ several MB).
 | --- | --- |
 | `orders` | Fulfil/re-check due orders (leased, so overlapping runs are safe) |
 | `stuck_orders` | Flag orders open too long, alert owners |
+| `health_watch` | Every 5 min: server errors piling up, suppliers not answering, the USDT checker failing, customer jobs stuck; each alert once (`app.alert_state`) |
+| `review_ask` | Every 15 min: review requests some hours after delivery |
 | `payments` | Re-check pending SAM/NOWPayments top-ups; expire old ones |
 | `usdt_deposits` | Every 2 min (odd minutes), only while a USDT request is open: credit transfers found by their exact amount |
 | `supplier_balances` | Every 15 min; alert once when a balance drops under its threshold |
@@ -415,6 +417,33 @@ marked "in the footer" are linked at the bottom of the store, in Profile and on
 the sign-in page ("By continuing, you agree to…"). The bot answers `/terms`
 and `/paysupport` (Telegram asks bots that take Stars for one).
 
+## Orders a supplier can't deliver
+
+When a supplier refuses an order or fails after its retries (out of stock, out
+of balance, an error), the order is not refunded: it waits for the owner
+(`orders.hold = 'owner'`, Admin → Orders → Waiting) with the reason, and staff
+get a Telegram alert. The owner buys it elsewhere and delivers it by hand
+(codes, an account's email and password…), or refunds it. The customer sees
+"our team is preparing your order". Admin → Settings → "Keep orders a supplier
+can't deliver" off refunds them at once instead; virtual numbers are always
+refunded (they last minutes). Out of stock also pauses the package as before.
+
+## Problems on orders
+
+"Report a problem" on an order page (`problems.ts`, `app.order_problems`):
+the customer picks what went wrong (didn't arrive, doesn't work, wrong item,
+other) and writes a few words; one open report per order. Staff get an alert
+and answer in Admin → Orders → Problems, next to the order; the answer is shown
+on the order and sent to the customer (Telegram, or email for website
+customers).
+
+## Messages for website customers
+
+Customers without Telegram get by email (Resend, when email receipts are set
+up): receipts (delivered, refunded, topped up) as before, and now "needs your
+details", "back in stock", answers to their problem reports and review
+requests (`EMAIL_INSTEAD` in `email.ts`). Codes are never put in an email.
+
 ## Reviews
 
 A customer who received a product (a delivered order) can rate it from 1 to 5
@@ -424,7 +453,10 @@ delivered order offers "Rate this product". Reviews show in the product sheet
 (average, spread, the latest ones with the reviewer's first name only), as stars
 on the product's card, and in its structured data (aggregateRating and a few
 reviews). Support staff can hide a review and the owner can delete one (Admin →
-Reviews); a hidden review stays hidden when its author edits it.
+Reviews); a hidden review stays hidden when its author edits it, and can't be
+removed and written again. Some hours after delivery (Admin → Settings → Ask
+for a review, default 3) the customer gets one request per product
+(`review_ask`, Telegram or email) opening the product at its reviews.
 
 ## Visitor statistics
 

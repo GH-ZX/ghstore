@@ -1,0 +1,47 @@
+# Every 15 minutes, from outside Cloudflare: does the store answer, and are its
+# scheduled jobs (orders, messages) still running? A failed run emails you
+# (github.com → Settings → Notifications → Actions). With the two optional
+# secrets below it also sends a Telegram message:
+#   WATCHDOG_TELEGRAM_TOKEN  a bot's token (the staff-alerts bot is a good choice)
+#   WATCHDOG_TELEGRAM_CHAT   your Telegram user id (the chat the bot writes to)
+# Repository variable STORE_URL overrides the address (copies of this template).
+name: Store watchdog
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      STORE_URL: ${{ vars.STORE_URL || 'https://gh-store.me' }}
+    steps:
+      - name: The store and its jobs answer
+        run: |
+          for i in 1 2 3; do
+            if curl -fsS --max-time 20 "$STORE_URL/api/health?deep=1" && curl -fsS --max-time 20 -o /dev/null "$STORE_URL/"; then
+              echo " ok"
+              exit 0
+            fi
+            echo " not yet ($i)"
+            sleep 60
+          done
+          echo "::error::$STORE_URL is down, or its scheduled jobs stopped. See docs/operations.md → When the watchdog fails."
+          exit 1
+
+      - name: Tell the owner on Telegram
+        if: failure()
+        env:
+          TOKEN: ${{ secrets.WATCHDOG_TELEGRAM_TOKEN }}
+          CHAT: ${{ secrets.WATCHDOG_TELEGRAM_CHAT }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$CHAT" ]; then echo "No Telegram secrets: email only."; exit 0; fi
+          curl -fsS --max-time 20 "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            --data-urlencode "chat_id=$CHAT" \
+            --data-urlencode "text=⚠️ $STORE_URL: the watchdog can't reach the store, or its scheduled jobs stopped. Check Cloudflare → Workers → ghstore." > /dev/null

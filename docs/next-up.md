@@ -1,62 +1,41 @@
 # Next up
 
-Work the owner asked for, with the recommended direction. Nothing here is
-fixed: confirm the plan with the owner before building, and show screenshots
-(mobile and desktop, Arabic and English) before calling a UI change done.
+Work in progress and what the owner still has to do. Confirm a plan with the
+owner before building, and show screenshots (mobile and desktop, Arabic and
+English) before calling a UI change done. What is done is in `CHANGELOG.md`.
 
-## Done recently
+## v1.0 is out (2026-10-18)
 
-- **Choose packages** (Admin → Suppliers): tick what to sell from each
-  supplier, review, apply (`docs/architecture.md` → Choosing what to sell).
-- **Home showcase**: Cinematic and Deal looks, per slide, with settings.
-- **Units, covers and pictures**, **5SIM virtual numbers**, **per-supplier
-  check schedules** (architecture → Stock, units and pictures; Virtual numbers).
-- **Products delivered by hand** and **details asked after paying**
-  (architecture → Orders that wait for someone), **supplier deliveries checked
-  before release**, **clean names** for BatStore / ProdSeller shorthand with
-  package warranties (Admin → Suppliers → Names).
-- BatStore renumbered its catalogue in October 2026: the store's old BatStore
-  products were removed and its in-stock items put on sale again with clean names.
-- **5SIM in dollars with success rates** and "Try another number"; **APIs** in
-  Admin → Settings (each supplier's and SAM's account: balances, details,
-  latest movements); **sales made in person** by the owner; **product badges**
-  chosen per product; Telegram full-screen safe areas; admin section icons.
-- **Admin → Profit** (charts, period comparison, price calculator), **supplier
-  balances** with days left on the Overview, **automatic badges** (New, Best
-  seller), **pinned packages**, **USDT found by its exact amount** (no hash
-  needed), a **retry limit** for "Try another number", in-person sales in the
-  daily summary, and the **opening splash**.
+Everything in `CHANGELOG.md` is live on gh-store.me; migrations up to
+`0028_problems_health.sql` are on the live database.
 
-## Live checks after the next deploy
+## The owner's to-do
 
-- Migrations up to `0025_favorites_stock_alerts.sql` are on the live database.
-- Heart a product, then see it in Profile → Favourites; on a sold-out package
-  tap "Notify me", then put it back on sale: one Telegram message arrives.
-- Admin → Settings → Top-ups: set the smallest top-up; the add-funds screen
-  starts from it and refuses less.
-
-- Migrations up to `0023_auto_badges_pinned.sql` are on the live database first.
-- Open the site and the Mini App: the splash draws the logo, then the store
-  opens with the balance already shown (no "Sign in" flash).
-- A small USDT top-up: send the exact amount without pasting the hash; it is
-  credited within a few minutes (`usdt_deposits` on the Overview's jobs).
-- Admin → Profit opens for the owner; Overview shows each supplier's days left.
-- Admin → Settings → APIs: each account opens and shows its balance (5SIM in dollars).
-- In Telegram full screen, the header and the admin menu sit below Telegram's buttons.
-- Admin → Suppliers → Names: BatStore and ProdSeller items show clean names;
-  Choose packages groups them (Zoom 3 / 6 / 12 months under one product).
-- A product set to "By hand" with after-payment details: buy it, give the
-  details on the order page, deliver it from Admin → Orders → Waiting; the
-  customer sees the delivery and gets a message.
-- 5SIM: add a service (Telegram) in Choose packages and buy a cheap number:
-  the number, countdown and code appear in Orders; cancel one before a code
-  arrives and check the refund.
-- Pictures: with the Supabase secret key in Settings → Keys → Storage, the
-  `store_images` job copies linked pictures into the `store-images` bucket.
+- **Supplier balances**: top up 5SIM (numbers can't sell without it) and the
+  others before they run out (Admin → Overview shows days left).
+- **Backups**: add `BACKUP_DATABASE_URL` and `BACKUP_PASSPHRASE` as GitHub
+  repository secrets, then run Actions → Database backup once
+  (`docs/operations.md` → Backups).
+- **Watchdog by Telegram** (optional): `WATCHDOG_TELEGRAM_TOKEN` and
+  `WATCHDOG_TELEGRAM_CHAT` secrets; GitHub emails failures without them.
+- **Legal pages**: read and adapt the terms, privacy and refund texts (Admin →
+  SEO & pages); they are ready texts until edited.
+- **Cloudflare Web Analytics**: paste the site's token in Admin → SEO & pages.
+- **Smaller pictures**: turn on Cloudflare Images → Transformations for
+  gh-store.me (any origin), then Admin → Settings → Smaller pictures.
+- **Search Console**: submit `https://gh-store.me/sitemap.xml`.
+- **Bot menu**: Admin → Settings → Connect bot once (adds /terms, /paysupport).
+- **Supabase Auth**: keep "Confirm email" on; an SMTP sender for customer codes.
+- **Workers paid plan** ($5/month), in a few days: lifts the 50-requests-per-run
+  limit the scheduled jobs share.
 
 ## Asked for, not started
 
-- **Units and covers for every game**: units in both languages (UC, Diamonds,
-  Genesis Crystals, CP…) and wide covers for the games still without one
-  (MLBB, Genshin, Free Fire…). Show the list before changing anything live.
-- **MaxStore**: a real $1 order before relying on it (formats not fully verified).
+- **MaxStore**: a real 10¢ order ("10 ليرة MTN") before relying on it.
+- **Wide covers** for the games still without one (Mobile Legends, Genshin, Free Fire…).
+
+## Ideas for v1.1
+
+- A second supplier per package taking over automatically when the first fails.
+- Web push notifications for website customers (email covers them today).
+- Smaller translation files (the admin's strings load with the store today).

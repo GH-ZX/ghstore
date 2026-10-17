@@ -13,7 +13,10 @@ someone else's store.
 
 > متجر واحد بثلاث واجهات: الموقع، تطبيق تيليغرام المصغّر، والبوت — بحساب ومحفظة وطلبات موحّدة.
 
-## Status (v0.1)
+## Status (v1.0)
+
+v1.0.0 is live: see `CHANGELOG.md`. Running it day to day (alerts, watchdog,
+backups, rollback): `docs/operations.md`.
 
 | Part | State |
 | --- | --- |
@@ -28,6 +31,8 @@ someone else's store.
 | Terms, privacy and refund pages (ready texts, editable in the admin), footer links, bot /terms and /paysupport | Done |
 | Product reviews (buyers only, stars on cards, Admin → Reviews, in search results' data) | Done |
 | Cloudflare Web Analytics (token in Admin → SEO & pages) | Done |
+| Orders a supplier can't deliver wait for the owner; "Report a problem" with answers; review requests; emails for website customers | Done, tested |
+| Reliability: owner alerts (errors, suppliers, jobs), watchdog, after-deploy checks, nightly encrypted backups | Done (`docs/operations.md`) |
 | Owner tools: daily Telegram summary, CSV exports | Done |
 | Store settings in the database: support contacts, Stars price, invite rewards (Admin → Settings) | Done, tested |
 | Scheduled jobs: fulfilment, payment re-checks, margin guard, balances, reminders, notifications | Done |
