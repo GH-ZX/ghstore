@@ -16,8 +16,19 @@ import { webLoginMethods, type LoginMethod } from "./config";
 import type { AuthedUser, Ctx } from "./context";
 import { call, must, n, one, type Db } from "./db";
 import { ApiError, clearCookie, json, readJson, setCookie, str } from "./http";
+import { throttleLoginIdentity, throttleLoginIp } from "./ratelimit";
 
 export const SESSION_COOKIE = "store_session";
+
+/** Live sessions one account may hold per channel; signing in again past this ends the oldest. */
+export const MAX_SESSIONS_PER_CHANNEL = 20;
+
+/**
+ * How old Mini App initData may be. It is a bearer credential while it lasts
+ * (whoever holds it can sign in as that customer), and the Mini App signs in
+ * right after opening, so an hour is plenty.
+ */
+export const INIT_DATA_MAX_AGE_SECONDS = 3600;
 
 async function startSession(ctx: Ctx, userId: string, channel: Channel): Promise<{ token: string; expiresAt: Date }> {
   const now = ctx.svc.now();
@@ -26,6 +37,14 @@ async function startSession(ctx: Ctx, userId: string, channel: Channel): Promise
     ctx.svc.db,
     `insert into app.sessions (user_id, channel, expires_at, user_agent) values ($1, $2, $3, $4) returning id`,
     [userId, channel, expiresAt.toISOString(), (ctx.req.headers.get("user-agent") ?? "").slice(0, 200)],
+  );
+  // Every sign-in makes a session: keep the newest ones per channel, end the rest.
+  await ctx.svc.db.query(
+    `update app.sessions set revoked_at = now()
+      where id in (select id from app.sessions
+                    where user_id = $1 and channel = $2 and revoked_at is null and expires_at > now()
+                    order by created_at desc, id desc offset $3)`,
+    [userId, channel, MAX_SESSIONS_PER_CHANNEL],
   );
   const token = await signSession({ sub: userId, sid: row.id, ch: channel, exp: Math.floor(expiresAt.getTime() / 1000) }, ctx.env.SESSION_SECRET, now);
   return { token, expiresAt };
@@ -67,10 +86,12 @@ async function telegramUser(ctx: Ctx, u: TelegramUser): Promise<UserRow> {
 
 /** Mini App: Telegram initData, answered with a bearer token (Telegram's webview keeps no cookies reliably). */
 export async function telegramLogin(ctx: Ctx): Promise<Response> {
+  await throttleLoginIp(ctx);
   const body = await readJson(ctx.req);
   const initData = str(body, "initData", { max: 4096 });
-  const verified = await verifyInitData(initData, ctx.env.TELEGRAM_BOT_TOKEN, { now: ctx.svc.now(), maxAgeSeconds: 24 * 3600 });
+  const verified = await verifyInitData(initData, ctx.env.TELEGRAM_BOT_TOKEN, { now: ctx.svc.now(), maxAgeSeconds: INIT_DATA_MAX_AGE_SECONDS });
   if (!verified) throw new ApiError("unauthorized");
+  await throttleLoginIdentity(ctx, "tg", String(verified.user.id));
   const user = await telegramUser(ctx, verified.user);
   const { token, expiresAt } = await startSession(ctx, user.id, "miniapp");
   return json({ token, expiresAt: expiresAt.toISOString(), user: publicUser(user) });
@@ -78,9 +99,11 @@ export async function telegramLogin(ctx: Ctx): Promise<Response> {
 
 /** Website: "Log in with Telegram" widget. Same Telegram account, same user and wallet as in the bot. */
 export async function telegramWidgetLogin(ctx: Ctx): Promise<Response> {
+  await throttleLoginIp(ctx);
   const body = await readJson(ctx.req);
   const verified = await verifyLoginWidget(body, ctx.env.TELEGRAM_BOT_TOKEN, { now: ctx.svc.now(), maxAgeSeconds: 3600 });
   if (!verified) throw new ApiError("unauthorized");
+  await throttleLoginIdentity(ctx, "tg", String(verified.user.id));
   const user = await telegramUser(ctx, verified.user);
   const { expiresAt, token } = await startSession(ctx, user.id, "web");
   return json(
@@ -131,8 +154,11 @@ async function supabaseUser(ctx: Ctx, accessToken: string): Promise<{ id: string
 }
 
 export async function webLogin(ctx: Ctx): Promise<Response> {
+  // Before the Supabase call: each attempt costs one of the run's outside requests.
+  await throttleLoginIp(ctx);
   const body = await readJson(ctx.req);
   const au = await supabaseUser(ctx, str(body, "accessToken", { max: 4096 }));
+  await throttleLoginIdentity(ctx, "web", au.id);
   const locale = body.locale === "en" ? "en" : "ar";
   const rows = await call<{ id: string }>(ctx.svc.db, `select app.ensure_web_user($1, $2, $3, $4) as id`, [au.id, au.email, au.name, locale]);
   const userId = rows[0]?.id;

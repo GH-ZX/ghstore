@@ -7,6 +7,7 @@ import { requireStaff, requireUser } from "./auth";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
+import { LIMITS, throttle } from "./ratelimit";
 
 const CODE_RE = /^[A-Za-z0-9_-]{3,32}$/;
 const REF_RE = /^[A-Za-z2-9]{6,12}$/;
@@ -74,6 +75,8 @@ export async function claimReferral(ctx: Ctx): Promise<Response> {
 /** POST /api/coupons/quote — what a code takes off before buying. */
 export async function quoteCoupon(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
+  // Every quote counts, good code or not, so codes cannot be guessed by trying them here.
+  await throttle(ctx.svc.db, `coupon:${user.id}`, LIMITS.couponQuote);
   const body = await readJson(ctx.req);
   const offerId = uuid(str(body, "offerId", { max: 36 }), "offerId");
   const quantity = body.quantity === undefined ? 1 : int(body, "quantity", 1, 100);
