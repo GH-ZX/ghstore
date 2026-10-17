@@ -182,7 +182,7 @@ export function ContactMark({ kind, size = 40 }: { kind: "channel" | "telegram" 
 
 /** Payment method marks, drawn for the identity (not the providers' logos). */
 /** ShamCash's own logo (client/public/pay). */
-export const SHAMCASH_LOGO = "/pay/shamcash.png";
+export const SHAMCASH_LOGO = "/pay/shamcash.webp";
 
 export function MethodMark({ method, size = 40 }: { method: string; size?: number }) {
   if (method === "sam") return <img src={SHAMCASH_LOGO} width={size} height={size} alt="" aria-hidden="true" className="method-logo" />;
