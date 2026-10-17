@@ -156,7 +156,17 @@ describe("health", () => {
       `insert into app.job_heartbeats (name, last_started_at, last_ok_at) values ('orders', now(), now()), ('outbox', now(), now())
        on conflict (name) do update set last_ok_at = now(), last_started_at = now()`,
     );
+    // Messages left waiting by earlier runs of a reused test database are due now.
+    await db.query(`update app.outbox set available_at = now() where status = 'pending' and available_at < now() - interval '15 minutes'`);
     expect((await h.call("GET", "/api/health?deep=1")).status).toBe(200);
+    // A receipt or alert due for over 15 minutes: the queue is stuck.
+    const late = (await db.query<{ id: string }>(
+      `insert into app.outbox (template, data, available_at) values ('staff_alert', '{}'::jsonb, now() - interval '20 minutes') returning id`,
+    ))[0]!.id;
+    const stuck = await h.call("GET", "/api/health?deep=1");
+    expect(stuck.status).toBe(503);
+    expect(stuck.data.problems).toEqual(["outbox"]);
+    await db.query(`delete from app.outbox where id = $1`, [late]);
     await db.query(`update app.job_heartbeats set last_ok_at = now() - interval '1 hour', last_started_at = now() - interval '1 hour' where name = 'outbox'`);
     const down = await h.call("GET", "/api/health?deep=1");
     expect(down.status).toBe(503);

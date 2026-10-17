@@ -49,7 +49,7 @@ export async function overview(ctx: Ctx): Promise<Response> {
     id: string; name: string; enabled: boolean; balance_cents: string | number | null; low_balance_cents: string | number; health: string;
     last_error: string | null; balance_checked_at: string | null; spent_7d: string | number;
   }>(
-    `select s.id, s.name, s.enabled, s.balance_cents, s.low_balance_cents, s.health, s.last_error, s.balance_checked_at,
+    `select s.id, s.name, s.enabled, s.balance_cents, s.low_balance_cents, case when 'down' in (s.health, s.sync_health) then 'down' when 'degraded' in (s.health, s.sync_health) then 'degraded' when 'ok' in (s.health, s.sync_health) then 'ok' else 'unknown' end as health, coalesce(s.last_error, s.sync_error) as last_error, s.balance_checked_at,
             (select coalesce(sum(o.cost_cents), 0) from app.orders o
               where o.supplier_id = s.id and o.status = 'delivered' and o.created_at > now() - interval '7 days') as spent_7d
        from app.suppliers s order by s.enabled desc, s.name`,
@@ -313,7 +313,7 @@ export async function runSupplierSync(ctx: Ctx): Promise<Response> {
   const id = ctx.params.id ?? "";
   if (!/^[a-z0-9_]{2,32}$/.test(id)) throw new ApiError("not_found");
   // A big catalogue is checked as far as this request's budget allows; the cron does the rest.
-  const report = await syncSupplier(ctx.svc, id, { maxGroups: room(ctx.svc, 3) });
+  const report = await syncSupplier(ctx.svc, id, { maxGroups: room(ctx.svc, 3), retryNow: true });
   await audit(ctx, staff.id, "supplier.sync", "supplier", id, { ...report });
   return json(report);
 }
