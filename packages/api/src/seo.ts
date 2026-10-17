@@ -8,11 +8,12 @@
  * and /robots.txt. The owner's settings are in Admin → SEO & pages.
  */
 import { store } from "@store/config";
-import { docPlainText, formatUsd, parseDoc, parseSpans } from "@store/core";
+import { docPlainText, formatUsd, parseDoc, parseSpans, pictureSrcSet, pictureUrl, SLIDE_PICTURE, type PictureOptions } from "@store/core";
 import type { Services } from "./context";
 import { n, one, type Db } from "./db";
+import { liveBanners } from "./home";
 import { allPages, publishedPage } from "./pages";
-import { channelUrl, readSettings } from "./settings";
+import { channelUrl, readSettings, showcaseSettings } from "./settings";
 
 type Locale = "ar" | "en";
 
@@ -36,6 +37,8 @@ export interface ProductMeta {
   /** Customers' reviews: the average and count, and a few recent ones with a comment. */
   rating?: { average: number; count: number } | null;
   reviews?: { name: string; rating: number; comment: string; date: string }[];
+  /** A product opened from a link shows over the home page: its showcase picture, to preload. */
+  preload?: ImagePreload[];
 }
 
 export const PRODUCT_PATH = /^\/p\/([a-z0-9-]{1,80})\/?$/;
@@ -108,6 +111,97 @@ export interface PageHead {
   jsonLd?: unknown[];
   /** The page's content as HTML, for crawlers (already escaped). */
   body?: string;
+  /** Pictures the first screen shows, fetched before the app asks for them (the largest first). */
+  preload?: ImagePreload[];
+}
+
+export interface ImagePreload {
+  href: string;
+  srcset?: string;
+  sizes?: string;
+  media?: string;
+  high?: boolean;
+}
+
+function preloadTag(p: ImagePreload): string {
+  return [
+    `<link rel="preload" as="image" href="${escapeHtml(p.href)}"`,
+    p.srcset ? ` imagesrcset="${escapeHtml(p.srcset)}"` : "",
+    p.sizes ? ` imagesizes="${escapeHtml(p.sizes)}"` : "",
+    p.media ? ` media="${escapeHtml(p.media)}"` : "",
+    p.high ? ` fetchpriority="high"` : "",
+    // The app shows pictures with no referrer; the preloaded copy must match to be reused.
+    ` referrerpolicy="no-referrer">`,
+  ].join("");
+}
+
+/**
+ * The preloads for the showcase's big picture: the same addresses (sizes and
+ * crops) the app's slide asks for (client ui/Showcase.tsx SlideCover).
+ */
+export function slidePreloads(url: string, opts: PictureOptions = {}): ImagePreload[] {
+  const phone = pictureSrcSet(url, SLIDE_PICTURE.phone.widths, { ...opts, ratio: SLIDE_PICTURE.phone.ratio });
+  if (!phone) return opts.cloudflare ? [] : [{ href: url, high: true }];
+  const w = SLIDE_PICTURE.phone.widths[1];
+  return [
+    { href: pictureUrl(url, { width: w, height: w / SLIDE_PICTURE.phone.ratio }, opts), srcset: phone, sizes: SLIDE_PICTURE.phone.sizes, media: SLIDE_PICTURE.phone.media, high: true },
+    {
+      href: pictureUrl(url, { width: SLIDE_PICTURE.wide.widths[0], height: SLIDE_PICTURE.wide.widths[0] / SLIDE_PICTURE.wide.ratio }, opts),
+      srcset: pictureSrcSet(url, SLIDE_PICTURE.wide.widths, { ...opts, ratio: SLIDE_PICTURE.wide.ratio }),
+      sizes: SLIDE_PICTURE.wide.sizes,
+      media: SLIDE_PICTURE.wide.media,
+      high: true,
+    },
+  ];
+}
+
+/**
+ * The picture filling the home showcase's first slide, when it is known without
+ * loading it (the app's useSlides and ShowcaseSlide decide the same way): the
+ * first banner's own picture, or the cover of the product it opens; without
+ * banners, the cover of the first featured product (or the one with the most
+ * packages). A product picture that may or may not fill the slide is left out.
+ */
+export async function firstSlidePicture(db: Db): Promise<string | null> {
+  const [banners, show, products] = await Promise.all([
+    liveBanners(db),
+    showcaseSettings(db),
+    db.query<{ slug: string; featured: boolean; cover_url: string | null; packages: string | number }>(
+      `select p.slug, p.featured, p.cover_url, count(o.id) as packages
+         from app.products p join app.categories c on c.id = p.category_id and c.active
+         join app.offers o on o.product_id = p.id and ${ON_SALE}
+        where p.active
+        group by p.id
+        order by p.featured desc, p.sort, p.name_en`,
+    ),
+  ]);
+  const b = banners[0];
+  if (b) {
+    if (b.imageUrl) return b.imageUrl;
+    if (b.link?.type !== "product" || (b.pictureMode ?? show.pictureMode) === "square") return null;
+    const slug = b.link.value;
+    return products.find((p) => p.slug === slug)?.cover_url ?? null;
+  }
+  if (show.pictureMode === "square") return null;
+  const featured = products.filter((p) => p.featured);
+  const top = featured[0] ?? [...products].sort((x, y) => n(y.packages) - n(x.packages))[0];
+  return top?.cover_url ?? null;
+}
+
+/** Admin → Settings → Smaller pictures (Cloudflare resizing for pictures hosted elsewhere). */
+async function pictureOptions(db: Db): Promise<PictureOptions> {
+  const s = await readSettings(db, ["images.resize"]);
+  return { cloudflare: s["images.resize"] === true };
+}
+
+/** The preloads of the home showcase's first picture (none when unknown or on error). */
+export async function showcasePreloads(db: Db): Promise<ImagePreload[]> {
+  try {
+    const [url, opts] = await Promise.all([firstSlidePicture(db), pictureOptions(db)]);
+    return url && /^https:\/\//.test(url) ? slidePreloads(url, opts) : [];
+  } catch {
+    return [];
+  }
 }
 
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -125,6 +219,9 @@ function localUrl(o: PageOpts, path: string, l: Locale, absolute = true): string
   const own = l === (o.defaultLocale ?? o.locale);
   return `${absolute ? o.baseUrl : ""}${path}${own ? "" : `?lang=${l}`}`;
 }
+
+/** Where index.html wants the page's preloads (apps/web/client/index.html). */
+const PRELOAD_MARK = "<!--preload-->";
 
 /** index.html with a page's head tags (and its content for crawlers). */
 export function renderPage(indexHtml: string, head: PageHead, o: PageOpts): string {
@@ -167,6 +264,9 @@ export function renderPage(indexHtml: string, head: PageHead, o: PageOpts): stri
     .replace(/<meta name="description"[^>]*>/, () => `<meta name="description" content="${escapeHtml(head.description)}">`)
     .replace("</head>", () => `${tags}\n</head>`);
   if (head.body) html = html.replace(/<div id="root"><\/div>/, () => `<div id="root">${head.body}</div>`);
+  // Pictures go near the top of the head (index.html's marker), so they start before the scripts.
+  const preloads = (head.preload ?? []).map(preloadTag).join("\n");
+  if (preloads) html = html.includes(PRELOAD_MARK) ? html.replace(PRELOAD_MARK, () => preloads) : html.replace("</head>", () => `${preloads}\n</head>`);
   return html;
 }
 
@@ -235,7 +335,7 @@ export async function homeHead(svc: Pick<Services, "db">, o: PageOpts): Promise<
   const tagline = store.tagline[l];
   const title = (l === "ar" ? o.seo?.titleAr : o.seo?.titleEn) ?? `${o.storeName} | ${tagline.replace(/[.。]$/, "")}`;
   const description = (l === "ar" ? o.seo?.descriptionAr : o.seo?.descriptionEn) ?? tagline;
-  const [cats, products, channel] = await Promise.all([
+  const [cats, products, channel, preload] = await Promise.all([
     svc.db.query<{ slug: string; name_ar: string; name_en: string }>(
       `select c.slug, c.name_ar, c.name_en from app.categories c
         where c.active and exists (select 1 from app.products p join app.offers o on o.product_id = p.id and ${ON_SALE} where p.category_id = c.id and p.active)
@@ -243,6 +343,7 @@ export async function homeHead(svc: Pick<Services, "db">, o: PageOpts): Promise<
     ),
     productsOnSale(svc.db, null, 40),
     channelUrl(svc.db),
+    showcasePreloads(svc.db),
   ]);
   const body = [
     `<main>`,
@@ -271,6 +372,7 @@ export async function homeHead(svc: Pick<Services, "db">, o: PageOpts): Promise<
       { "@context": "https://schema.org", "@type": "WebSite", name: o.storeName, url: `${o.baseUrl}/`, inLanguage: l },
     ],
     body,
+    preload,
   };
 }
 
@@ -357,7 +459,7 @@ export async function productMeta(svc: Pick<Services, "db">, slug: string): Prom
       where p.slug = $1 and ${ON_SALE} order by o.sort, o.price_cents limit 40`,
     [slug],
   );
-  const [rating, reviews] = await Promise.all([
+  const [rating, reviews, preload] = await Promise.all([
     one<{ average: string | number | null; count: string | number }>(
       svc.db,
       `select avg(v.rating) as average, count(*) as count from app.reviews v join app.products p on p.id = v.product_id where p.slug = $1 and v.status = 'visible'`,
@@ -368,8 +470,10 @@ export async function productMeta(svc: Pick<Services, "db">, slug: string): Prom
         where p.slug = $1 and v.status = 'visible' and v.comment <> '' order by v.created_at desc limit 5`,
       [slug],
     ),
+    showcasePreloads(svc.db),
   ]);
   return {
+    preload,
     rating: rating && n(rating.count) > 0 ? { average: Math.round(Number(rating.average) * 10) / 10, count: n(rating.count) } : null,
     reviews: reviews.map((v) => ({
       name: (v.display_name.trim().split(/\s+/)[0] ?? "").slice(0, 24),
@@ -462,6 +566,7 @@ export function productHead(meta: ProductMeta, o: PageOpts): PageHead {
     type: "product",
     jsonLd: [product, ...(o.defaultLocale ? [breadcrumbLd(o, trail)] : [])],
     body,
+    preload: meta.preload,
   };
 }
 

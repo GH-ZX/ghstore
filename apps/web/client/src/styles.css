@@ -489,6 +489,8 @@ html.searching .tabbar { opacity: 0; transform: translateY(24px); }
   padding-bottom: var(--bottom-inset);
   animation: gh-up .34s cubic-bezier(.2, .8, .2, 1);
 }
+.sheet.sheet--waiting { visibility: hidden; animation: none; }
+.sheet-wait { position: fixed; z-index: 41; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .sheet__handle { display: flex; justify-content: center; padding-top: 10px; }
 .sheet__handle span { width: 40px; height: 5px; border-radius: 3px; background: var(--line); }
 .sheet__head { padding: 8px 20px 0; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
