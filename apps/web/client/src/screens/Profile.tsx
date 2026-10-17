@@ -9,7 +9,7 @@ import { refreshMe, setLang, setMode, signOut, toast, useApp, useT, type Mode } 
 import { haptic, openExternal, openTelegramLink } from "../lib/telegram";
 import type { Favorites, Referral } from "../lib/types";
 import { useApi } from "../lib/useApi";
-import { ChevronIcon, GiftIcon, HeartIcon, WalletIcon } from "../ui/icons";
+import { ChevronIcon, ContactMark, GiftIcon, HeartIcon, WalletIcon } from "../ui/icons";
 import { Seg, Sheet, Switch, Tile } from "../ui/kit";
 import { AdminLink, Shell } from "../ui/Shell";
 import { EmailCode, linkWebLogin, RequireUser, startLink } from "./Login";
@@ -34,11 +34,13 @@ function ProfileView() {
   const bot = config?.telegram?.bot ?? store.telegramBot;
   const channel = config?.telegram?.channel ?? null;
   const supportLinks = [
-    channel && { key: "ch", title: t("telegramChannel"), detail: channel.replace(/^https:\/\//, ""), href: channel, telegram: true },
-    sup?.telegram && { key: "tg", title: t("supportTelegram"), detail: `@${sup.telegram}`, href: `https://t.me/${sup.telegram}`, telegram: true },
-    sup?.whatsapp && { key: "wa", title: t("supportWhatsapp"), detail: `+${sup.whatsapp}`, href: `https://wa.me/${sup.whatsapp}`, telegram: false },
-    sup?.email && { key: "em", title: t("supportEmail"), detail: sup.email, href: `mailto:${sup.email}`, telegram: false },
-  ].filter((x): x is { key: string; title: string; detail: string; href: string; telegram: boolean } => Boolean(x));
+    channel && { key: "ch", kind: "channel" as const, title: t("telegramChannel"), detail: channel.replace(/^https:\/\//, ""), href: channel, telegram: true },
+    sup?.telegram && { key: "tg", kind: "telegram" as const, title: t("supportTelegram"), detail: `@${sup.telegram}`, href: `https://t.me/${sup.telegram}`, telegram: true },
+    sup?.whatsapp && { key: "wa", kind: "whatsapp" as const, title: t("supportWhatsapp"), detail: `+${sup.whatsapp}`, href: `https://wa.me/${sup.whatsapp}`, telegram: false },
+    sup?.email && { key: "em", kind: "email" as const, title: t("supportEmail"), detail: sup.email, href: `mailto:${sup.email}`, telegram: false },
+  ].filter(
+    (x): x is { key: string; kind: "channel" | "telegram" | "whatsapp" | "email"; title: string; detail: string; href: string; telegram: boolean } => Boolean(x),
+  );
   const u = me.user;
   const initial = (u.name || u.telegramUsername || u.email || "?").trim().charAt(0).toUpperCase();
   const handle = u.telegramUsername ? `@${u.telegramUsername}` : u.email ?? "";
@@ -131,6 +133,7 @@ function ProfileView() {
       <div className="list">
         {supportLinks.map((s) => (
           <button key={s.key} type="button" className="list-row press" onClick={() => (s.telegram ? openTelegramLink(s.href) : openExternal(s.href))}>
+            <ContactMark kind={s.kind} />
             <span className="list-row__main">
               <span className="list-row__title">{s.title}</span>
               <span className="list-row__meta num" dir="ltr">{s.detail}</span>
@@ -142,6 +145,7 @@ function ProfileView() {
         ))}
         {!miniApp && u.hasTelegram === false && (
           <a className="list-row" href={`https://t.me/${bot}`} target="_blank" rel="noopener">
+            <ContactMark kind="telegram" />
             <span className="list-row__main">
               <span className="list-row__title">{t("openInTelegram")}</span>
             </span>
@@ -161,6 +165,7 @@ function ProfileView() {
               void signOut().then(() => navigate("/", { replace: true }));
             }}
           >
+            <ContactMark kind="logout" />
             <span className="list-row__main">
               <span className="list-row__title">{t("logout")}</span>
             </span>

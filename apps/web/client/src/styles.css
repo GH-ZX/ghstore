@@ -307,6 +307,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 }
 @media (hover: hover) { .icon-btn:hover { border-color: var(--accent); color: var(--accent-text); } }
 .method-logo { border-radius: 50%; flex: none; display: block; }
+.contact-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
 
 /* full-screen search (ui/Search.tsx): the page slides away, search slides in */
 .page, .tabbar { transition: opacity .22s ease, transform .22s ease; }
