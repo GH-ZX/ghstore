@@ -127,12 +127,16 @@ automatically.
 **Telegram (recommended: same account and wallet as the bot).** In @BotFather:
 `/setdomain` → your bot → `your-domain.com`. Nothing else to set.
 
-**Email code and Google (Supabase Auth).** Supabase → Authentication:
+**Email (password or code) and Google (Supabase Auth).** Supabase → Authentication:
 
-- Providers: Email on. For Google, turn on the Google provider with your Google
-  OAuth client.
-- Emails → "Magic Link" template: put `{{ .Token }}` in the message, so the email
-  carries the 6-digit code the website asks for.
+- Providers: Email on, with **Confirm email on** (a password only ever goes on an
+  address that was confirmed). For Google, turn on the Google provider with your
+  Google OAuth client.
+- Emails → templates "Magic Link" and "Confirm signup" (a first code goes out
+  with the second): paste `docs/email-templates/code.html` into both, so the
+  email carries the 6-digit code (`{{ .Token }}`) the website asks for. Signing
+  up, signing in with a code and "Forgot password?" all use this code; the
+  password is chosen on the website after it.
 - Emails → SMTP settings: Supabase's built-in sender only reaches your own team's
   addresses and a few emails an hour, so customers need your own SMTP. With
   Resend (also used for receipts): host `smtp.resend.com`, port `465`, user

@@ -381,7 +381,7 @@ html.searching .tabbar { opacity: 0; transform: translateY(24px); }
 .transfer__meta span:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field > span:first-child { font-size: 13px; font-weight: 600; }
+.field > span:first-child, .field > label:first-child { font-size: 13px; font-weight: 600; }
 .input, .select, .textarea {
   width: 100%; min-height: 50px; border-radius: 14px; border: 1px solid var(--line);
   background: var(--surface-2); color: var(--ink); padding: 0 14px; font-size: 16px; outline-color: var(--accent);
@@ -600,6 +600,18 @@ html.searching .tabbar { opacity: 0; transform: translateY(24px); }
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px; border: 1px dashed var(--line);
   color: var(--ink); font-size: 14px; font-weight: 600; text-decoration: none;
 }
+/* email sign-in: password or code */
+.link-btn { border: 0; background: none; padding: 0; color: var(--accent-text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.link-btn:hover { text-decoration: underline; }
+.email-alt { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 14px; margin-top: 2px; }
+.email-set__head { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 16px; background: var(--surface-2); }
+.pw { position: relative; }
+.pw .input { padding-right: 52px; }
+.pw__eye {
+  position: absolute; right: 6px; top: 50%; translate: 0 -50%; width: 40px; height: 40px; border-radius: 12px; border: 0;
+  background: transparent; color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
+}
+.pw__eye[aria-pressed="true"] { color: var(--accent-text); }
 .login__safe { display: flex; align-items: center; justify-content: center; gap: 6px; text-align: center; margin-top: 4px; }
 
 .login__art {

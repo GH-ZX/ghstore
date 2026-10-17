@@ -90,7 +90,7 @@ export async function telegramWidgetLogin(ctx: Ctx): Promise<Response> {
 }
 
 /**
- * How a Supabase access token was obtained: "email" (one-time code) or "google".
+ * How a Supabase access token was obtained: "email" (a one-time code or a password) or "google".
  * Read from the token's `amr` claim, only after Supabase has confirmed the
  * token; falls back to the account's providers when the claim is absent.
  */
@@ -99,7 +99,7 @@ function webMethod(accessToken: string, providers: string[]): LoginMethod | null
     const claims = JSON.parse(fromUtf8(fromBase64Url(accessToken.split(".")[1] ?? ""))) as { amr?: { method?: string }[] };
     const methods = (claims.amr ?? []).map((a) => a.method);
     if (methods.includes("oauth")) return "google";
-    if (methods.some((m) => m === "otp" || m === "magiclink" || m === "email/signup")) return "email";
+    if (methods.some((m) => m === "otp" || m === "magiclink" || m === "email/signup" || m === "password" || m === "recovery")) return "email";
   } catch {
     // not a readable JWT: use the providers below
   }
