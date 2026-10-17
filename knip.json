@@ -27,8 +27,8 @@
       "project": ["scripts/**/*.ts"]
     },
     "apps/web": {
-      "entry": ["client/src/main.tsx"],
-      "project": ["src/**/*.ts", "client/src/**/*.{ts,tsx}", "client/*.mjs"]
+      "entry": ["client/src/main.tsx", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts", "client/src/**/*.{ts,tsx}", "client/*.mjs"]
     }
   },
   "ignoreExportsUsedInFile": true
