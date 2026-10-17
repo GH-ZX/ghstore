@@ -1,14 +1,12 @@
 /** Small shared components: logo, sheets, tiles, money, states. */
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { store } from "@store/config";
-import { pictureUrl } from "@store/core";
 import { errorText } from "../lib/i18n";
-import { hashText, monogram, usd, syp } from "../lib/format";
+import { usd, syp } from "../lib/format";
 import { useApp, useT } from "../lib/state";
 import type { ApiFail } from "../lib/api";
 import { pushBack } from "../lib/telegram";
-import { useNear } from "../lib/visible";
 import { CloseIcon } from "./icons";
 import { LOGO } from "./logo";
 
@@ -74,56 +72,6 @@ export function Money({ cents, showSyp = false, className }: { cents: number; sh
     </span>
   );
 }
-
-/** Logos (brand marks, site icons, SVGs) are shown whole on a soft tile instead of cropped like photos. */
-const LOGO_URL = /simpleicons|favicons|\.svg(\?|$)/i;
-
-/**
- * A picture at about the size it is shown (packages/core images.ts): pictures in
- * the store's own storage always, others when the owner switched Cloudflare's
- * resizing on (Admin → Settings → Smaller pictures). `width` is about twice the
- * shown size, for sharp screens. If the resized one fails, the original is used.
- * `eager` for a picture on the first screen (the showcase's); others load when
- * they come near the screen (lib/visible.ts). The tile keeps its size meanwhile.
- */
-export function Tile({ name, imageUrl, className, width = 400, eager = false }: { name: string; imageUrl?: string | null; className?: string; width?: number; eager?: boolean }) {
-  const { config } = useApp();
-  const box = useRef<HTMLSpanElement>(null);
-  const near = useNear(box, eager, imageUrl);
-  // A picture that fails to load falls back to the store's picture template.
-  const [broken, setBroken] = useState<string | null>(null);
-  const [plain, setPlain] = useState<string | null>(null);
-  const show = imageUrl && broken !== imageUrl;
-  const logo = show && LOGO_URL.test(imageUrl);
-  const small = show && !logo && plain !== imageUrl ? pictureUrl(imageUrl, { width }, { cloudflare: config?.images?.resize }) : null;
-  const resized = small && small !== imageUrl ? small : null;
-  if (!show) {
-    // The picture template: a cover in a colour of its own (the same for the same
-    // name, everywhere), with the product's monogram.
-    return (
-      <span className={`tile tile--art ${className ?? ""}`} style={{ "--h": ART_HUES[hashText(name) % ART_HUES.length] } as CSSProperties} aria-hidden="true">
-        <span className="tile__mono">{monogram(name)}</span>
-      </span>
-    );
-  }
-  return (
-    <span ref={box} className={`tile${logo ? " tile--logo" : ""} ${className ?? ""}`} aria-hidden="true">
-      {near && (
-        <img
-          src={resized ?? imageUrl}
-          alt=""
-          loading={eager ? "eager" : "lazy"}
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onError={() => (resized ? setPlain(imageUrl) : setBroken(imageUrl))}
-        />
-      )}
-    </span>
-  );
-}
-
-/** Hues for the picture template: violet, magenta, rose, coral, amber, emerald, teal, blue. */
-const ART_HUES = [285, 320, 355, 25, 60, 155, 195, 250];
 
 /** Open sheets, oldest first: only the top one is live; the page and the sheets under it are inert. */
 const openSheets: HTMLElement[] = [];

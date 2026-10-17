@@ -105,9 +105,9 @@ export async function listOrders(ctx: Ctx): Promise<Response> {
   const before = ctx.url.searchParams.get("before");
   const rows = await ctx.svc.db.query<{
     id: string; number: string | number; status: string; total_cents: string | number; created_at: string;
-    name_ar: string; name_en: string; offer_ar: string; offer_en: string; kind: string; hold: string | null;
+    name_ar: string; name_en: string; offer_ar: string; offer_en: string; kind: string; hold: string | null; image_url: string | null;
   }>(
-    `select o.id, o.number, o.status, o.total_cents, o.created_at, p.name_ar, p.name_en, f.name_ar as offer_ar, f.name_en as offer_en, p.kind, o.hold
+    `select o.id, o.number, o.status, o.total_cents, o.created_at, p.name_ar, p.name_en, f.name_ar as offer_ar, f.name_en as offer_en, p.kind, o.hold, p.image_url
        from app.orders o join app.products p on p.id = o.product_id join app.offers f on f.id = o.offer_id
       where o.user_id = $1 and ($2::bigint is null or o.number < $2::bigint)
       order by o.number desc limit 30`,
@@ -116,7 +116,7 @@ export async function listOrders(ctx: Ctx): Promise<Response> {
   return json({
     orders: rows.map((r) => ({
       id: r.id, number: n(r.number), status: r.status, totalCents: n(r.total_cents), createdAt: r.created_at, kind: r.kind, hold: r.hold,
-      productAr: r.name_ar, productEn: r.name_en, packageAr: r.offer_ar, packageEn: r.offer_en,
+      productAr: r.name_ar, productEn: r.name_en, packageAr: r.offer_ar, packageEn: r.offer_en, imageUrl: r.image_url,
     })),
   });
 }

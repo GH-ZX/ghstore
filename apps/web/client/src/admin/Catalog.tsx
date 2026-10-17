@@ -4,7 +4,7 @@
  * Prices preview with the same rule the server enforces.
  */
 import { useDeferredValue, useMemo, useState } from "react";
-import { matchesQuery, minimumPrice, priceFromCost, type MarkupMode } from "@store/core";
+import { brandFor, brandFromIconUrl, matchesQuery, minimumPrice, priceFromCost, type MarkupMode } from "@store/core";
 import { linkHandler } from "../lib/router";
 import { dollarsToCents, usd } from "../lib/format";
 import { pick } from "../lib/i18n";
@@ -13,6 +13,7 @@ import { invalidate, useApi } from "../lib/useApi";
 import type { AfterFieldDef, AfterType, InputField, Kind, ProductBadge } from "../lib/types";
 import { PlusIcon } from "../ui/icons";
 import { Empty, ErrorBox, Sheet, Spinner, Switch } from "../ui/kit";
+import { artKind, ProductArt } from "../ui/ProductArt";
 import { decimalText, intText, useAction } from "./common";
 import { ImageField } from "./ImageField";
 
@@ -359,6 +360,7 @@ function ProductEditor({ product, categories, onClose }: { product: Prod | null;
           <ImageField label={t("imageUrl")} hint={t("imageSquareHint")} value={f.imageUrl} onChange={(v) => set("imageUrl", v)} shape="square" />
           <ImageField label={t("coverUrl")} hint={t("coverHint")} value={f.coverUrl} onChange={(v) => set("coverUrl", v)} shape="wide" />
         </div>
+        <ArtPreview nameEn={f.nameEn} nameAr={f.nameAr} imageUrl={f.imageUrl} coverUrl={f.coverUrl} />
         <label className="field">
           <span>{t("unitAr")}</span>
           <input className="input" dir="rtl" maxLength={24} value={f.unitAr} onChange={(e) => set("unitAr", e.target.value)} placeholder="شدة" />
@@ -815,6 +817,29 @@ function AfterFieldsEditor({ fields, onChange }: { fields: AfterFieldDef[]; onCh
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The product's picture box as the store will show it (ProductArt), before
+ * saving: a store card, the product sheet's banner and a search row.
+ */
+function ArtPreview({ nameEn, nameAr, imageUrl, coverUrl }: { nameEn: string; nameAr: string; imageUrl: string; coverUrl: string }) {
+  const { t } = useT();
+  const name = nameEn.trim() || nameAr.trim();
+  const kind = artKind(name, imageUrl);
+  const brand = kind === "brand" ? (imageUrl.trim() ? brandFromIconUrl(imageUrl) : brandFor(name)) : null;
+  const art = { name: nameEn.trim(), nameAr: nameAr.trim(), imageUrl: imageUrl.trim() || null, eager: true };
+  return (
+    <div className="span-2 field">
+      <span>{t("artPreview")}</span>
+      <div className="art-preview" aria-hidden="true">
+        <ProductArt {...art} className="art-preview__card" />
+        <ProductArt {...art} coverUrl={coverUrl.trim() || null} className="art-preview__hero" width={1080} />
+        <ProductArt {...art} className="art-preview__thumb" width={120} />
+      </div>
+      <span className="hint">{t(`artShows_${kind}`, { brand: brand?.title ?? "" })}</span>
     </div>
   );
 }

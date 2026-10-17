@@ -416,36 +416,118 @@ html.searching .tabbar { opacity: 0; transform: translateY(24px); }
 .list-row__title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .list-row__meta { font-size: 12px; color: var(--muted); }
 .list-row__end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+/* an order's product picture, with its status as a dot on the corner */
+.order-pic { position: relative; flex: none; }
+.order-pic__art { width: 44px; height: 44px; border-radius: 12px; }
+.order-pic .dot { position: absolute; bottom: -2px; inset-inline-end: -2px; box-shadow: 0 0 0 2px var(--surface); }
 .round-icon {
   width: 40px; height: 40px; flex: none; border-radius: 50%; background: var(--surface-2);
   display: flex; align-items: center; justify-content: center;
 }
 
 /* ───────────────────────────── store */
-.tile {
-  display: flex; align-items: center; justify-content: center; overflow: hidden;
+/*
+ * A product's picture box (ProductArt in ui/ProductArt.tsx). Each place gives
+ * it its size; what is inside scales with the box (container units), so one
+ * look works from a 44px search row to the product sheet's banner.
+ */
+.art {
+  position: relative; isolation: isolate; overflow: hidden; container-type: size;
+  display: flex; align-items: center; justify-content: center; flex: none;
   background: var(--tile); color: var(--accent-text);
   font-family: var(--font-heading); font-weight: 800;
 }
-.tile img { width: 100%; height: 100%; object-fit: cover; }
-/* The picture template, for products without a picture of their own (Tile in ui/kit.tsx). */
-.tile--art {
-  position: relative; isolation: isolate; color: #fff;
-  background:
-    radial-gradient(120% 95% at 88% 0%, oklch(0.8 0.12 calc(var(--h) + 35)) 0, transparent 58%),
-    linear-gradient(145deg, oklch(0.63 0.19 var(--h)), oklch(0.4 0.16 calc(var(--h) + 22)));
+.art img { display: block; }
+/* the owner's picture */
+.art__frame { position: absolute; inset: 0; display: flex; }
+.art__img { width: 100%; height: 100%; object-fit: cover; }
+.art--loading .art__img { opacity: 0; }
+.art--pic .art__img { animation: gh-fade .25s ease; }
+/* a logo: whole, over a blurred, darker copy of itself */
+.art__blur {
+  position: absolute; inset: -12%; z-index: -1; width: 124%; height: 124%; object-fit: cover;
+  filter: blur(18px) saturate(1.5) brightness(.62); transform: scale(1.15);
 }
-.tile--art::before {
+.art--logo .art__frame { position: relative; inset: auto; height: 100%; aspect-ratio: 1; max-width: 100%; }
+.art--logo .art__img { object-fit: contain; }
+/* in a wide box the logo is a rounded square in the middle */
+@container (min-aspect-ratio: 13 / 10) {
+  .art--logo .art__frame {
+    height: 70%; border-radius: 23%; overflow: hidden;
+    box-shadow: 0 10px 28px rgb(0 0 0 / .35), 0 0 0 1px rgb(255 255 255 / .14);
+  }
+  .art--logo .art__img { object-fit: cover; }
+}
+/* SVG marks and site icons are drawn for light backgrounds: a light plate, in dark mode too */
+.art--plate { background: color-mix(in srgb, var(--tile) 70%, #f3f2f7); }
+.art--plate .art__frame { background: #f3f2f7; }
+.art--plate .art__img { object-fit: contain; padding: 18%; }
+@container (min-aspect-ratio: 13 / 10) { .art--plate .art__img { object-fit: contain; padding: 16%; } }
+
+/* a brand's mark in its colour, the name beside it where there is room */
+.art__in {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+}
+.art--brand { color: var(--brand-ink);
+  background:
+    radial-gradient(110% 120% at 85% 0%, rgb(255 255 255 / .2), transparent 55%),
+    linear-gradient(150deg, var(--brand), color-mix(in oklab, var(--brand) 72%, #000));
+}
+.art--brand::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .1); pointer-events: none; }
+.art__mark {
+  flex: none; width: min(52cqh, 52cqw); aspect-ratio: 1; background: currentColor;
+  -webkit-mask: var(--mark) center / contain no-repeat; mask: var(--mark) center / contain no-repeat;
+}
+.art__label { display: none; min-width: 0; flex-direction: column; gap: 4px; }
+.art__label-name { font-size: min(15cqh, 9cqw); line-height: 1.05; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+/* a card: the mark, the name under it */
+@container (min-height: 96px) and (min-width: 130px) {
+  .art--brand .art__in { flex-direction: column; gap: 6cqh; padding: 0 8cqw; }
+  .art__mark { width: 40cqh; }
+  .art__label { display: flex; align-items: center; max-width: 100%; }
+  .art__label-name { font-size: min(13cqh, 10cqw); }
+}
+/* a banner: the mark and the name side by side */
+@container (min-aspect-ratio: 9 / 5) and (min-height: 120px) {
+  .art--brand .art__in { flex-direction: row; gap: 5cqw; }
+  .art__mark { width: 44cqh; }
+  .art__label { align-items: flex-start; }
+  .art__label-name { font-size: min(22cqh, 9cqw); }
+}
+
+/* no picture and no mark: the product's name, on a colour of its own */
+.art--name .art__in { flex-direction: column; gap: 5cqh; padding: 8cqh 8cqw; }
+.art--name {
+  color: #fff; text-align: center;
+  background:
+    radial-gradient(120% 95% at 88% 0%, color-mix(in oklch, oklch(0.8 0.12 calc(var(--h) + 35)) 85%, var(--accent)) 0, transparent 58%),
+    linear-gradient(145deg, color-mix(in oklch, oklch(0.6 0.18 var(--h)) 82%, var(--accent)), color-mix(in oklch, oklch(0.36 0.15 calc(var(--h) + 24)) 88%, var(--accent)));
+}
+.art--name::before {
   content: ""; position: absolute; z-index: -1; width: 120%; aspect-ratio: 1; border-radius: 50%;
   inset-inline-end: -62%; top: -58%; border: 1px solid rgb(255 255 255 / .2);
   box-shadow: 0 0 0 14px rgb(255 255 255 / .06), 0 0 0 34px rgb(255 255 255 / .04);
 }
-.tile--art::after {
+.art--name::after {
   content: ""; position: absolute; inset: 0; z-index: -1;
-  background-image: radial-gradient(rgb(255 255 255 / .28) 1px, transparent 1.5px); background-size: 11px 11px;
+  background-image: radial-gradient(rgb(255 255 255 / .26) 1px, transparent 1.5px); background-size: 11px 11px;
   -webkit-mask-image: linear-gradient(20deg, #000, transparent 55%); mask-image: linear-gradient(20deg, #000, transparent 55%);
 }
-.tile__mono { letter-spacing: -.02em; text-shadow: 0 2px 14px rgb(0 0 0 / .22); }
+.art__title {
+  display: flex; flex-direction: column; align-items: center; max-width: 100%;
+  /* As big as the longest line lets it be (--fit letters across 84% of the box), and the box's height. */
+  font-size: min(calc(84cqw / (var(--fit) * .6)), calc(56cqh / var(--lines)));
+  line-height: 1.04; letter-spacing: -.025em; text-shadow: 0 2px 14px rgb(0 0 0 / .25);
+}
+.art__title > span { white-space: nowrap; }
+.art__plan {
+  font-family: var(--font); font-size: max(9px, min(9cqh, 6cqw)); font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  padding: .35em .8em; border-radius: 999px; line-height: 1; white-space: nowrap;
+  background: rgb(255 255 255 / .18); border: 1px solid rgb(255 255 255 / .28);
+}
+.art--brand .art__plan { align-self: inherit; background: color-mix(in srgb, var(--brand-ink) 14%, transparent); border-color: color-mix(in srgb, var(--brand-ink) 26%, transparent); }
+/* small boxes: the name only */
+@container (max-height: 80px) { .art--name .art__plan { display: none; } .art__title { font-size: min(calc(84cqw / (var(--fit) * .6)), calc(62cqh / var(--lines))); } }
 
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 @media (min-width: 640px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
@@ -460,7 +542,7 @@ html.searching .tabbar { opacity: 0; transform: translateY(24px); }
   display: flex; flex-direction: column; width: 100%; padding: 0; border: 0;
   background: transparent; color: inherit; text-align: start; text-decoration: none;
 }
-.product .tile { height: 112px; font-size: 30px; }
+.product .art { width: 100%; height: 112px; }
 .product__body { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; }
 .product__name {
   font-size: 14px; font-weight: 600; line-height: 1.35; min-height: 38px;
@@ -505,7 +587,9 @@ html.searching .tabbar { opacity: 0; transform: translateY(24px); }
   .sheet__handle { display: none; }
   .sheet__head { padding-top: 18px; }
 }
-.product-tile { height: 150px; border-radius: 22px; font-size: 46px; }
+/* the product sheet's banner: the same box for every product */
+.product-hero { width: 100%; height: 172px; border-radius: 22px; }
+@media (min-width: 700px) { .product-hero { height: 196px; } }
 
 .options { display: flex; flex-direction: column; gap: 8px; }
 .option {
@@ -1045,7 +1129,8 @@ button.sup__stat:disabled { cursor: default; }
   border: 2px solid transparent; background: var(--surface-2); opacity: .6; transition: opacity .2s ease, border-color .2s ease;
 }
 .showcase__thumb[aria-current="true"] { opacity: 1; border-color: var(--accent); }
-.showcase__thumb img, .showcase__thumb .tile { width: 100%; height: 100%; object-fit: cover; font-size: 13px; }
+.showcase__thumb > img { width: 100%; height: 100%; object-fit: cover; }
+.showcase__thumb .art { width: 100%; height: 100%; }
 .showcase__swatch { display: block; width: 100%; height: 100%; }
 .showcase__swatch--accent { background: var(--accent); } .showcase__swatch--dark { background: #13111b; } .showcase__swatch--light { background: var(--tile); }
 .showcase__progress { position: absolute; inset-inline: 5px; bottom: 4px; height: 3px; border-radius: 999px; overflow: hidden; background: rgb(255 255 255 / .35); }
@@ -1169,11 +1254,13 @@ button.sup__stat:disabled { cursor: default; }
 .banner-thumb.slide--dark { background: #13111b; }
 .banner-thumb.slide--light { background: var(--tile); border: 1px solid var(--line); }
 .banner-thumb img { width: 100%; height: 100%; object-fit: cover; }
+/* Admin → Catalogue: the product's picture box as the store shows it */
+.art-preview { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.art-preview__card { width: 160px; height: 112px; border-radius: 18px; }
+.art-preview__hero { width: min(100%, 340px); height: 172px; border-radius: 22px; }
+.art-preview__thumb { width: 44px; height: 44px; border-radius: 12px; }
 .cat-icon-pick { position: relative; flex: none; cursor: pointer; }
 .cat-icon-pick select { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-/* Brand marks are drawn for light backgrounds, so their tile stays light in dark mode too. */
-.tile--logo { background: #f3f2f7; }
-.tile--logo img { object-fit: contain; padding: 18%; }
 
 /* ── package warranty, products delivered by hand, details after paying */
 .option__name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }

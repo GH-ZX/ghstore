@@ -12,7 +12,8 @@ import { openExternal } from "../lib/telegram";
 import { useApi } from "../lib/useApi";
 import type { Banner, Category, ProductCard } from "../lib/types";
 import { BoltIcon, CategoryIcon, ChevronIcon } from "../ui/icons";
-import { Empty, ErrorBox, Money, PageLoading, Tile } from "../ui/kit";
+import { Empty, ErrorBox, Money, PageLoading } from "../ui/kit";
+import { ProductArt } from "../ui/ProductArt";
 import { Shell } from "../ui/Shell";
 import { Showcase, type ShowcaseOptions, type ShowcaseStyle, type SlideData, type SlidePackage } from "../ui/Showcase";
 import { SiteFooter } from "../ui/Footer";
@@ -295,7 +296,7 @@ function ProductTile({ p }: { p: ProductCard }) {
   return (
     <div className="product">
       <a href={to} onClick={linkHandler(to)}>
-        <Tile name={p.nameEn} imageUrl={p.imageUrl} />
+        <ProductArt name={p.nameEn} nameAr={p.nameAr} imageUrl={p.imageUrl} />
         <span className="product__body">
           <span className="product__name">{name}</span>
           <span className="product__price">

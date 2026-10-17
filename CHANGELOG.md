@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Product pictures**: one look everywhere (store cards, product sheet, search,
+  favourites, orders, showcase). Square logos are shown whole over a blurred
+  copy of themselves, wide covers fill the box; the product sheet has the same
+  banner for every product. Without a picture: the brand's real mark in its
+  colour (a curated simple-icons set, copied into /brands at build time), else
+  the product's name set as a title ("Duolingo Super" → "Duolingo" + SUPER), no
+  more first-letter tiles. Admin → Catalogue previews it before saving.
+- **Product sheet**: "Have a promo code?" comes after the description.
+
 ## v1.2.0 (2026-10-17)
 
 Fixes from a full audit of the code.

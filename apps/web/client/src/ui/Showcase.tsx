@@ -22,7 +22,7 @@ import { useApp, useT } from "../lib/state";
 import { usePageLoaded } from "../lib/visible";
 import type { Banner } from "../lib/types";
 import { ArrowIcon, BoltIcon } from "./icons";
-import { Tile } from "./kit";
+import { ProductArt } from "./ProductArt";
 
 export type ShowcaseStyle = "cinematic" | "deal";
 /** Which of a product's pictures a slide shows: its wide cover, its square icon, or auto. */
@@ -193,11 +193,11 @@ export function ShowcaseSlide({ s, options = DEFAULT_OPTIONS, index = 0, count =
       {wash && <img className="slide__wash" src={pictureUrl(wash, { width: 160 })} alt="" aria-hidden="true" loading="lazy" decoding="async" referrerPolicy="no-referrer" />}
       {s.go && !preview && <button type="button" className="slide__hit" onClick={s.go} aria-label={s.cta ? `${s.title}: ${s.cta}` : s.title} />}
 
-      {card && <Tile className="slide__art" name={card.name} imageUrl={card.imageUrl} width={520} eager={index === 0} />}
+      {card && <ProductArt className="slide__art" name={card.name} imageUrl={card.imageUrl} width={520} eager={index === 0} />}
       {logos.length > 0 && (
         <div className={`slide__logos slide__logos--${logos.length}`} aria-hidden="true">
           {logos.map((l, i) => (
-            <Tile key={i} className="slide__logo" name={l.name} imageUrl={l.imageUrl} width={200} eager={index === 0} />
+            <ProductArt key={i} className="slide__logo" name={l.name} imageUrl={l.imageUrl} width={200} eager={index === 0} />
           ))}
         </div>
       )}
@@ -337,9 +337,9 @@ export function Showcase({ slides, options = DEFAULT_OPTIONS }: { slides: SlideD
               {s.picture ? (
                 <img src={pictureUrl(s.picture, { width: 120, height: 120 })} width={50} height={50} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
               ) : s.art ? (
-                <Tile name={s.art.name} imageUrl={s.art.imageUrl} width={120} />
+                <ProductArt name={s.art.name} imageUrl={s.art.imageUrl} width={120} />
               ) : s.logos?.[0] ? (
-                <Tile name={s.logos[0].name} imageUrl={s.logos[0].imageUrl} width={120} />
+                <ProductArt name={s.logos[0].name} imageUrl={s.logos[0].imageUrl} width={120} />
               ) : (
                 <span className={`showcase__swatch showcase__swatch--${s.style}`} />
               )}

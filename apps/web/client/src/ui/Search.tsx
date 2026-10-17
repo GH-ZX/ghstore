@@ -13,7 +13,8 @@ import { pushBack } from "../lib/telegram";
 import { useApi } from "../lib/useApi";
 import type { Category, ProductCard } from "../lib/types";
 import { CategoryIcon, ChevronIcon, CloseIcon, SearchIcon } from "./icons";
-import { Money, Tile } from "./kit";
+import { Money } from "./kit";
+import { ProductArt } from "./ProductArt";
 
 const RECENT_KEY = "gh.recent";
 const RECENT_MAX = 6;
@@ -116,7 +117,7 @@ export function SearchOverlay({ onClose, initial = "" }: { onClose: () => void; 
 
   const row = (p: ProductCard, i: number) => (
     <button key={p.id} type="button" className="search-row press" style={{ animationDelay: `${Math.min(i, 8) * 25}ms` }} onClick={() => go(`/p/${p.slug}`)}>
-      <Tile name={p.nameEn} imageUrl={p.imageUrl} className="search-row__pic" />
+      <ProductArt name={p.nameEn} nameAr={p.nameAr} imageUrl={p.imageUrl} className="search-row__pic" width={120} />
       <span className="search-row__main">
         <span className="search-row__name">{pick(lang, p.nameAr, p.nameEn)}</span>
         <span className="small muted">{catName(p.category)}</span>

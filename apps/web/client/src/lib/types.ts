@@ -180,6 +180,8 @@ export interface OrderRow {
   productEn: string;
   packageAr: string;
   packageEn: string;
+  /** The product's picture (null: its mark or name tile). */
+  imageUrl?: string | null;
   /** Waiting for the customer's details ("info") or the team ("owner", "release"). */
   hold?: OrderHold | null;
 }
