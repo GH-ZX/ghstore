@@ -203,7 +203,8 @@ describe("top-up, order, delivery, refund", () => {
     expect(r.status).toBe(404);
   });
 
-  it("refunds when the supplier rejects the order", async () => {
+  it("refunds when the supplier rejects the order (with the owner's 'keep it for me' off)", async () => {
+    await db.query(`insert into app.settings (key, value) values ('orders.failed_to_owner', 'false') on conflict (key) do update set value = excluded.value`);
     supplierResult = { status: "failed", retryable: false, reason: "invalid player id", code: "invalid_input" };
     const r = await h.call("POST", "/api/orders", { token, body: { offerId, idempotencyKey: `k-${run}-2`, input: { player_id: "512345" } } });
     expect(r.data.balanceCents).toBe(754);
@@ -213,6 +214,7 @@ describe("top-up, order, delivery, refund", () => {
     expect((await h.call("GET", "/api/me", { token })).data.balanceCents).toBe(877);
     const w = await h.call("GET", "/api/wallet", { token });
     expect(w.data.entries.map((e: any) => e.kind)).toEqual(["refund", "purchase", "purchase", "topup"]);
+    await db.query(`delete from app.settings where key = 'orders.failed_to_owner'`);
   });
 
   it("keeps retrying pending supplier orders through the scheduled job", async () => {

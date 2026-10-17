@@ -3,7 +3,7 @@
  * category ("See all" opens the category's own page at /c/:slug). Search lives in
  * the header (ui/Search.tsx).
  */
-import { useMemo, useRef, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode, lazy, Suspense } from "react";
 import { pick } from "../lib/i18n";
 import { back, linkHandler, match, navigate, usePath } from "../lib/router";
 import { useT } from "../lib/state";
@@ -14,7 +14,8 @@ import { BoltIcon, CategoryIcon, ChevronIcon } from "../ui/icons";
 import { Empty, ErrorBox, Money, PageLoading, Tile } from "../ui/kit";
 import { Shell } from "../ui/Shell";
 import { Showcase, type ShowcaseOptions, type ShowcaseStyle, type SlideData, type SlidePackage } from "../ui/Showcase";
-import { ProductSheet } from "./ProductSheet";
+// The product sheet loads on first open (and in the background after the store shows).
+const ProductSheet = lazy(() => import("./ProductSheet").then((m) => ({ default: m.ProductSheet })));
 import { SiteFooter } from "../ui/Footer";
 
 interface Catalog {
@@ -50,7 +51,11 @@ export function Store() {
         {data && !catPage && <Home data={data} categories={categories} />}
         {data && <SiteFooter />}
       </div>
-      {open && <ProductSheet slug={open.slug!} onClose={() => back("/")} />}
+      {open && (
+        <Suspense fallback={null}>
+          <ProductSheet slug={open.slug!} onClose={() => back("/")} />
+        </Suspense>
+      )}
     </Shell>
   );
 }

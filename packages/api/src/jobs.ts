@@ -10,6 +10,7 @@ import { alertOwners, alertStaff, sendOutbox } from "./notify";
 import { queueDailySummary } from "./reports";
 import { CLOSED_NOTES, detectUsdtDeposits, settlePayment, TOPUP_CLOSE_AFTER, USDT_CLOSE_AFTER } from "./payments";
 import { copyLinkedImages } from "./images";
+import { watchHealth } from "./health";
 import { refreshDueCatalogues } from "./supplier-catalogue";
 import { syncDueSuppliers } from "./sync";
 
@@ -153,6 +154,10 @@ export async function runScheduled(svc: Services, env: ApiEnv): Promise<void> {
   // USDT top-ups matched by their exact amount, without a pasted hash (only while one is open).
   if (minute % 2 === 1 && room(svc, 4) >= 8) await heartbeat(svc, "usdt_deposits", () => detectUsdtDeposits(svc));
   if (minute % 10 === 5) await heartbeat(svc, "stuck_orders", () => flagStuckOrders(svc));
+  // Errors piling up, a supplier not answering, a customer job stuck: the owner hears once.
+  if (minute % 5 === 3) await heartbeat(svc, "health_watch", () => watchHealth(svc));
+  // "How was it?": a review request some hours after delivery (Admin → Settings).
+  if (minute % 15 === 13) await heartbeat(svc, "review_ask", () => queueReviewAsks(svc));
   if (minute % 15 === 7 && room(svc, 2) > 0) await heartbeat(svc, "supplier_balances", () => checkSupplierBalances(svc));
   // Price and stock checks, every minute for whichever suppliers are due (each has its own interval).
   const groups = room(svc, 2);
@@ -179,6 +184,38 @@ export async function eraseOldDetails(svc: Services): Promise<number> {
      returning 1`,
   );
   return rows.length;
+}
+
+/**
+ * Ask customers to rate what they received, `reviews.ask_hours` after delivery
+ * (default 3; 0 = never): once per customer and product, only for orders of the
+ * last week, not for virtual numbers, and not when they already reviewed it.
+ */
+export async function queueReviewAsks(svc: Services, limit = 50): Promise<number> {
+  const v = (await svc.db.query<{ value: unknown }>(`select value from app.settings where key = 'reviews.ask_hours'`))[0]?.value;
+  const hours = typeof v === "number" ? v : 3;
+  if (hours <= 0) return 0;
+  const due = await svc.db.query<{ id: string; user_id: string; number: string | number; slug: string; name_ar: string; name_en: string }>(
+    `select distinct on (o.user_id, o.product_id) o.id, o.user_id, o.number, p.slug, p.name_ar, p.name_en
+       from app.orders o join app.products p on p.id = o.product_id join app.users u on u.id = o.user_id
+      where o.status = 'delivered' and o.review_asked_at is null and p.kind <> 'sms' and p.active and u.notify
+        and o.delivered_at < now() - make_interval(hours => $1::int) and o.delivered_at > now() - interval '7 days'
+        and not exists (select 1 from app.reviews r where r.product_id = o.product_id and r.user_id = o.user_id)
+        and not exists (select 1 from app.orders x where x.user_id = o.user_id and x.product_id = o.product_id and x.review_asked_at is not null)
+      order by o.user_id, o.product_id, o.delivered_at desc
+      limit $2`,
+    [hours, limit],
+  );
+  let queued = 0;
+  for (const d of due) {
+    const marked = await svc.db.query(`update app.orders set review_asked_at = now() where id = $1 and review_asked_at is null returning id`, [d.id]);
+    if (!marked.length) continue;
+    await svc.db.query(`insert into app.outbox (user_id, template, data, priority) values ($1, 'review_ask', $2::text::jsonb, 5)`, [
+      d.user_id, JSON.stringify({ order_id: d.id, number: n(d.number), slug: d.slug, name_ar: d.name_ar, name_en: d.name_en }),
+    ]);
+    queued++;
+  }
+  return queued;
 }
 
 /** Queue due "buy again" reminders; the outbox sends them on the next ticks. */

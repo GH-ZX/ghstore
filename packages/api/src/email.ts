@@ -17,6 +17,8 @@ import { effectiveEnv } from "./keys";
 
 /** Telegram templates that also go out as an email receipt. */
 export const RECEIPT_TEMPLATES = new Set(["order_delivered", "order_refunded", "payment_credited"]);
+/** Messages a website customer (no Telegram) gets by email instead. */
+export const EMAIL_INSTEAD = new Set(["order_needs_info", "back_in_stock", "problem_reply", "review_ask"]);
 
 /** "Name <address@domain>" or a bare address. */
 export const EMAIL_FROM = /^(?:[^<>\r\n"]{1,60} <[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}>|[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24})$/;
@@ -68,14 +70,30 @@ export async function renderReceipt(
   locale: "ar" | "en",
   data: Record<string, unknown>,
 ): Promise<EmailMessage | null> {
-  if (!RECEIPT_TEMPLATES.has(template)) return null;
+  if (!RECEIPT_TEMPLATES.has(template) && !EMAIL_INSTEAD.has(template)) return null;
   const ar = locale === "ar";
   const rows: [string, string][] = [];
   let subject: string;
   let lead: string;
   let link = `${baseUrl}/wallet`;
+  let button = ar ? "افتح المتجر" : "Open the store";
+  const slug = typeof data.slug === "string" && /^[a-z0-9-]{1,80}$/.test(data.slug) ? data.slug : null;
 
-  if (template === "payment_credited") {
+  if (template === "back_in_stock" || template === "review_ask") {
+    if (!slug) return null;
+    const name = String((ar ? data.name_ar : data.name_en) ?? "");
+    if (template === "back_in_stock") {
+      subject = ar ? `عاد إلى المتجر: ${name}` : `Back in stock: ${name}`;
+      lead = ar ? `${name} (${String(data.offer_ar ?? "")}) متوفر الآن في ${store.name}. اطلبه قبل أن ينفد مجدداً.` : `${name} (${String(data.offer_en ?? "")}) is available again at ${store.name}. Get it before it runs out.`;
+      link = `${baseUrl}/p/${slug}`;
+      button = ar ? "اطلبه الآن" : "Get it now";
+    } else {
+      subject = ar ? `كيف كان ${name}؟` : `How was ${name}?`;
+      lead = ar ? `استلمت ${name} من ${store.name}. قيّمه بضغطة واحدة، فرأيك يساعد غيرك من العملاء.` : `You received ${name} from ${store.name}. Rate it in one tap: it helps other customers.`;
+      link = `${baseUrl}/p/${slug}?review=1`;
+      button = ar ? "قيّمه ⭐" : "Rate it ⭐";
+    }
+  } else if (template === "payment_credited") {
     const amount = formatUsd(n(data.amount_cents));
     subject = ar ? `أُضيف ${amount} إلى رصيدك` : `${amount} added to your balance`;
     lead = ar ? `أُضيف ${amount} إلى رصيدك في ${store.name}.` : `${amount} was added to your ${store.name} balance.`;
@@ -95,7 +113,16 @@ export async function renderReceipt(
       [ar ? "الطلب" : "Order", num],
       [ar ? "المنتج" : "Product", `${ar ? order.product_ar : order.product_en} · ${ar ? order.offer_ar : order.offer_en}${order.quantity > 1 ? ` × ${order.quantity}` : ""}`],
     );
-    if (template === "order_delivered") {
+    if (typeof data.order_id === "string" && /^[0-9a-f-]{36}$/.test(data.order_id)) link = `${baseUrl}/orders/${data.order_id}`;
+    if (template === "order_needs_info") {
+      subject = ar ? `طلبك ${num} بحاجة إلى بياناتك` : `Order ${num} needs your details`;
+      lead = ar ? "نحتاج بعض البيانات منك لنكمل طلبك. افتح الطلب وأرسلها من هناك." : "We need a few details from you to finish your order. Open the order and send them there.";
+      button = ar ? "افتح الطلب" : "Open the order";
+    } else if (template === "problem_reply") {
+      subject = ar ? `ردّنا على مشكلتك في الطلب ${num}` : `Our answer about order ${num}`;
+      lead = String(data.reply ?? "");
+      button = ar ? "افتح الطلب" : "Open the order";
+    } else if (template === "order_delivered") {
       subject = ar ? `تم تسليم طلبك ${num}` : `Order ${num} is delivered`;
       lead = ar ? "تم تسليم طلبك. افتح طلباتك في المتجر لرؤية التفاصيل والأكواد." : "Your order is delivered. Open your orders in the store to see the details and codes.";
       rows.push([ar ? "المدفوع" : "Paid", formatUsd(n(order.total_cents))]);
@@ -107,7 +134,6 @@ export async function renderReceipt(
     }
   }
 
-  const button = ar ? "افتح المتجر" : "Open the store";
   const footer = ar ? `وصلتك هذه الرسالة لأن بريدك مرتبط بحسابك في ${store.name}.` : `You get this because your email is linked to your ${store.name} account.`;
   const text = [lead, "", ...rows.map(([k, v]) => `${k}: ${v}`), "", `${button}: ${link}`, "", footer].join("\n");
   const dir = ar ? "rtl" : "ltr";

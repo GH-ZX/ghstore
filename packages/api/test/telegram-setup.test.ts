@@ -75,7 +75,7 @@ describe("telegram bot setup", () => {
     expect(r.data).toMatchObject({ connected: true, url: "https://store.test/telegram/webhook", error: null });
     expect(bot.secret).toBe(env.TELEGRAM_WEBHOOK_SECRET);
     expect(bot.allowed).toEqual(["message", "callback_query", "pre_checkout_query"]);
-    expect(bot.commands.default!.map((c) => c.command)).toEqual(["start", "balance", "orders", "invite", "help"]);
+    expect(bot.commands.default!.map((c) => c.command)).toEqual(["start", "balance", "orders", "invite", "help", "terms", "paysupport"]);
     expect(bot.commands.ar!.find((c) => c.command === "balance")!.description).toBe("رصيدك");
     expect(bot.menu).toEqual({ type: "web_app", text: "افتح المتجر", web_app: { url: "https://store.test/tg" } });
     const audit = await db.query(`select 1 from app.audit_log where action = 'telegram.connect' and target_id = 'https://store.test/telegram/webhook'`);

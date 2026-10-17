@@ -29,6 +29,8 @@ import * as keys from "./keys";
 import * as telegramSetup from "./telegram-setup";
 import * as pages from "./pages";
 import * as reviews from "./reviews";
+import * as problems from "./problems";
+import { health, logError } from "./health";
 
 export type { ApiEnv, AuthedUser, Ctx, Services } from "./context";
 export type { Db } from "./db";
@@ -50,7 +52,7 @@ export {
 export { LEGAL_PATH } from "./pages";
 
 const router = new Router()
-  .on("GET", "/api/health", async () => json({ ok: true }))
+  .on("GET", "/api/health", health)
   .on("GET", "/api/config", publicConfig)
   .on("GET", "/api/pages/:slug", pages.getPage)
   // auth
@@ -72,6 +74,7 @@ const router = new Router()
   .on("GET", "/api/products/:slug/reviews", reviews.listReviews)
   .on("PUT", "/api/products/:slug/review", reviews.saveReview)
   .on("DELETE", "/api/products/:slug/review", reviews.deleteReview)
+  .on("POST", "/api/orders/:id/problem", problems.reportProblem)
   // orders
   .on("POST", "/api/orders", orders.placeOrder)
   .on("GET", "/api/orders", orders.listOrders)
@@ -105,6 +108,8 @@ const router = new Router()
   .on("POST", "/api/admin/orders/:id/deliver", adminOrders.deliverOrder)
   .on("POST", "/api/admin/orders/:id/refund", admin.refundOrder)
   .on("POST", "/api/admin/orders/:id/retry", admin.retryOrder)
+  .on("GET", "/api/admin/problems", problems.adminProblems)
+  .on("POST", "/api/admin/problems/:id/resolve", problems.resolveProblem)
   .on("GET", "/api/admin/reviews", reviews.adminReviews)
   .on("PATCH", "/api/admin/reviews/:id", reviews.setReviewStatus)
   .on("DELETE", "/api/admin/reviews/:id", reviews.removeReview)
@@ -180,6 +185,10 @@ export async function handle(req: Request, env: ApiEnv, svc: Services): Promise<
     if (!m) throw new ApiError("not_found");
     return await m.handler({ req, url, env, svc, params: m.params });
   } catch (err) {
+    // Unexpected errors are written down: when they pile up, the owner hears about it (health.ts).
+    if (!(err instanceof ApiError)) {
+      await logError(svc.db, `${req.method} ${url.pathname}`, err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    }
     return errorResponse(err);
   }
 }

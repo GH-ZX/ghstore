@@ -8,6 +8,7 @@
  *   node client/build.mjs --dev      unminified, with source maps
  */
 import { build } from "esbuild";
+import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -111,6 +112,17 @@ await writeFile(
 await copyFile(join(here, "public", "_headers"), join(out, "_headers"));
 // Static pictures: payment providers' logos (pay/, ShamCash) and promo pictures (promo/, the Numbers slide).
 for (const dir of ["pay", "promo", "services"]) await cp(join(here, "public", dir), join(out, dir), { recursive: true });
+
+// The deployed version, for the after-deploy check (.github/workflows/after-deploy.yml).
+const version = process.env.WORKERS_CI_COMMIT_SHA || process.env.GITHUB_SHA || (() => {
+  try {
+    return execSync("git rev-parse HEAD", { cwd: root }).toString().trim();
+  } catch {
+    return "dev";
+  }
+})();
+await writeFile(join(out, "version.txt"), `${version}\n`);
+
 // robots.txt and sitemap.xml are answered by the Worker (they need the live product list).
 
 console.log(`built ${jsName} (${(js.length / 1024).toFixed(0)} KB), ${cssName} (${(css.length / 1024).toFixed(0)} KB)`);

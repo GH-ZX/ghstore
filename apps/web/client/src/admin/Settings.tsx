@@ -261,6 +261,7 @@ export function Settings() {
     if (key === "payments.stars_per_usd") setState({ config: { ...cur, payments: { ...cur.payments, starsPerUsd: value as number | null } } });
     if (key === "payments.min_topup_cents") setState({ config: { ...cur, payments: { ...cur.payments, minCents: value as number } } });
     if (key === "payments.max_topup_cents") setState({ config: { ...cur, payments: { ...cur.payments, maxCents: value as number } } });
+    if (key === "images.resize") setState({ config: { ...cur, images: { resize: value === true } } });
     applyTheme();
   }
 
@@ -559,6 +560,41 @@ export function Settings() {
             ))}
           </select>
         </label>
+      </section>
+
+      <section className="card card--pad stack-sm">
+        <div>
+          <h2>{t("serviceTitle")}</h2>
+          <p className="hint">{t("serviceHint")}</p>
+        </div>
+        <div className="pref-row">
+          <span className="stack-xs">
+            <span>{t("failedToOwner")}</span>
+            <span className="small muted">{t("failedToOwnerHint")}</span>
+          </span>
+          <Switch checked={data.settings["orders.failed_to_owner"] !== false} onChange={(v) => void put("orders.failed_to_owner", v)} label={t("failedToOwner")} />
+        </div>
+        <label className="field">
+          <span>{t("reviewAsk")}</span>
+          <select
+            className="select"
+            value={String(typeof data.settings["reviews.ask_hours"] === "number" ? data.settings["reviews.ask_hours"] : 3)}
+            onChange={(e) => void put("reviews.ask_hours", Number(e.target.value))}
+          >
+            {[0, 1, 3, 6, 12, 24, 48].map((h) => (
+              <option key={h} value={h}>
+                {h === 0 ? t("reviewAskOff") : t("reviewAskAfter", { n: h })}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="pref-row">
+          <span className="stack-xs">
+            <span>{t("imagesResize")}</span>
+            <span className="small muted">{t("imagesResizeHint")}</span>
+          </span>
+          <Switch checked={data.settings["images.resize"] === true} onChange={(v) => void put("images.resize", v)} label={t("imagesResize")} />
+        </div>
       </section>
 
       <section className="card card--pad stack-sm">

@@ -69,6 +69,8 @@ async function start() {
     // and the bot's buttons open the wallet, orders or the invite card.
     const sp = w.initDataUnsafe.start_param ?? new URLSearchParams(location.search).get("startapp") ?? undefined;
     if (sp?.startsWith("p_")) navigate(`/p/${sp.slice(2).replace(/[^a-z0-9-]/g, "")}`, { replace: true });
+    else if (sp?.startsWith("v_")) navigate(`/p/${sp.slice(2).replace(/[^a-z0-9-]/g, "")}?review=1`, { replace: true });
+    else if (sp?.startsWith("o_")) navigate(`/orders/${sp.slice(2).replace(/[^0-9a-f-]/g, "")}`, { replace: true });
     else if (sp?.startsWith("r_")) stashReferral(sp.slice(2));
     else if (sp === "wallet" || sp === "orders") navigate(`/${sp}`, { replace: true });
     else if (sp === "invite") navigate("/profile", { replace: true });
@@ -78,6 +80,14 @@ async function start() {
   }
   applyTheme();
   root.render(<App />);
+  // The other screens load in the background once the store shows, so moving around stays instant.
+  const later = (fn: () => void) => ("requestIdleCallback" in window ? window.requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 2500));
+  later(() => {
+    void import("./screens/ProductSheet");
+    void import("./screens/Orders");
+    void import("./screens/Wallet");
+    void import("./screens/Profile");
+  });
 
   const config = await configP;
   if (config) {

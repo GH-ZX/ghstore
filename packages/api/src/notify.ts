@@ -5,7 +5,7 @@
 import { formatUsd } from "@store/core";
 import type { ApiEnv, Services } from "./context";
 import { n } from "./db";
-import { emailReady, emailSettings, RECEIPT_TEMPLATES, renderReceipt, sendEmail } from "./email";
+import { EMAIL_INSTEAD, emailReady, emailSettings, RECEIPT_TEMPLATES, renderReceipt, sendEmail } from "./email";
 import { effectiveEnv } from "./keys";
 import { botUsername } from "./settings";
 import { summaryText, type DaySummary } from "./reports";
@@ -56,6 +56,14 @@ const TEMPLATES: Record<string, { ar: (d: Data) => string; en: (d: Data) => stri
   broadcast: {
     ar: (d) => String(d.text_ar ?? d.text_en ?? ""),
     en: (d) => String(d.text_en ?? d.text_ar ?? ""),
+  },
+  review_ask: {
+    ar: (d) => `كيف كان ${String(d.name_ar ?? "")}؟ ⭐\nقيّمه بضغطة واحدة، فرأيك يساعد غيرك من العملاء.`,
+    en: (d) => `How was ${String(d.name_en ?? "")}? ⭐\nRate it in one tap: it helps other customers.`,
+  },
+  problem_reply: {
+    ar: (d) => `ردّ المتجر على مشكلتك في الطلب رقم ${d.number}:\n${String(d.reply ?? "")}`,
+    en: (d) => `The store answered about order #${d.number}:\n${String(d.reply ?? "")}`,
   },
   staff_order: {
     ar: (d) => `طلب جديد ${String(d.ref ?? "")}: ${String(d.name_ar ?? "")} (${String(d.offer_ar ?? "")}) — ${formatUsd(n(d.total_cents))}`,
@@ -111,7 +119,7 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
   };
 
   // Email receipts: only read the settings when a batch has something to do with email.
-  const needsEmail = rows.some((r) => r.channel === "email" || (RECEIPT_TEMPLATES.has(r.template) && r.email));
+  const needsEmail = rows.some((r) => r.channel === "email" || ((RECEIPT_TEMPLATES.has(r.template) || EMAIL_INSTEAD.has(r.template)) && r.email));
   const mail = needsEmail ? await emailSettings(env, svc.db) : null;
   // Staff messages come from the separate staff-alerts bot when the owner set one.
   const staffBot = rows.some((r) => STAFF_TEMPLATES.has(r.template)) && !!(await effectiveEnv(env, svc.db)).NOTIFY_BOT_TOKEN;
@@ -148,6 +156,15 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
       ]);
     }
 
+    // A website customer (no Telegram) gets these by email instead.
+    if (r.attempts === 1 && !r.chat_id && EMAIL_INSTEAD.has(r.template) && r.email && r.notify && mail && emailReady(mail)) {
+      await svc.db.query(`insert into app.outbox (user_id, channel, template, data) values ($1, 'email', $2, $3::text::jsonb)`, [
+        r.user_id,
+        r.template,
+        JSON.stringify(r.data ?? {}),
+      ]);
+    }
+
     const text = renderTemplate(r.template, locale, r.data ?? {});
     const isStaff = STAFF_TEMPLATES.has(r.template);
     if (!text || !r.chat_id || (!r.notify && !isStaff)) {
@@ -156,14 +173,21 @@ export async function sendOutbox(svc: Services, env: ApiEnv, limit = 25): Promis
     }
     try {
       // "Buy again" and product broadcasts open the product itself; everything else opens the store.
-      const slug = (r.template === "buy_again" || r.template === "broadcast" || r.template === "back_in_stock") && typeof r.data?.slug === "string" && /^[a-z0-9-]{1,80}$/.test(r.data.slug) ? r.data.slug : null;
+      const slug = (r.template === "buy_again" || r.template === "broadcast" || r.template === "back_in_stock" || r.template === "review_ask") && typeof r.data?.slug === "string" && /^[a-z0-9-]{1,80}$/.test(r.data.slug) ? r.data.slug : null;
+      // An answer about an order opens that order.
+      const orderId = r.template === "problem_reply" && typeof r.data?.order_id === "string" && /^[0-9a-f-]{36}$/.test(r.data.order_id) ? r.data.order_id : null;
       const label = slug
         ? r.template === "buy_again" ? (locale === "en" ? "Buy again" : "اطلبه مجدداً")
           : r.template === "back_in_stock" ? (locale === "en" ? "Get it now" : "اطلبه الآن")
+          : r.template === "review_ask" ? (locale === "en" ? "Rate it ⭐" : "قيّمه ⭐")
           : locale === "en" ? "View" : "عرض المنتج"
+        : orderId ? (locale === "en" ? "Open the order" : "افتح الطلب")
         : isStaff ? (locale === "en" ? "Open admin" : "افتح الإدارة")
         : locale === "en" ? "Open store" : "افتح المتجر";
-      const url = slug ? `${env.PUBLIC_BASE_URL}/tg?startapp=p_${slug}` : isStaff ? `${env.PUBLIC_BASE_URL}/tg?startapp=admin` : `${env.PUBLIC_BASE_URL}/tg`;
+      const url = slug
+        ? `${env.PUBLIC_BASE_URL}/tg?startapp=${r.template === "review_ask" ? "v_" : "p_"}${slug}`
+        : orderId ? `${env.PUBLIC_BASE_URL}/tg?startapp=o_${orderId}`
+        : isStaff ? `${env.PUBLIC_BASE_URL}/tg?startapp=admin` : `${env.PUBLIC_BASE_URL}/tg`;
       if (isStaff && staffBot) {
         // A Mini App button would sign in through the wrong bot: link to the store bot's Mini App instead.
         const link = `https://t.me/${storeBot}?startapp=admin`;

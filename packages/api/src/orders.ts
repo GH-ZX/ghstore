@@ -6,6 +6,7 @@
  * for a person to deliver a product sold by hand, 'release' for a person to
  * check what the supplier delivered (hidden from the customer until then).
  */
+import { orderProblem } from "./problems";
 import { AFTER_SECRET, checkAnswers, decryptText, encryptText, type AfterField, type InputField } from "@store/core";
 import { requireUser } from "./auth";
 import type { Ctx } from "./context";
@@ -194,6 +195,8 @@ export async function getOrder(ctx: Ctx): Promise<Response> {
       answeredAt: o.answered_at,
       // Details can be corrected until the order is delivered.
       canAnswer: open(o.status) && (o.hold === "info" || o.hold === "owner") && fields.length > 0,
+      // "Report a problem": the latest report and the store's answer.
+      problem: await orderProblem(ctx.svc.db, o.id),
     },
     deliveries,
   });

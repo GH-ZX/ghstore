@@ -74,11 +74,21 @@ export function Money({ cents, showSyp = false, className }: { cents: number; sh
 /** Logos (brand marks, site icons, SVGs) are shown whole on a soft tile instead of cropped like photos. */
 const LOGO_URL = /simpleicons|favicons|\.svg(\?|$)/i;
 
-export function Tile({ name, imageUrl, className }: { name: string; imageUrl?: string | null; className?: string }) {
+/**
+ * A picture, resized by Cloudflare when the owner switched it on (Admin →
+ * Settings → Smaller pictures): `width` is about twice the shown size, for sharp
+ * screens. If the resized one fails, the original is used.
+ */
+export function Tile({ name, imageUrl, className, width = 400 }: { name: string; imageUrl?: string | null; className?: string; width?: number }) {
+  const { config } = useApp();
   // A picture that fails to load falls back to the store's picture template.
   const [broken, setBroken] = useState<string | null>(null);
+  const [plain, setPlain] = useState<string | null>(null);
   const show = imageUrl && broken !== imageUrl;
   const logo = show && LOGO_URL.test(imageUrl);
+  const resized = show && !logo && config?.images?.resize && plain !== imageUrl && /^https:\/\//.test(imageUrl)
+    ? `/cdn-cgi/image/width=${width},quality=82,fit=scale-down,format=auto/${imageUrl}`
+    : null;
   if (!show) {
     // The picture template: a cover in a colour of its own (the same for the same
     // name, everywhere), with the product's monogram.
@@ -90,7 +100,14 @@ export function Tile({ name, imageUrl, className }: { name: string; imageUrl?: s
   }
   return (
     <span className={`tile${logo ? " tile--logo" : ""} ${className ?? ""}`} aria-hidden="true">
-      <img src={imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setBroken(imageUrl)} />
+      <img
+        src={resized ?? imageUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        referrerPolicy="no-referrer"
+        onError={() => (resized ? setPlain(imageUrl) : setBroken(imageUrl))}
+      />
     </span>
   );
 }

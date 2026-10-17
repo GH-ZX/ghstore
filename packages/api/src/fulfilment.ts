@@ -9,14 +9,18 @@
  * supplier delivers waits (orders.hold = 'release') until a person checks it
  * and releases it in Admin → Orders.
  *
- * A purchase the supplier refuses for lack of stock is refunded, and its
- * package stops selling at once (paused as "supplier_unavailable"); the price
- * check puts it back on sale when the supplier has stock again.
+ * A purchase the supplier can't complete (out of stock, out of balance, an
+ * error after the retries) waits for the owner (orders.hold = 'owner'): they
+ * buy it elsewhere and deliver it by hand in Admin → Orders → Waiting, or
+ * refund it. With orders.failed_to_owner off, and always for virtual numbers,
+ * it is refunded at once. Out of stock also stops the package selling
+ * (paused as "supplier_unavailable") until the price check sees stock again.
  */
 import { encryptText, nextStep, type InputField, type PurchaseResult } from "@store/core";
 import type { ApiEnv, Services } from "./context";
 import { call, n, one } from "./db";
 import { alertStaff } from "./notify";
+import { readSettings } from "./settings";
 import { store } from "@store/config";
 
 interface OrderRow {
@@ -35,6 +39,7 @@ interface OrderRow {
   supplier_expires_at: string | Date | null;
   delivery: string;
   name_en: string;
+  kind: string;
   hold: string | null;
 }
 
@@ -47,7 +52,7 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
   const order = await one<OrderRow>(
     svc.db,
     `select o.id, o.number, o.user_id, o.offer_id, o.status, o.quantity, o.input, o.supplier_id, o.supplier_order_id, o.attempts, o.supplier_expires_at, o.hold,
-            f.supplier_ref, f.cost_cents as offer_cost_cents, p.delivery, p.name_en
+            f.supplier_ref, f.cost_cents as offer_cost_cents, p.delivery, p.name_en, p.kind
        from app.orders o join app.offers f on f.id = o.offer_id join app.products p on p.id = o.product_id
       where o.id = $1`,
     [orderId],
@@ -85,6 +90,9 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
   const supplierOrderId = "supplierOrderId" in result ? result.supplierOrderId ?? order.supplier_order_id : order.supplier_order_id;
   const now = svc.now().getTime();
   const review = order.delivery === "review";
+  // Can't be bought: the owner finishes it by hand (not a virtual number: it lives minutes).
+  const toOwner = step.next === "refund" && order.kind !== "sms" &&
+    (await readSettings(svc.db, ["orders.failed_to_owner"]))["orders.failed_to_owner"] !== false;
 
   await svc.db.tx(async (db) => {
     // Re-read under lock: another worker or a webhook may have finished it.
@@ -148,16 +156,32 @@ export async function fulfilOrder(svc: Services, env: ApiEnv, orderId: string): 
         ]);
         break;
       case "refund":
-        await db.query(`update app.orders set status = 'failed', last_error = $2, attempts = attempts + 1 where id = $1`, [
-          order.id, step.reason.slice(0, 500),
-        ]);
-        await call(db, `select * from app.refund_order($1, $2)`, [order.id, step.reason]);
+        if (toOwner) {
+          await db.query(`update app.orders set hold = 'owner', last_error = $2, attempts = attempts + 1, next_check_at = null where id = $1`, [
+            order.id, step.reason.slice(0, 500),
+          ]);
+          await db.query(`insert into app.order_events (order_id, type, data) values ($1, 'held_supplier_failed', $2::text::jsonb)`, [
+            order.id, JSON.stringify({ reason: step.reason }),
+          ]);
+        } else {
+          await db.query(`update app.orders set status = 'failed', last_error = $2, attempts = attempts + 1 where id = $1`, [
+            order.id, step.reason.slice(0, 500),
+          ]);
+          await call(db, `select * from app.refund_order($1, $2)`, [order.id, step.reason]);
+        }
         if (isOutOfStock(result)) {
           await db.query(`update app.offers set paused_reason = 'supplier_unavailable' where id = $1 and paused_reason is null`, [order.offer_id]);
         }
         break;
     }
   });
+  if (toOwner) {
+    await alertStaff(
+      svc,
+      `Order ${store.orderPrefix}${n(order.number)} (${order.name_en}) couldn't be bought from ${order.supplier_id}: ${step.next === "refund" ? step.reason.slice(0, 160) : ""}. Deliver it by hand in Admin → Orders → Waiting, or refund it.`,
+      ["owner", "support"],
+    );
+  }
   if (review && step.next === "delivered") {
     await alertStaff(svc, `Order ${store.orderPrefix}${n(order.number)} (${order.name_en}) was delivered by the supplier: check it and release it in Admin → Orders → Waiting.`, ["owner", "support"]);
   }

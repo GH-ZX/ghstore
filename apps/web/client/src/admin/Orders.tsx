@@ -12,6 +12,7 @@ import type { OrderHold, OrderStatus } from "../lib/types";
 import { STATUS_COLOR } from "../screens/Orders";
 import { Empty, ErrorBox, Sheet, Spinner } from "../ui/kit";
 import { useAction } from "./common";
+import { ProblemsAdmin } from "./Problems";
 
 interface AdminOrder {
   id: string;
@@ -47,14 +48,14 @@ interface OrderSheetData {
   events: { type: string; at: string }[];
 }
 
-const FILTERS = ["waiting", "", "processing", "paid", "failed", "delivered", "refunded"] as const;
+const FILTERS = ["waiting", "problems", "", "processing", "paid", "failed", "delivered", "refunded"] as const;
 type Filter = (typeof FILTERS)[number];
 const open = (s: OrderStatus) => s === "paid" || s === "processing";
 
 export function AdminOrders({ canAct = true }: { canAct?: boolean }) {
   const { t, lang } = useT();
   const [status, setStatus] = useState<Filter>("");
-  const { data, error, reload } = useApi<{ orders: AdminOrder[]; waiting?: number }>(`/api/admin/orders${status ? `?status=${status}` : ""}`);
+  const { data, error, reload } = useApi<{ orders: AdminOrder[]; waiting?: number; problems?: number }>(`/api/admin/orders${status ? `?status=${status}` : ""}`);
   const [refunding, setRefunding] = useState<AdminOrder | null>(null);
   const [opened, setOpened] = useState<string | null>(null);
   const action = useAction();
@@ -70,14 +71,16 @@ export function AdminOrders({ canAct = true }: { canAct?: boolean }) {
       <div className="chip-row" role="group" aria-label={t("status")}>
         {FILTERS.map((s) => (
           <button key={s || "all"} type="button" className="chip chip--sm press" aria-pressed={status === s} onClick={() => setStatus(s)}>
-            {s === "waiting" ? t("waiting") : s ? t(`st_${s}`) : t("all")}
+            {s === "waiting" ? t("waiting") : s === "problems" ? t("problems") : s ? t(`st_${s}`) : t("all")}
             {s === "waiting" && (data?.waiting ?? 0) > 0 && <span className="count-pill num">{data?.waiting}</span>}
+            {s === "problems" && (data?.problems ?? 0) > 0 && <span className="count-pill num">{data?.problems}</span>}
           </button>
         ))}
       </div>
       <ErrorBox error={error} onRetry={reload} />
       {!data && !error && <div className="skeleton" style={{ height: 240 }} />}
-      {data && data.orders.length === 0 && <Empty>{waiting ? t("waitingNone") : t("none")}</Empty>}
+      {status === "problems" && <ProblemsAdmin canAct={canAct} onOpenOrder={setOpened} onChanged={() => void reload()} />}
+      {status !== "problems" && data && data.orders.length === 0 && <Empty>{waiting ? t("waitingNone") : t("none")}</Empty>}
 
       {waiting && data && data.orders.length > 0 && (
         <>

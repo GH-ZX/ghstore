@@ -33,7 +33,7 @@ function loginMethods(ctx: Ctx, s: Record<string, unknown>): LoginMethod[] {
 
 export async function publicConfig(ctx: Ctx): Promise<Response> {
   const rows = await ctx.svc.db.query<{ key: string; value: unknown }>(
-    `select key, value from app.settings where key in ('theme.preset', 'theme.default_mode', 'fx.syp_per_usd', 'login.email', 'login.google', 'analytics.cf_token')`,
+    `select key, value from app.settings where key in ('theme.preset', 'theme.default_mode', 'fx.syp_per_usd', 'login.email', 'login.google', 'analytics.cf_token', 'images.resize')`,
   );
   const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   const supabaseReady = typeof ctx.env.SUPABASE_URL === "string" && typeof ctx.env.SUPABASE_PUBLISHABLE_KEY === "string" && !!ctx.env.SUPABASE_PUBLISHABLE_KEY;
@@ -56,6 +56,8 @@ export async function publicConfig(ctx: Ctx): Promise<Response> {
       pages: await footerPages(ctx.svc.db),
       // Cloudflare Web Analytics (no cookies), when the owner set its token.
       analytics: { cfBeacon: typeof s["analytics.cf_token"] === "string" ? s["analytics.cf_token"] : null },
+      // Product pictures resized by Cloudflare (Admin → Settings), when its Transformations are on.
+      images: { resize: s["images.resize"] === true },
       supabase: supabaseReady ? { url: ctx.env.SUPABASE_URL, key: ctx.env.SUPABASE_PUBLISHABLE_KEY } : null,
     },
     { headers: { "cache-control": "public, max-age=60" } },

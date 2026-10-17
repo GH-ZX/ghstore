@@ -19,6 +19,8 @@ export interface PublicConfig {
   pages?: { slug: string; titleAr: string; titleEn: string }[];
   /** Cloudflare Web Analytics, when the owner set its token. */
   analytics?: { cfBeacon: string | null };
+  /** Product pictures resized by Cloudflare. */
+  images?: { resize: boolean };
 }
 
 export interface Me {
@@ -182,6 +184,17 @@ export interface OrderRow {
 
 export type OrderHold = "info" | "owner" | "release";
 
+/** "Report a problem" on an order, and the store's answer. */
+export interface OrderProblem {
+  id: string;
+  reason: "not_received" | "not_working" | "wrong_item" | "other";
+  message: string;
+  status: "open" | "resolved";
+  reply: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export interface OrderDetail {
   order: {
     id: string;
@@ -211,6 +224,7 @@ export interface OrderDetail {
     }[];
     answeredAt?: string | null;
     canAnswer?: boolean;
+    problem?: OrderProblem | null;
   };
   deliveries: { kind: string; label: string | null; value: string }[];
 }

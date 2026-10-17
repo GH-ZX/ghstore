@@ -12,6 +12,7 @@ import { call, n, one } from "./db";
 import { fulfilOrder } from "./fulfilment";
 import { ApiError, int, json, readJson, str, uuid } from "./http";
 import { settlePayment } from "./payments";
+import { openProblems } from "./problems";
 import { room } from "./jobs";
 import { syncSupplier } from "./sync";
 
@@ -150,7 +151,7 @@ export async function listOrders(ctx: Ctx): Promise<Response> {
   const counts = await ctx.svc.db.query<{ waiting: string | number }>(
     `select count(*) as waiting from app.orders where hold is not null and status in ('paid', 'processing')`,
   );
-  return json({ orders: rows, waiting: Number(counts[0]?.waiting ?? 0) });
+  return json({ orders: rows, waiting: Number(counts[0]?.waiting ?? 0), problems: await openProblems(ctx.svc.db) });
 }
 
 export async function refundOrder(ctx: Ctx): Promise<Response> {
@@ -224,6 +225,12 @@ const SETTINGS: Record<string, (v: unknown) => boolean> = {
   "seo.google_verification": (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(v)),
   "seo.bing_verification": (v) => v === null || (typeof v === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(v)),
   "seo.indexing": (v) => typeof v === "boolean",
+  // A supplier can't deliver: keep the order for the owner to finish by hand (true) or refund it at once (false).
+  "orders.failed_to_owner": (v) => typeof v === "boolean",
+  // Ask for a review this many hours after delivery (0 = never).
+  "reviews.ask_hours": (v) => typeof v === "number" && [0, 1, 3, 6, 12, 24, 48].includes(v),
+  // Product pictures resized by Cloudflare (Images → Transformations on for the domain).
+  "images.resize": (v) => typeof v === "boolean",
   // Cloudflare Web Analytics: the site's beacon token (null = off).
   "analytics.cf_token": (v) => v === null || (typeof v === "string" && /^[a-f0-9]{32}$/.test(v)),
   // Virtual numbers: how many times in a row a customer may report a number and get the next one.

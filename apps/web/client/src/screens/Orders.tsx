@@ -3,6 +3,7 @@
  * their own panel, and products delivered by hand ask for the customer's
  * details after paying.
  */
+import { ProblemCard } from "./Problem";
 import { useEffect, useState } from "react";
 import { api, ApiFail } from "../lib/api";
 import { copyText, dateTime, usd } from "../lib/format";
@@ -191,6 +192,8 @@ function OrderView({ id }: { id: string }) {
         </div>
       )}
       {o.status === "refunded" && <div className="card card--pad">{t("refundedNote")}</div>}
+
+      <ProblemCard orderId={o.id} problem={o.problem} onSent={() => void reload()} />
 
       {Object.keys(o.input ?? {}).length > 0 && (
         <div className="card card--pad stack-sm">

@@ -1348,3 +1348,10 @@ textarea.input { padding: 10px 14px; min-height: 0; resize: vertical; line-heigh
 .product__rating { margin-inline-start: auto; font-size: 12px; font-weight: 700; color: #d99a00; white-space: nowrap; }
 .review-admin__product { font-weight: 700; color: var(--ink); text-decoration: none; }
 .review-admin--hidden { opacity: .6; }
+
+/* ───────────────────────────── order problems */
+.problem { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.problem--answer { border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
+.problem__text { margin: 0; font-size: 14px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
+.problem-admin--done { opacity: .72; }
+.problem-admin__reply { padding: 10px 12px; border-radius: 14px; background: var(--surface-2); }

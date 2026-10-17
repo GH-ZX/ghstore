@@ -318,7 +318,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
       <ErrorBox error={error} onRetry={reload} />
       {data && offer && (
         <>
-          <Tile name={data.product.nameEn} imageUrl={data.product.imageUrl} className="product-tile" />
+          <Tile name={data.product.nameEn} imageUrl={data.product.imageUrl} className="product-tile" width={720} />
           <h2>{name}</h2>
           <div className="row-between">
             <span className="wrap" style={{ gap: 8, alignItems: "baseline" }}>

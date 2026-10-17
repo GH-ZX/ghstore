@@ -207,10 +207,12 @@ describe("virtual numbers", () => {
 });
 
 describe("out of stock", () => {
-  it("refunds a purchase the supplier has no stock for, and hides the package at once", async () => {
+  it("refunds a purchase the supplier has no stock for (owner's 'keep it' off), and hides the package at once", async () => {
+    await db.query(`insert into app.settings (key, value) values ('orders.failed_to_owner', 'false') on conflict (key) do update set value = excluded.value`);
     const before = await balance(customer);
     const placed = await order(stockOffer, "s1");
     await h.settle();
+    await db.query(`delete from app.settings where key = 'orders.failed_to_owner'`);
     expect((await h.call("GET", `/api/orders/${placed.data.orderId}`, { token: customer })).data.order.status).toBe("refunded");
     expect(await balance(customer)).toBe(before);
     const o = (await db.query<{ paused_reason: string | null }>(`select paused_reason from app.offers where id = $1`, [stockOffer]))[0]!;
