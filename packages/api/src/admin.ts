@@ -102,13 +102,26 @@ export async function listPayments(ctx: Ctx): Promise<Response> {
   });
 }
 
-/** Approve a top-up under review, crediting the amount the staff member confirms they received. */
+/**
+ * Approve a top-up under review, crediting the amount the staff member confirms they received.
+ * The owner may credit any open or closed top-up; support only one under review, for no
+ * more than was asked, and never their own (app.credit_payment checks the same).
+ */
 export async function approvePayment(ctx: Ctx): Promise<Response> {
   const staff = await requireStaff(ctx);
   const id = uuid(ctx.params.id);
   const body = await readJson(ctx.req);
   const amountCents = int(body, "amountCents", 1, 1_000_000);
   const note = str(body, "note", { min: 3, max: 300 });
+  if (staff.role !== "owner") {
+    const p = await one<{ status: string; amount_cents: string | number; user_id: string }>(
+      ctx.svc.db, `select status, amount_cents, user_id from app.payments where id = $1`, [id],
+    );
+    if (!p) throw new ApiError("not_found");
+    if (p.status !== "paid" && (!["review", "partial"].includes(p.status) || amountCents > n(p.amount_cents) || p.user_id === staff.id)) {
+      throw new ApiError("forbidden");
+    }
+  }
   const rows = await call<{ credited: boolean; balance_cents: string | number }>(
     ctx.svc.db, `select * from app.credit_payment($1, $2, null, null, $3)`, [id, amountCents, staff.id],
   );
@@ -161,9 +174,26 @@ export async function refundOrder(ctx: Ctx): Promise<Response> {
   const id = uuid(ctx.params.id);
   const body = await readJson(ctx.req);
   const note = str(body, "note", { min: 3, max: 300 });
+  // An order the supplier is still working on is cancelled there first, where the
+  // supplier allows it, so it is not delivered (and paid for) after the refund.
+  const o = await one<{ status: string; supplier_id: string | null; supplier_order_id: string | null }>(
+    ctx.svc.db, `select status, supplier_id, supplier_order_id from app.orders where id = $1`, [id],
+  );
+  let supplierCancel: "cancelled" | "refused" | "failed" | "unsupported" | null = null;
+  if (o && ["paid", "processing"].includes(o.status) && o.supplier_id && o.supplier_order_id) {
+    const adapter = ctx.svc.supplier(o.supplier_id);
+    if (!adapter?.cancel) supplierCancel = "unsupported";
+    else {
+      try {
+        supplierCancel = (await adapter.cancel(o.supplier_order_id)) ? "cancelled" : "refused";
+      } catch {
+        supplierCancel = "failed";
+      }
+    }
+  }
   const rows = await call<{ refunded: boolean; balance_cents: string | number }>(ctx.svc.db, `select * from app.refund_order($1, $2, $3)`, [id, note, staff.id]);
-  await audit(ctx, staff.id, "order.refund", "order", id, { note });
-  return json({ refunded: rows[0]?.refunded ?? false });
+  await audit(ctx, staff.id, "order.refund", "order", id, { note, ...(supplierCancel ? { supplierCancel } : {}) });
+  return json({ refunded: rows[0]?.refunded ?? false, supplierCancel });
 }
 
 export async function retryOrder(ctx: Ctx): Promise<Response> {

@@ -8,7 +8,7 @@ import { n } from "./db";
 import { fulfilOrder } from "./fulfilment";
 import { alertOwners, alertStaff, sendOutbox } from "./notify";
 import { queueDailySummary } from "./reports";
-import { CLOSED_NOTES, detectUsdtDeposits, settlePayment, TOPUP_CLOSE_AFTER, USDT_CLOSE_AFTER } from "./payments";
+import { CLOSED_NOTES, detectUsdtDeposits, MISMATCH_NOTE, NEVER_CONFIRMED_NOTE, settlePayment, TOPUP_CLOSE_AFTER, USDT_CLOSE_AFTER } from "./payments";
 import { copyLinkedImages } from "./images";
 import { watchHealth } from "./health";
 import { queueChannelPosts, sendChannelPosts } from "./channel";
@@ -62,8 +62,19 @@ export async function heartbeat(svc: Services, name: string, fn: () => Promise<u
   }
 }
 
+/**
+ * Orders due for a supplier check. Each one is leased by fulfilOrder itself,
+ * right before its own supplier call (so no lease runs out while earlier ones
+ * are handled); one another run or request holds is skipped.
+ */
 export async function processDueOrders(svc: Services, env: ApiEnv, limit = 20): Promise<number> {
-  const due = await svc.db.query<{ id: string }>(`select id from app.claim_due_orders($1, $2)`, [limit, 120]);
+  const due = await svc.db.query<{ id: string }>(
+    `select id from app.orders
+      where status in ('paid', 'processing') and hold is null and next_check_at <= now()
+        and (lease_until is null or lease_until <= now())
+      order by next_check_at limit $1`,
+    [Math.max(1, Math.min(limit, 100))],
+  );
   for (const o of due) {
     try {
       await fulfilOrder(svc, env, o.id);
@@ -110,7 +121,21 @@ export async function recheckPendingPayments(svc: Services, limit = 20): Promise
           or (method <> 'bep20' and created_at < now() - $2::interval))`,
     [USDT_CLOSE_AFTER, TOPUP_CLOSE_AFTER, CLOSED_NOTES[1]],
   );
+  // Manual USDT under review that can no longer settle closes too, freeing its exact
+  // amount for other requests: a pasted hash that did not match (sent too late or too
+  // early, another transfer) once the request's time is over, or a hash never
+  // confirmed on chain within hours. Partial or odd amounts stay for staff.
+  await svc.db.query(
+    `update app.payments set status = 'expired', note = coalesce(note, $3)
+      where method = 'bep20' and status = 'review'
+        and ((note = $1 and created_at < now() - $2::interval)
+          or (note is null and tx_hash is not null and created_at < now() - $4::interval))`,
+    [MISMATCH_NOTE, USDT_CLOSE_AFTER, NEVER_CONFIRMED_NOTE, USDT_UNCONFIRMED_AFTER],
+  );
 }
+
+/** A pasted USDT hash still not confirmed after this long is given up (its transfer never made it). */
+export const USDT_UNCONFIRMED_AFTER = "6 hours";
 
 export async function checkSupplierBalances(svc: Services): Promise<void> {
   const suppliers = await svc.db.query<{ id: string; low_balance_cents: string | number; balance_cents: string | number | null }>(
