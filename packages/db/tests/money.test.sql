@@ -70,6 +70,19 @@ begin
     null;
   end;
   insert into app.payments (user_id, method, amount_cents, send_units) values (u2, 'bep20', 500, 50142) returning id into pay;
+  -- a hash nobody was credited for reserves nothing: pasting someone else's public
+  -- hash blocks neither of them (only the chain check decides whose it is)
+  perform app.submit_tx_hash(pay, u2, '0x' || repeat('AB', 32));
+  assert (select tx_hash from app.payments where id = pay) = '0x' || repeat('ab', 32), 'second request may hold the hash too';
+  -- once one request is credited with it, the hash is used
+  perform app.credit_payment(pay, 500, null, '0x' || repeat('ab', 32));
+  begin
+    perform app.credit_payment(pay2, 500, null, '0x' || repeat('ab', 32));
+    assert false, 'expected tx_reused on a second credit';
+  exception when others then
+    assert sqlerrm = 'tx_reused', 'got ' || sqlerrm;
+  end;
+  insert into app.payments (user_id, method, amount_cents, send_units) values (u2, 'bep20', 500, 50143) returning id into pay;
   begin
     perform app.submit_tx_hash(pay, u2, '0x' || repeat('AB', 32));
     assert false, 'expected tx_reused';
