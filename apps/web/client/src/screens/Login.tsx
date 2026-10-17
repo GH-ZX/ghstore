@@ -181,7 +181,8 @@ type EmailMode = "password" | "code" | "set";
  * Email sign-in on the website: with a password, or with a one-time code.
  * "Create an account" and "Forgot password?" take the same path: a code sent to
  * the address proves it is yours, then you choose the password. So a password
- * is never set on an address nobody confirmed.
+ * is never set on an address nobody confirmed. The reset code comes in
+ * Supabase's "Reset password" email, the others in "Magic Link" / "Confirm signup".
  */
 export function EmailLogin({ onToken }: { onToken: (accessToken: string) => Promise<void> }) {
   const { t, lang } = useT();
@@ -200,6 +201,7 @@ export function EmailLogin({ onToken }: { onToken: (accessToken: string) => Prom
   if (!sb) return null;
   const auth = sb;
   const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const resetting = mode === "set" && !creating;
 
   const go = (m: EmailMode, create = true) => {
     setMode(m);
@@ -237,7 +239,7 @@ export function EmailLogin({ onToken }: { onToken: (accessToken: string) => Prom
   };
 
   const verify = async (): Promise<string> => {
-    const r = await authCall<{ access_token?: string }>(auth, "verify", { type: "email", email: email.trim(), token: code.trim() });
+    const r = await authCall<{ access_token?: string }>(auth, "verify", { type: resetting ? "recovery" : "email", email: email.trim(), token: code.trim() });
     if (!r.access_token) throw new AuthFail(403, "otp_expired");
     return r.access_token;
   };
@@ -251,7 +253,8 @@ export function EmailLogin({ onToken }: { onToken: (accessToken: string) => Prom
 
   const sendCode = (e: FormEvent) =>
     run(e, async () => {
-      await authCall(auth, "otp", { email: email.trim(), create_user: true });
+      if (resetting) await authCall(auth, "recover", { email: email.trim() });
+      else await authCall(auth, "otp", { email: email.trim(), create_user: true });
       setSent(true);
     });
 
@@ -342,7 +345,7 @@ export function EmailLogin({ onToken }: { onToken: (accessToken: string) => Prom
     <form className="stack-sm" onSubmit={sent ? choosePassword : sendCode}>
       <div className="email-set__head">
         <strong>{creating ? t("pwCreateTitle") : t("pwResetTitle")}</strong>
-        <span className="small muted">{sent ? t("codeSent", { email }) : t("pwSetHint")}</span>
+        <span className="small muted">{!sent ? t("pwSetHint") : resetting ? t("pwResetSent", { email }) : t("codeSent", { email })}</span>
       </div>
       {sent ? <input type="email" autoComplete="username" value={email} readOnly hidden /> : emailField}
       {sent && !session && codeField}

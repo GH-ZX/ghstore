@@ -134,9 +134,10 @@ automatically.
   Google OAuth client.
 - Emails → templates "Magic Link" and "Confirm signup" (a first code goes out
   with the second): paste `docs/email-templates/code.html` into both, so the
-  email carries the 6-digit code (`{{ .Token }}`) the website asks for. Signing
-  up, signing in with a code and "Forgot password?" all use this code; the
-  password is chosen on the website after it.
+  email carries the 6-digit code (`{{ .Token }}`) the website asks for (signing
+  up and signing in with a code). "Reset Password": paste
+  `docs/email-templates/reset.html` ("Forgot password?" sends that one). The
+  password is always chosen on the website, after the code.
 - Emails → SMTP settings: Supabase's built-in sender only reaches your own team's
   addresses and a few emails an hour, so customers need your own SMTP. With
   Resend (also used for receipts): host `smtp.resend.com`, port `465`, user
