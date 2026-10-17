@@ -2,11 +2,13 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { store } from "@store/config";
+import { pictureUrl } from "@store/core";
 import { errorText } from "../lib/i18n";
 import { hashText, monogram, usd, syp } from "../lib/format";
 import { useApp, useT } from "../lib/state";
 import type { ApiFail } from "../lib/api";
 import { pushBack } from "../lib/telegram";
+import { useNear } from "../lib/visible";
 import { CloseIcon } from "./icons";
 import { LOGO } from "./logo";
 
@@ -77,20 +79,24 @@ export function Money({ cents, showSyp = false, className }: { cents: number; sh
 const LOGO_URL = /simpleicons|favicons|\.svg(\?|$)/i;
 
 /**
- * A picture, resized by Cloudflare when the owner switched it on (Admin →
- * Settings → Smaller pictures): `width` is about twice the shown size, for sharp
- * screens. If the resized one fails, the original is used.
+ * A picture at about the size it is shown (packages/core images.ts): pictures in
+ * the store's own storage always, others when the owner switched Cloudflare's
+ * resizing on (Admin → Settings → Smaller pictures). `width` is about twice the
+ * shown size, for sharp screens. If the resized one fails, the original is used.
+ * `eager` for a picture on the first screen (the showcase's); others load when
+ * they come near the screen (lib/visible.ts). The tile keeps its size meanwhile.
  */
-export function Tile({ name, imageUrl, className, width = 400 }: { name: string; imageUrl?: string | null; className?: string; width?: number }) {
+export function Tile({ name, imageUrl, className, width = 400, eager = false }: { name: string; imageUrl?: string | null; className?: string; width?: number; eager?: boolean }) {
   const { config } = useApp();
+  const box = useRef<HTMLSpanElement>(null);
+  const near = useNear(box, eager, imageUrl);
   // A picture that fails to load falls back to the store's picture template.
   const [broken, setBroken] = useState<string | null>(null);
   const [plain, setPlain] = useState<string | null>(null);
   const show = imageUrl && broken !== imageUrl;
   const logo = show && LOGO_URL.test(imageUrl);
-  const resized = show && !logo && config?.images?.resize && plain !== imageUrl && /^https:\/\//.test(imageUrl)
-    ? `/cdn-cgi/image/width=${width},quality=82,fit=scale-down,format=auto/${imageUrl}`
-    : null;
+  const small = show && !logo && plain !== imageUrl ? pictureUrl(imageUrl, { width }, { cloudflare: config?.images?.resize }) : null;
+  const resized = small && small !== imageUrl ? small : null;
   if (!show) {
     // The picture template: a cover in a colour of its own (the same for the same
     // name, everywhere), with the product's monogram.
@@ -101,15 +107,17 @@ export function Tile({ name, imageUrl, className, width = 400 }: { name: string;
     );
   }
   return (
-    <span className={`tile${logo ? " tile--logo" : ""} ${className ?? ""}`} aria-hidden="true">
-      <img
-        src={resized ?? imageUrl}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        referrerPolicy="no-referrer"
-        onError={() => (resized ? setPlain(imageUrl) : setBroken(imageUrl))}
-      />
+    <span ref={box} className={`tile${logo ? " tile--logo" : ""} ${className ?? ""}`} aria-hidden="true">
+      {near && (
+        <img
+          src={resized ?? imageUrl}
+          alt=""
+          loading={eager ? "eager" : "lazy"}
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => (resized ? setPlain(imageUrl) : setBroken(imageUrl))}
+        />
+      )}
     </span>
   );
 }
@@ -135,7 +143,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([t
  * is open the page behind (and any sheet under it) is inert, Tab cycles inside
  * it, and only the top sheet answers Escape.
  */
-export function Sheet({ onClose, label, children, foot, head }: { onClose: () => void; label: string; children: ReactNode; foot?: ReactNode; head?: ReactNode }) {
+export function Sheet({ onClose, label, children, foot, head, waiting = false }: { onClose: () => void; label: string; children: ReactNode; foot?: ReactNode; head?: ReactNode; waiting?: boolean }) {
   const { t } = useT();
   const ref = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
@@ -190,10 +198,22 @@ export function Sheet({ onClose, label, children, foot, head }: { onClose: () =>
       prev?.focus?.();
     };
   }, []);
+  // A sheet that waited (hidden) takes the focus when it shows.
+  const waited = useRef(waiting);
+  useEffect(() => {
+    if (waited.current && !waiting) ref.current?.focus();
+    waited.current = waiting;
+  }, [waiting]);
   return createPortal(
     <div ref={layer}>
       <button type="button" className="backdrop" aria-label={t("close")} tabIndex={-1} onClick={() => closeRef.current()} />
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={label} ref={ref} tabIndex={-1}>
+      {/* Waiting: the sheet slides up once its content is there, at its real height, instead of growing (and moving) as it fills. */}
+      {waiting && (
+        <div className="sheet-wait">
+          <Spinner />
+        </div>
+      )}
+      <div className={waiting ? "sheet sheet--waiting" : "sheet"} role="dialog" aria-modal="true" aria-label={label} ref={ref} tabIndex={-1}>
         <div className="sheet__handle">
           <span />
         </div>

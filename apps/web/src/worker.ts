@@ -12,7 +12,7 @@
  */
 import { store } from "@store/config";
 import {
-  CATEGORY_PATH, categoryHead, handle, handleBotWebhook, homeHead, LEGAL_PATH, legalHead, PRODUCT_PATH, productHead, productMeta, renderPage, robotsTxt,
+  CATEGORY_PATH, categoryHead, handle, handleBotWebhook, homeHead, LEGAL_PATH, legalHead, llmsTxt, PRODUCT_PATH, productHead, productMeta, renderPage, robotsTxt,
   runScheduled, seoSettings, sitemapXml, type PageHead, type PageOpts, type Services,
 } from "@store/api";
 import { createServices, type WorkerEnv } from "./services";
@@ -174,6 +174,23 @@ async function sitemap(env: WorkerEnv, ctx: ExecutionContext): Promise<Response>
   }
 }
 
+/** /llms.txt: the store in Markdown for AI assistants (seo.ts llmsTxt). */
+async function llms(env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+  const { svc, finish } = createServices(env);
+  try {
+    const text = await within(3000, llmsTxt(svc, env.PUBLIC_BASE_URL));
+    if (text === null) return new Response("Not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+    return new Response(text, {
+      headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" },
+    });
+  } catch (err) {
+    console.error("llms.txt failed", err instanceof Error ? err.message : String(err));
+    return new Response("unavailable", { status: 503, headers: { "retry-after": "300" } });
+  } finally {
+    ctx.waitUntil(finish());
+  }
+}
+
 export default {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -201,6 +218,9 @@ export default {
     if (request.method === "GET" || request.method === "HEAD") {
       if (url.pathname === "/robots.txt") return viaEdge(ctx, request.url, () => robots(env, ctx), 600);
       if (url.pathname === "/sitemap.xml") return viaEdge(ctx, request.url, () => sitemap(env, ctx), 600);
+      if (url.pathname === "/llms.txt") return viaEdge(ctx, request.url, () => llms(env, ctx), 600);
+      // Nothing is published under /.well-known/ (e.g. ai-catalog.json): a real 404, not the app.
+      if (url.pathname.startsWith("/.well-known/")) return new Response("Not found", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
       if (url.pathname === "/") return seoPage(request, env, ctx, (svc, o) => homeHead(svc, o));
       const product = PRODUCT_PATH.exec(url.pathname)?.[1];
       if (product) return seoPage(request, env, ctx, async (svc, o) => {

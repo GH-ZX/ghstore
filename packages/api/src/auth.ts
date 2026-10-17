@@ -347,8 +347,14 @@ export async function requireStaff(ctx: Ctx, level: StaffLevel = "support"): Pro
   throw new ApiError("forbidden");
 }
 
+/**
+ * The signed-in person. With ?guest=ok (the web app's start-up check) a visitor
+ * who is not signed in gets `{ "user": null }` instead of a 401, so every first
+ * visit does not log a failed request in the browser's console.
+ */
 export async function me(ctx: Ctx): Promise<Response> {
-  const auth = await requireUser(ctx);
+  const auth = ctx.url.searchParams.get("guest") === "ok" ? await optionalUser(ctx) : await requireUser(ctx);
+  if (!auth) return json({ user: null }, { headers: { "cache-control": "no-store" } });
   const user = await loadUser(ctx.svc.db, auth.id);
   const extra = await one<{ balance_cents: string | number | null; orders: string | number; spent: string | number; telegram: string | null; tg_id: string | null; email: string | null; photo_url: string | null }>(
     ctx.svc.db,

@@ -10,7 +10,7 @@ import { api, ApiFail, idempotencyKey } from "../lib/api";
 import { toLatinDigits, usd } from "../lib/format";
 import { useCopy } from "../lib/hooks";
 import { pick } from "../lib/i18n";
-import { navigate } from "../lib/router";
+import { canGoBack, navigate } from "../lib/router";
 import { failText, refreshMe, toast, toastFail, useApp, useT } from "../lib/state";
 import { haptic, openTelegramLink } from "../lib/telegram";
 import { invalidate, useApi } from "../lib/useApi";
@@ -58,6 +58,10 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
   const [couponErr, setCouponErr] = useState<string | null>(null);
   const [couponBusy, setCouponBusy] = useState(false);
   const [ready, setReady] = useState(false);
+  // Opened with the page (a shared link, a search result): the sheet waits for its
+  // content and then slides up whole, so nothing on the first screen moves.
+  // Opened from the store, it slides up at once with a placeholder.
+  const [landing] = useState(() => !canGoBack());
   // From an order's "Rate this product" (/p/<slug>?review=1): open at the reviews.
   const [focusReviews] = useState(() => new URLSearchParams(location.search).get("review") === "1");
   // The owner selling face to face: no wallet, the order is theirs to hand over.
@@ -244,6 +248,7 @@ export function ProductSheet({ slug, onClose }: { slug: string; onClose: () => v
     <Sheet
       onClose={onClose}
       label={name || t("loading")}
+      waiting={landing && !data && !error}
       head={
         <span className="wrap" style={{ gap: 10, flexWrap: "nowrap" }}>
           <span className="small muted">{data ? t(`kind_${data.product.kind}`) : ""}</span>

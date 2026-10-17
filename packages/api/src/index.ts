@@ -49,7 +49,7 @@ export { refreshDueCatalogues, refreshGroups, refreshItems } from "./supplier-ca
 export { loadStoreKeys, STORE_KEYS } from "./keys";
 export { daySummary, localNow, previousDay, queueDailySummary, summaryText, toCsv } from "./reports";
 export {
-  CATEGORY_PATH, PRODUCT_PATH, categoryHead, homeHead, legalHead, productHead, productMeta, renderPage, renderProductPage, robotsTxt, seoSettings, sitemapXml,
+  CATEGORY_PATH, PRODUCT_PATH, categoryHead, homeHead, legalHead, llmsTxt, productHead, productMeta, renderPage, renderProductPage, robotsTxt, seoSettings, sitemapXml,
   type PageHead, type PageOpts, type ProductMeta, type SeoSettings,
 } from "./seo";
 export { LEGAL_PATH } from "./pages";

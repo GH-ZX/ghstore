@@ -3,7 +3,7 @@
  * Supplier names and costs are never exposed.
  */
 import { ratingsByProduct } from "./reviews";
-import { matchesQuery, type AfterField, type InputField } from "@store/core";
+import { matchesQuery, orderPackages, type AfterField, type InputField } from "@store/core";
 import type { Ctx } from "./context";
 import { n, one } from "./db";
 import { liveBanners } from "./home";
@@ -151,9 +151,9 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
   if (!p) throw new ApiError("not_found");
   const offers = await ctx.svc.db.query<{
     id: string; name_ar: string; name_en: string; price_cents: string | number; input_fields: InputField[]; max_quantity: number;
-    warranty_ar: string | null; warranty_en: string | null; success_pct: string | number | null; pinned: boolean; sold_out: boolean;
+    warranty_ar: string | null; warranty_en: string | null; success_pct: string | number | null; pinned: boolean; sold_out: boolean; sort: number;
   }>(
-    `select o.id, o.name_ar, o.name_en, o.price_cents, o.input_fields, o.max_quantity, o.warranty_ar, o.warranty_en, o.success_pct, o.pinned,
+    `select o.id, o.name_ar, o.name_en, o.price_cents, o.input_fields, o.max_quantity, o.warranty_ar, o.warranty_en, o.success_pct, o.pinned, o.sort,
             ${SOLD_OUT_SQL} as sold_out
        from app.offers o join app.products p on p.id = o.product_id
       where o.product_id = $1 and o.active and (o.paused_reason is null or o.paused_reason = 'supplier_unavailable')
@@ -175,12 +175,18 @@ export async function getProduct(ctx: Ctx): Promise<Response> {
       afterFields: (p.after_fields ?? []).map((f) => ({ key: f.key, type: f.type, labelEn: f.labelEn, labelAr: f.labelAr, required: f.required })),
       rating: (await ratingsByProduct(ctx.svc.db, p.id)).get(p.id) ?? null,
     },
-    offers: offers.map((o) => ({
-      id: o.id, nameAr: o.name_ar, nameEn: o.name_en, priceCents: n(o.price_cents),
-      fields: o.input_fields, maxQuantity: o.max_quantity, warrantyAr: o.warranty_ar, warrantyEn: o.warranty_en,
-      successPct: o.success_pct === null ? null : Number(o.success_pct),
-      pinned: o.pinned,
-      soldOut: o.sold_out,
-    })),
+    // The store's package order (packages/core packages.ts): the owner's pins and sort
+    // numbers, then cheaper first and "12 UC" before "100 UC".
+    offers: orderPackages(
+      offers.map((o) => ({
+        id: o.id, nameAr: o.name_ar, nameEn: o.name_en, priceCents: n(o.price_cents),
+        fields: o.input_fields, maxQuantity: o.max_quantity, warrantyAr: o.warranty_ar, warrantyEn: o.warranty_en,
+        successPct: o.success_pct === null ? null : Number(o.success_pct),
+        pinned: o.pinned,
+        soldOut: o.sold_out,
+        sort: o.sort,
+      })),
+      { bySuccess: p.kind === "sms" },
+    ).map(({ sort: _sort, ...o }) => o),
   });
 }

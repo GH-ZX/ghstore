@@ -15,9 +15,11 @@
  * preview is exactly what the store shows.
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { pictureSrcSet, pictureUrl, SLIDE_PICTURE } from "@store/core";
 import { usd } from "../lib/format";
 import { pick } from "../lib/i18n";
-import { useT } from "../lib/state";
+import { useApp, useT } from "../lib/state";
+import { usePageLoaded } from "../lib/visible";
 import type { Banner } from "../lib/types";
 import { ArrowIcon, BoltIcon } from "./icons";
 import { Tile } from "./kit";
@@ -93,18 +95,59 @@ export function usePictureShape(url: string | null | undefined): "cover" | "card
     setShape("unknown");
     const img = new Image();
     img.referrerPolicy = "no-referrer";
+    // Measured on a copy at most 1000 px wide (never enlarged), not the full-size upload.
+    const measured = pictureUrl(url, { width: 1000 });
     img.onload = () => {
       const s = img.naturalWidth >= COVER_MIN_WIDTH && img.naturalWidth / Math.max(1, img.naturalHeight) >= COVER_MIN_RATIO ? "cover" : "card";
       shapes.set(url, s);
       setShape(s);
     };
     img.onerror = () => {
+      // The resized copy failed: measure the original.
+      if (img.src !== url && measured !== url) {
+        img.src = url;
+        return;
+      }
       shapes.set(url, "card");
       setShape("card");
     };
-    img.src = url;
+    img.src = measured;
   }, [url]);
   return shape;
+}
+
+/**
+ * The slide's big picture at the size of the slide (phones and wide screens crop
+ * it differently), the same addresses the Worker preloads for the first slide
+ * (packages/api seo.ts). Falls back to the original when the resized one fails.
+ */
+function SlideCover({ url, first }: { url: string; first: boolean }) {
+  const { config } = useApp();
+  const [plain, setPlain] = useState(false);
+  const opts = { cloudflare: config?.images?.resize };
+  const phone = plain ? "" : pictureSrcSet(url, SLIDE_PICTURE.phone.widths, { ...opts, ratio: SLIDE_PICTURE.phone.ratio });
+  const wide = plain ? "" : pictureSrcSet(url, SLIDE_PICTURE.wide.widths, { ...opts, ratio: SLIDE_PICTURE.wide.ratio });
+  const img = (
+    <img
+      className="slide__cover"
+      src={phone ? pictureUrl(url, { width: SLIDE_PICTURE.phone.widths[1], height: SLIDE_PICTURE.phone.widths[1] / SLIDE_PICTURE.phone.ratio }, opts) : url}
+      srcSet={phone || undefined}
+      sizes={phone ? SLIDE_PICTURE.phone.sizes : undefined}
+      alt=""
+      loading={first ? "eager" : "lazy"}
+      fetchPriority={first ? "high" : undefined}
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => !plain && phone && setPlain(true)}
+    />
+  );
+  if (!wide) return img;
+  return (
+    <picture>
+      <source media={SLIDE_PICTURE.wide.media} srcSet={wide} sizes={SLIDE_PICTURE.wide.sizes} />
+      {img}
+    </picture>
+  );
 }
 
 // ───────────────────────────── one slide
@@ -115,16 +158,19 @@ export function ShowcaseSlide({ s, options = DEFAULT_OPTIONS, index = 0, count =
   // one, else its picture fills the slide when it is big and wide enough.
   const mode: PictureMode = s.pictureMode ?? options.pictureMode ?? "auto";
   const productCover = mode !== "square" && s.cover ? s.cover : null;
-  const artShape = usePictureShape(s.picture || productCover || mode === "square" ? null : s.art?.imageUrl);
+  // The slides after the first get their pictures once the page has loaded, so the first screen's come first.
+  const loaded = usePageLoaded();
+  const later = index > 0 && !preview && !loaded;
+  const artShape = usePictureShape(later || s.picture || productCover || mode === "square" ? null : s.art?.imageUrl);
   // The picture that fills the slide: the banner's own, the product's cover, or its picture when it is a cover photo.
-  const cover = s.picture || productCover || (s.art?.imageUrl && artShape === "cover" ? s.art.imageUrl : null);
-  const card = !cover && s.art && artShape !== "unknown" ? s.art : null;
+  const cover = later ? null : s.picture || productCover || (s.art?.imageUrl && artShape === "cover" ? s.art.imageUrl : null);
+  const card = !later && !cover && s.art && artShape !== "unknown" ? s.art : null;
   // Still measuring the product's picture: its blurred colours only, for a moment.
-  const wash = card?.imageUrl ?? (artShape === "unknown" && !s.picture ? s.art?.imageUrl : null);
+  const wash = later ? null : card?.imageUrl ?? (artShape === "unknown" && !s.picture ? s.art?.imageUrl : null);
   const deal = s.look === "deal";
   const packages = deal ? s.packages ?? [] : [];
   // A category's slide without a picture: its apps' icons, two by two.
-  const logos = !cover && !card && !wash ? (s.logos ?? []).slice(0, 4) : [];
+  const logos = !later && !cover && !card && !wash ? (s.logos ?? []).slice(0, 4) : [];
   const cls = [
     "slide", `slide--${s.look}`, `slide--${s.style}`, cover ? "slide--cover" : card || wash ? "slide--card" : "slide--plain",
     logos.length ? "slide--logos" : "", preview ? "slide--preview" : "",
@@ -142,15 +188,16 @@ export function ShowcaseSlide({ s, options = DEFAULT_OPTIONS, index = 0, count =
 
   return (
     <div data-i={index} className={cls} role="group" aria-roledescription="slide" aria-label={`${index + 1} / ${count}`}>
-      {cover && <img className="slide__cover" src={cover} alt="" loading={index === 0 ? "eager" : "lazy"} decoding="async" referrerPolicy="no-referrer" />}
-      {wash && <img className="slide__wash" src={wash} alt="" aria-hidden="true" loading="lazy" decoding="async" referrerPolicy="no-referrer" />}
+      {cover && <SlideCover key={cover} url={cover} first={index === 0 && !preview} />}
+      {/* Blurred to colours: a small copy is enough. */}
+      {wash && <img className="slide__wash" src={pictureUrl(wash, { width: 160 })} alt="" aria-hidden="true" loading="lazy" decoding="async" referrerPolicy="no-referrer" />}
       {s.go && !preview && <button type="button" className="slide__hit" onClick={s.go} aria-label={s.cta ? `${s.title}: ${s.cta}` : s.title} />}
 
-      {card && <Tile className="slide__art" name={card.name} imageUrl={card.imageUrl} />}
+      {card && <Tile className="slide__art" name={card.name} imageUrl={card.imageUrl} width={520} eager={index === 0} />}
       {logos.length > 0 && (
         <div className={`slide__logos slide__logos--${logos.length}`} aria-hidden="true">
           {logos.map((l, i) => (
-            <Tile key={i} className="slide__logo" name={l.name} imageUrl={l.imageUrl} />
+            <Tile key={i} className="slide__logo" name={l.name} imageUrl={l.imageUrl} width={200} eager={index === 0} />
           ))}
         </div>
       )}
@@ -288,11 +335,11 @@ export function Showcase({ slides, options = DEFAULT_OPTIONS }: { slides: SlideD
               }}
             >
               {s.picture ? (
-                <img src={s.picture} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+                <img src={pictureUrl(s.picture, { width: 120, height: 120 })} width={50} height={50} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
               ) : s.art ? (
-                <Tile name={s.art.name} imageUrl={s.art.imageUrl} />
+                <Tile name={s.art.name} imageUrl={s.art.imageUrl} width={120} />
               ) : s.logos?.[0] ? (
-                <Tile name={s.logos[0].name} imageUrl={s.logos[0].imageUrl} />
+                <Tile name={s.logos[0].name} imageUrl={s.logos[0].imageUrl} width={120} />
               ) : (
                 <span className={`showcase__swatch showcase__swatch--${s.style}`} />
               )}

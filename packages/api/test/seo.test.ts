@@ -1,8 +1,8 @@
 /** Link previews (product pages), sitemap and robots. */
 import { afterAll, describe, expect, it } from "vitest";
-import { categoryHead, homeHead, legalHead, productMeta, renderPage, renderProductPage, robotsTxt, sitemapXml } from "../src/index";
+import { categoryHead, homeHead, legalHead, llmsTxt, productMeta, renderPage, renderProductPage, robotsTxt, sitemapXml } from "../src/index";
 import { publishedPage } from "../src/pages";
-import { docHtml } from "../src/seo";
+import { docHtml, slidePreloads } from "../src/seo";
 import { connectTestDb } from "./helpers";
 
 const conn = await connectTestDb();
@@ -50,6 +50,22 @@ describe("product link previews", () => {
     expect(html).toContain('<link rel="stylesheet" href="/assets/app.css">');
     const ld = JSON.parse(/<script type="application\/ld\+json">(.*)<\/script>/.exec(html)![1]!);
     expect(ld.offers).toMatchObject({ "@type": "AggregateOffer", lowPrice: "1.23", highPrice: "25.00", priceCurrency: "USD", offerCount: 4 });
+  });
+
+  it("preloads the showcase's first picture near the top of the head, sized like the slide", () => {
+    const url = "https://abcd.supabase.co/storage/v1/object/public/store-images/banner.jpg";
+    const html = renderPage(
+      INDEX.replace("<head>\n", "<head>\n<!--preload-->\n"),
+      { path: "/", title: "GH Store", description: "d", preload: slidePreloads(url) },
+      { baseUrl: "https://gh-store.me", storeName: "GH Store", locale: "ar" },
+    );
+    const head = html.slice(0, html.indexOf("<title>"));
+    expect(head).toContain('<link rel="preload" as="image" href="https://abcd.supabase.co/storage/v1/render/image/public/store-images/banner.jpg?width=720&amp;');
+    expect(head).toContain('media="(max-width: 799px)" fetchpriority="high" referrerpolicy="no-referrer">');
+    expect(head).toContain('media="(min-width: 800px)"');
+    expect(html).not.toContain("<!--preload-->");
+    // A picture hosted elsewhere is preloaded as it is
+    expect(slidePreloads("https://cdn.example/hero.jpg")).toEqual([{ href: "https://cdn.example/hero.jpg", high: true }]);
   });
 
   it("keeps $ signs in product text literal", () => {
@@ -142,9 +158,26 @@ describe("store pages and search engines", () => {
     expect(html).toContain('<link rel="alternate" hreflang="x-default" href="https://gh-store.me/">');
     expect(html).toContain('"@type":"Organization"');
     expect(html).toContain('<div id="root"><main>');
+    // A search action agents and search engines can use (/?q=…), and a line per category
+    expect(html).toContain('"urlTemplate":"https://gh-store.me/?q={search_term_string}"');
+    expect(home.body).toMatch(/<li><a href="\/c\/games\?lang=en">[^<]+<\/a> — \d+ products?/);
     const cat = await categoryHead({ db }, "games", { ...o, locale: "ar" });
     expect(cat?.title).toMatch(/ \| GH Store$/);
+    expect(cat?.body).toContain("<h1>");
+    expect(cat!.description.length).toBeLessThanOrEqual(160);
     expect(await categoryHead({ db }, `nope-${run}`, o)).toBeNull();
+  });
+
+  it("describes the store for AI assistants in llms.txt, with a link per category and product", async () => {
+    const text = await llmsTxt({ db }, "https://gh-store.me", "ar");
+    expect(text).not.toBeNull();
+    expect(text!.startsWith("# GH Store\n")).toBe(true);
+    expect(text).toMatch(/^> .+/m);
+    expect(text).toContain("## Categories");
+    expect(text).toMatch(/- \[[^\]]+\]\(https:\/\/gh-store\.me\/c\/[a-z0-9-]+\?lang=en\): \d+ products?/);
+    expect(text).toMatch(/- \[[^\]]+\]\(https:\/\/gh-store\.me\/p\/[a-z0-9-]+\?lang=en\): from \$\d+\.\d\d/);
+    expect(text).toContain("](https://gh-store.me/legal/terms?lang=en)");
+    expect(text).toContain("[Sitemap](https://gh-store.me/sitemap.xml)");
   });
 
   it("lists categories, pages and the English versions in the sitemap; robots follows the switch", async () => {

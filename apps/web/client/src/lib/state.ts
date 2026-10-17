@@ -5,7 +5,7 @@
 import { useSyncExternalStore } from "react";
 import { googleFontsHref, isPreset, themeCss, THEMES } from "@store/ui";
 import { store as storeConfig } from "@store/config";
-import { api, ApiFail, setToken } from "./api";
+import { api, ApiFail, hasToken, setToken } from "./api";
 import { errorText, translate, type MsgKey } from "./i18n";
 import { forgetPush } from "./push";
 import { claimReferral } from "./referral";
@@ -157,7 +157,16 @@ export const PRESETS = Object.keys(THEMES) as (keyof typeof THEMES)[];
 export async function refreshMe(): Promise<Me | null> {
   const before = state.me?.user.id ?? null;
   try {
-    const me = await api<Me>("/api/me");
+    // ?guest=ok: "not signed in" comes back as { user: null }, not as a failed request.
+    const res = await api<Me | { user: null }>("/api/me?guest=ok");
+    if (!res.user) {
+      // A saved token that no longer works is dropped, as a 401 would.
+      if (hasToken()) setToken(null);
+      if (before !== null) clearCache();
+      setState({ me: null, authChecked: true });
+      return null;
+    }
+    const me = res as Me;
     // Someone else signed in on this device: nothing of the previous person's stays cached.
     if (before !== null && me.user.id !== before) clearCache();
     setState({ me, authChecked: true });

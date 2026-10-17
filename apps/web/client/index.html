@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<!--preload-->
 <title>%NAME%</title>
 <meta name="description" content="%DESC%">
 <link rel="canonical" href="%URL%/">
@@ -19,7 +20,8 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link id="fonts" rel="stylesheet" href="%FONTS%">
+<link rel="preload" as="style" href="%FONTS%">
+<link id="fonts" rel="stylesheet" href="%FONTS%" media="print">
 <style id="theme">%THEME%</style>
 <link rel="stylesheet" href="%CSS%">
 <script type="module" src="%JS%"></script>

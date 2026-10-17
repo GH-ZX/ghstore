@@ -14,6 +14,10 @@ import type { PublicConfig } from "./lib/types";
 import { App } from "./App";
 import { startAnalytics } from "./lib/analytics";
 
+// The fonts' stylesheet loads without holding the first paint (index.html has it
+// as media="print" plus a preload); the app's own text uses it from here on.
+document.getElementById("fonts")?.setAttribute("media", "all");
+
 /**
  * www.<domain> is only an alias: send visitors to the store's own address, where
  * sign-in and orders work (the API accepts requests from that one origin).
@@ -73,6 +77,20 @@ function setUpTelegram(w: TgWebApp) {
   applyTheme();
 }
 
+/** Run `fn` when the browser is idle after the page's load event (at the latest after 10 s). */
+function afterLoad(fn: () => void): void {
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    if ("requestIdleCallback" in window) window.requestIdleCallback(fn, { timeout: 4000 });
+    else setTimeout(fn, 1000);
+  };
+  if (document.readyState === "complete") window.setTimeout(go, 1500);
+  else window.addEventListener("load", () => window.setTimeout(go, 1500), { once: true });
+  window.setTimeout(go, 10_000);
+}
+
 /** How long the page waits for telegram.org's script before showing the store anyway. */
 const TELEGRAM_WAIT_MS = 3500;
 const LATE = Symbol("late");
@@ -97,9 +115,10 @@ async function start() {
   }
   applyTheme();
   root.render(<App />);
-  // The other screens load in the background once the store shows, so moving around stays instant.
-  const later = (fn: () => void) => ("requestIdleCallback" in window ? window.requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 2500));
-  later(() => {
+  // The other screens load in the background once the page has finished loading
+  // (its pictures included), so they never compete with the first screen, and
+  // moving around stays instant afterwards.
+  afterLoad(() => {
     void import("./screens/ProductSheet");
     void import("./screens/Orders");
     void import("./screens/Wallet");
@@ -110,7 +129,9 @@ async function start() {
   if (config) {
     setState({ config });
     applyTheme();
-    startAnalytics(config.analytics?.cfBeacon);
+    // Visits are counted once the page has loaded: the beacon never slows the first screen.
+    const token = config.analytics?.cfBeacon;
+    afterLoad(() => startAnalytics(token));
   }
 
   // telegram.org was slow: the store is already showing; finish Telegram's part when its script arrives.
