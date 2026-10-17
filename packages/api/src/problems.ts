@@ -11,6 +11,7 @@ import type { Ctx } from "./context";
 import { n, one, type Db } from "./db";
 import { ApiError, json, readJson, uuid } from "./http";
 import { alertStaff } from "./notify";
+import { LIMITS, throttle } from "./ratelimit";
 
 export const PROBLEM_REASONS = ["not_received", "not_working", "wrong_item", "other"] as const;
 const REASON_EN: Record<string, string> = { not_received: "didn't arrive", not_working: "doesn't work", wrong_item: "wrong item", other: "other" };
@@ -43,6 +44,8 @@ export async function orderProblem(db: Db, orderId: string): Promise<ProblemView
 /** POST /api/orders/:id/problem { reason, message } */
 export async function reportProblem(ctx: Ctx): Promise<Response> {
   const user = await requireUser(ctx);
+  // Each report alerts the staff: a cap per customer (every attempt counts) keeps that from being used to flood them.
+  await throttle(ctx.svc.db, `problem:${user.id}`, LIMITS.problemReport);
   const id = uuid(ctx.params.id);
   const body = await readJson(ctx.req);
   const reason = typeof body.reason === "string" && (PROBLEM_REASONS as readonly string[]).includes(body.reason) ? body.reason : null;

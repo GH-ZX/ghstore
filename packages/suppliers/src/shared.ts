@@ -128,10 +128,14 @@ export interface HttpOptions {
   secrets?: string[];
 }
 
+/** URL query values that carry a secret (callback URLs hold `?token=` / `?secret=`). */
+const SECRET_QUERY = /([?&](?:token|secret|key|api_key|apikey|signature|sig)=)[^&#\s"'<>]+/gi;
+
+/** Remove the given secrets, and any secret-looking query value (a supplier echoing our callback URL). */
 export function redact(text: string, secrets: string[] = []): string {
   let out = text;
   for (const secret of secrets) if (secret) out = out.split(secret).join("***");
-  return out;
+  return out.replace(SECRET_QUERY, "$1***");
 }
 
 /**

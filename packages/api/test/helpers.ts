@@ -58,6 +58,8 @@ export async function connectTestDb(): Promise<{ db: Db; close: () => Promise<vo
   await db.query(`grant store_server to ${APP_ROLE}`);
   // Tests start many top-ups for one customer: a high hourly limit (v11.test checks the limit itself).
   await db.query(`insert into app.settings (key, value) values ('payments.topups_per_hour', '50') on conflict (key) do nothing`);
+  // Each test file starts with fresh throttles: the suite signs the same test accounts in many times.
+  await db.query(`delete from app.rate_limits`);
   const app = postgres(TEST_DATABASE_URL, { max: 4, onnotice: () => {}, connection: { role: APP_ROLE } });
   (db as Db & { app?: Db }).app = makeDb(app as SqlLike);
   return { db, close: async () => void (await Promise.all([sql.end(), app.end()])) };

@@ -70,7 +70,8 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
   const base = baseUrl(ctx, "G2BULK_BASE_URL", "https://api.g2bulk.com/v1");
   const origin = new URL(base).origin;
   const key = cfg(ctx, "G2BULK_API_KEY");
-  const secrets = key ? [key] : [];
+  // The callback secret too: an error echoing our callback_url must not carry it into logs or order notes.
+  const secrets = [key, webhookSecret(ctx, "G2BULK_WEBHOOK_SECRET")].filter((s): s is string => Boolean(s));
   const enc = encodeURIComponent;
 
   async function call(path: string, opts: HttpOptions & { auth?: boolean } = {}): Promise<HttpResult> {

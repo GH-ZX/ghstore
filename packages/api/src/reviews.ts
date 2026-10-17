@@ -9,6 +9,7 @@ import { optionalUser, requireStaff, requireUser } from "./auth";
 import type { Ctx } from "./context";
 import { n, one, type Db } from "./db";
 import { ApiError, json, readJson, uuid } from "./http";
+import { LIMITS, throttle } from "./ratelimit";
 
 const PAGE = 10;
 
@@ -102,6 +103,8 @@ export async function listReviews(ctx: Ctx): Promise<Response> {
 export async function saveReview(ctx: Ctx): Promise<Response> {
   const me = await requireUser(ctx);
   const db = ctx.svc.db;
+  // Writes and edits per customer are capped (every attempt counts).
+  await throttle(db, `review:${me.id}`, LIMITS.reviewSave);
   const product = await productId(db, ctx.params.slug ?? "");
   if (!(await received(db, me.id, product))) throw new ApiError("not_allowed", "not_received");
   const body = await readJson(ctx.req);
