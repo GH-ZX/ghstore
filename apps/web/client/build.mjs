@@ -7,7 +7,7 @@
  *   node client/build.mjs            production build
  *   node client/build.mjs --dev      unminified, with source maps
  */
-import { build } from "esbuild";
+import { build, transform } from "esbuild";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -43,13 +43,32 @@ const result = await build({
   define: { "process.env.NODE_ENV": JSON.stringify(dev ? "development" : "production") },
   logLevel: "warning",
 });
-const outputs = Object.entries(result.metafile.outputs);
-const entry = outputs.find(([, o]) => o.entryPoint?.endsWith("main.tsx"));
+const outputs = result.metafile.outputs;
+const entry = Object.entries(outputs).find(([, o]) => o.entryPoint?.endsWith("main.tsx"));
 if (!entry) throw new Error("no entry output");
 const jsName = entry[0].split("/").pop();
-const js = { length: outputs.reduce((n, [, o]) => n + o.bytes, 0) };
+// What the first page really downloads: the entry and the chunks it imports
+// statically (and theirs), not the lazily loaded screens.
+const firstLoad = new Set();
+const walk = (file) => {
+  if (firstLoad.has(file)) return;
+  firstLoad.add(file);
+  for (const imp of outputs[file]?.imports ?? []) if (imp.kind === "import-statement" && !imp.external) walk(imp.path);
+};
+walk(entry[0]);
+const staticChunks = [...firstLoad].filter((f) => f !== entry[0]).map((f) => f.split("/").pop());
+const firstLoadBytes = [...firstLoad].reduce((n, f) => n + (outputs[f]?.bytes ?? 0), 0);
+const allBytes = Object.values(outputs).reduce((n, o) => n + o.bytes, 0);
 
-const css = await readFile(join(here, "src", "styles.css"));
+// The stylesheet, minified by esbuild (unminified with --dev).
+const cssOut = await transform(await readFile(join(here, "src", "styles.css"), "utf8"), {
+  loader: "css",
+  minify: !dev,
+  target: ["safari16", "chrome111"],
+  legalComments: "none",
+  logLevel: "warning",
+});
+const css = Buffer.from(cssOut.code);
 const cssName = `app-${hash(css)}.css`;
 await writeFile(join(out, "assets", cssName), css);
 
@@ -86,7 +105,9 @@ const html = (await readFile(join(here, "index.html"), "utf8"))
   .replace("%FONTS%", () => googleFontsHref(store.theme.preset))
   .replace("%SPLASH%", () => splashHtml())
   .replace("%CSS%", () => `/assets/${cssName}`)
-  .replace("%JS%", () => `/assets/${jsName}`);
+  .replace("%JS%", () => `/assets/${jsName}`)
+  // The entry's static chunks start downloading with it instead of after it is parsed.
+  .replace("%PRELOAD%", () => staticChunks.map((c) => `<link rel="modulepreload" href="/assets/${c}">`).join("\n"));
 await writeFile(join(out, "index.html"), html);
 
 await writeFile(
@@ -127,4 +148,7 @@ await writeFile(join(out, "version.txt"), `${version}\n`);
 
 // robots.txt and sitemap.xml are answered by the Worker (they need the live product list).
 
-console.log(`built ${jsName} (${(js.length / 1024).toFixed(0)} KB), ${cssName} (${(css.length / 1024).toFixed(0)} KB)`);
+const kb = (n) => `${(n / 1024).toFixed(0)} KB`;
+console.log(
+  `built ${jsName}: first load ${kb(firstLoadBytes)} JS (entry + ${staticChunks.length} static chunks), ${kb(allBytes)} JS in all; ${cssName} (${kb(css.length)})`,
+);
