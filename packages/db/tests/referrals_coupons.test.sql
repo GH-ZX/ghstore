@@ -6,12 +6,15 @@ insert into app.products (id, slug, category_id, name_ar, name_en, kind, active)
   select '00000000-0000-7000-8000-000000000101', 'ref-uc', id, 'شدات', 'UC', 'id', true from app.categories where slug = 'games';
 insert into app.products (id, slug, category_id, name_ar, name_en, kind, active)
   select '00000000-0000-7000-8000-000000000102', 'ref-codes', id, 'أكواد', 'Codes', 'code', true from app.categories where slug = 'vouchers';
--- Supplier offer: price 1000, cost 900. Stock offer: price 500, cost unknown.
+-- Supplier offer: price 1000, cost 900. Stock offer: price 500, cost 300. Second stock offer: cost unknown.
 insert into app.offers (id, product_id, name_ar, name_en, supplier_id, supplier_ref, cost_cents, price_cents, max_quantity)
   values ('00000000-0000-7000-8000-0000000001a1', '00000000-0000-7000-8000-000000000101', '600', '600', 'refsup', 'ext-600', 900, 1000, 5);
+insert into app.offers (id, product_id, name_ar, name_en, price_cents, cost_cents, max_quantity)
+  values ('00000000-0000-7000-8000-0000000001a2', '00000000-0000-7000-8000-000000000102', 'كود', 'Code', 500, 300, 5);
 insert into app.offers (id, product_id, name_ar, name_en, price_cents, max_quantity)
-  values ('00000000-0000-7000-8000-0000000001a2', '00000000-0000-7000-8000-000000000102', 'كود', 'Code', 500, 5);
+  values ('00000000-0000-7000-8000-0000000001a3', '00000000-0000-7000-8000-000000000102', 'كود ب', 'Code B', 500, 5);
 insert into app.stock_items (offer_id, payload_enc) select '00000000-0000-7000-8000-0000000001a2', 'v1.enc-' || g from generate_series(1, 6) g;
+insert into app.stock_items (offer_id, payload_enc) select '00000000-0000-7000-8000-0000000001a3', 'v1.enc-b' || g from generate_series(1, 2) g;
 
 update app.settings set value = '5' where key = 'referral.percent';
 update app.settings set value = '30' where key = 'referral.days';
@@ -48,8 +51,8 @@ begin
   assert not app.set_referrer(late, icode), 'old account cannot be linked';
 
   -- fund the friend
-  insert into app.payments (user_id, method, amount_cents, status) values (friend, 'sam', 5000, 'pending') returning id into pay;
-  perform app.credit_payment(pay, 5000, 'ref-inv-1');
+  insert into app.payments (user_id, method, amount_cents, status) values (friend, 'sam', 6000, 'pending') returning id into pay;
+  perform app.credit_payment(pay, 6000, 'ref-inv-1');
 
   -- a delivered stock order pays the inviter 5% once
   select * into o from app.place_order(friend, '00000000-0000-7000-8000-0000000001a2', 2, '{}', 'ref-order-0001', 'web');
@@ -68,6 +71,11 @@ begin
   update app.orders set status = 'failed' where id = o.order_id;
   perform app.refund_order(o.order_id, 'supplier failed');
   assert (select balance_cents from app.wallets where user_id = inviter) = 100, 'refunded order pays nothing';
+
+  -- an order whose cost is unknown pays no reward (its margin can't be checked)
+  select * into o from app.place_order(friend, '00000000-0000-7000-8000-0000000001a3', 1, '{}', 'ref-order-0009', 'web');
+  assert o.status = 'delivered', 'unknown-cost stock order delivered';
+  assert (select balance_cents from app.wallets where user_id = inviter) = 100, 'no reward without a known cost';
 
   -- outside the reward window nothing is paid
   update app.users set referred_at = now() - interval '31 days' where id = friend;

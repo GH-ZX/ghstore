@@ -43,7 +43,7 @@ import type {
 } from "../../core/src/adapters";
 import { CHARNAME_KEYS, g2bulkInputFields, PLAYER_KEYS, SERVER_KEYS } from "./g2bulk-fields";
 import {
-  accountFacts, arr, baseUrl, caught, cfg, csv, deliveryValues, failed, http, httpError, isObj, isTransient, itemsFrom, mapLimit, num, obj, pick, refusal, str, supplierMessage, usdToCents, uuid5, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult,
+  accountFacts, arr, baseUrl, caught, cfg, csv, deliveryValues, failed, http, httpError, isObj, isTransient, itemsFrom, mapLimit, num, obj, pick, refusal, str, supplierMessage, usdCostToCents, usdToCents, uuid5, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult,
 } from "./shared";
 
 const ID = "g2bulk";
@@ -134,7 +134,7 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
       : baseFields;
     return items.flatMap((item): SupplierProduct[] => {
       const name = str(item.name);
-      const cost = usdToCents(item.amount);
+      const cost = usdCostToCents(item.amount);
       if (!name || cost === null) return [];
       return [{
         externalId: `game:${code}:${name}`,
@@ -164,7 +164,7 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
     return arr(obj(await read("/products"))?.products).filter(isObj).flatMap((p): SupplierProduct[] => {
       const id = str(p.id);
       const title = str(p.title);
-      const cost = usdToCents(p.unit_price);
+      const cost = usdCostToCents(p.unit_price);
       if (!id || !title || cost === null) return [];
       const stock = num(p.stock);
       return [{
@@ -196,7 +196,7 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
     if (!r.ok) throw httpError(ID, r, secrets);
     return arr(obj(r.json)?.catalogues).filter(isObj).flatMap((item): SupplierProduct[] => {
       const name = str(item.name);
-      const cost = usdToCents(item.amount);
+      const cost = usdCostToCents(item.amount);
       if (!name || cost === null) return [];
       return [{ externalId: `game:${code}:${name}`, name, costCents: cost, available: true, kind: "id" }];
     });
@@ -209,7 +209,7 @@ export function createG2Bulk(ctx: AdapterContext): SupplierAdapter {
     const items: DeliveredItem[] = playerId
       ? [{ kind: "id", value: playerId, ...(playerName ? { label: playerName } : {}) }]
       : [];
-    const cost = usdToCents(price);
+    const cost = usdCostToCents(price);
     return { status: "delivered", supplierOrderId, items, ...(cost !== null ? { costCents: cost } : {}) };
   }
 

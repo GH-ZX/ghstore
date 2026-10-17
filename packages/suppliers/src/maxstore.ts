@@ -31,7 +31,7 @@ import type {
   AdapterContext, DeliveredItem, InputField, PurchaseResult, SupplierAdapter, SupplierProduct,
 } from "../../core/src/adapters";
 import {
-  accountFacts, arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpFailure, isObj, itemsFrom, num, numericOr, obj, str, supplierMessage, usdToCents, uuid4From, type HttpOptions, type HttpResult, type Obj,
+  accountFacts, arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpFailure, isObj, itemsFrom, num, numericOr, obj, str, supplierMessage, usdCostToCents, usdToCents, uuid4From, type HttpOptions, type HttpResult, type Obj,
 } from "./shared";
 
 const ID = "maxstore";
@@ -144,7 +144,7 @@ export function createMaxStore(ctx: AdapterContext): SupplierAdapter {
       const target = Object.values(obj(row?.data) ?? fallbackFields).map(str).find(Boolean);
       if (target) items.push({ kind: "id", value: target });
     }
-    const cost = usdToCents(row?.price);
+    const cost = usdCostToCents(row?.price);
     return { status: "delivered", supplierOrderId, items, ...(cost !== null ? { costCents: cost } : {}) };
   }
 
@@ -160,7 +160,7 @@ export function createMaxStore(ctx: AdapterContext): SupplierAdapter {
     async listProducts() {
       return productList(await read("/products")).filter(isObj).flatMap((p): SupplierProduct[] => {
         const id = str(p.id);
-        const cost = usdToCents(p.price);
+        const cost = usdCostToCents(p.price);
         if (!id || cost === null) return [];
         const { fields, options } = fieldsOf(p);
         const productType = str(p.product_type)?.toLowerCase() ?? null;

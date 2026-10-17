@@ -16,7 +16,7 @@ import { starsPerUsd, topupLimits, topupSafety } from "./settings";
 
 const ALL_METHODS: PaymentMethod[] = ["sam", "nowpayments", "bep20", "stars"];
 /** Note on a manual USDT top-up whose submitted hash did not match; the customer may paste another. */
-const MISMATCH_NOTE = "transfer did not match";
+export const MISMATCH_NOTE = "transfer did not match";
 
 
 /**
@@ -268,7 +268,9 @@ export async function settlePayment(svc: Services, paymentId: string): Promise<s
   if (!p) return "missing";
   // A provider top-up the store closed (cancelled, window ran out) is still checked: money may have arrived.
   const closedByUs = p.status === "expired" && p.method !== "bep20" && (CLOSED_NOTES as readonly string[]).includes(p.note ?? "");
-  if (!["pending", "review", "created"].includes(p.status) && !closedByUs) return p.status;
+  // One the provider itself reported expired (no note) too: if it now says paid, a person looks at it.
+  const providerExpired = p.status === "expired" && PROVIDER_METHODS.includes(p.method) && p.note === null;
+  if (!["pending", "review", "created"].includes(p.status) && !closedByUs && !providerExpired) return p.status;
   const adapter = svc.payment(p.method);
   if (!adapter?.checkPayment) return p.status;
   const ref = p.method === "bep20" ? p.tx_hash : p.provider_ref;
@@ -285,7 +287,25 @@ export async function settlePayment(svc: Services, paymentId: string): Promise<s
     console.error("checkPayment failed", p.method, p.id, err instanceof Error ? err.message : String(err));
     return p.status;
   }
-  return applyEvent(svc, p.id, ev);
+  return applyEvent(svc, p, ev);
+}
+
+/** Top-ups paid through a provider's own page (they confirm or expire it themselves). */
+const PROVIDER_METHODS: readonly PaymentMethod[] = ["sam", "nowpayments"];
+/** Note on a provider top-up reported paid after the provider had expired it: staff decide. */
+export const PAID_AFTER_EXPIRED_NOTE = "paid after it expired";
+/** Note on a USDT hash that never got confirmed on chain in time (the request is closed). */
+export const NEVER_CONFIRMED_NOTE = "hash never confirmed";
+
+/**
+ * The note a USDT check leaves for staff when a pasted transfer does not settle
+ * by itself: why, how much arrived, from whom, when (read in Admin → Top-ups).
+ * It is never a claim on the money: staff compare it with the request.
+ */
+export function usdtCheckNote(ev: PaymentEvent): string {
+  const d = ev.detail ?? {};
+  const from = (d.senders ?? []).map((s) => s.toLowerCase()).join(",") || "-";
+  return `usdt ${d.reason ?? ev.status}: received ${d.receivedCents ?? ev.amountCents ?? 0} cents from ${from} at ${d.minedAt ?? "-"}`.slice(0, 500);
 }
 
 /**
@@ -301,11 +321,23 @@ async function reopenIfClosedByUs(svc: Services, paymentId: string): Promise<voi
   );
 }
 
-async function applyEvent(svc: Services, paymentId: string, ev: PaymentEvent): Promise<string> {
+async function applyEvent(
+  svc: Services,
+  p: { id: string; method: PaymentMethod; status: string; note: string | null },
+  ev: PaymentEvent,
+): Promise<string> {
+  const paymentId = p.id;
   switch (ev.status) {
     case "paid": {
       if (!ev.amountCents || ev.amountCents <= 0) {
         await svc.db.query(`update app.payments set status = 'review', note = 'paid without a usable amount' where id = $1 and status <> 'paid'`, [paymentId]);
+        return "review";
+      }
+      if (p.status === "expired" && p.note === null) {
+        // The provider had expired it and now says paid: never dropped, never credited blindly.
+        await svc.db.query(`update app.payments set status = 'review', note = $2 where id = $1 and status = 'expired' and note is null`, [
+          paymentId, PAID_AFTER_EXPIRED_NOTE,
+        ]);
         return "review";
       }
       await reopenIfClosedByUs(svc, paymentId);
@@ -314,8 +346,11 @@ async function applyEvent(svc: Services, paymentId: string, ev: PaymentEvent): P
     }
     case "partial":
     case "review":
+      // Manual USDT: what the chain says about the pasted hash, for staff to compare with
+      // the request (it may be someone else's public transfer: never a figure to credit).
       await svc.db.query(`update app.payments set status = 'review', note = $2 where id = $1 and status <> 'paid'`, [
-        paymentId, ev.status === "partial" ? `partial: ${ev.amountCents ?? "unknown"} cents received` : "needs review",
+        paymentId,
+        p.method === "bep20" ? usdtCheckNote(ev) : ev.status === "partial" ? `partial: ${ev.amountCents ?? "unknown"} cents received` : "needs review",
       ]);
       return "review";
     case "failed":
@@ -472,7 +507,7 @@ export async function detectUsdtDeposits(svc: Services): Promise<number> {
     } catch {
       continue; // already used for another request, or this one moved on
     }
-    if ((await applyEvent(svc, match.id, ev)) === "paid") credited++;
+    if ((await applyEvent(svc, { id: match.id, method: "bep20", status: "review", note: null }, ev)) === "paid") credited++;
   }
   await saveSetting(svc, SCAN_KEY, toBlock);
   return credited;

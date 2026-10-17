@@ -38,7 +38,7 @@
 import { AdapterError } from "../../core/src/adapters";
 import type { AdapterContext, DeliveredItem, InputField, PurchaseResult, SupplierAdapter, SupplierProduct } from "../../core/src/adapters";
 import {
-  accountFacts, arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpError, isObj, itemsFrom, num, numericOr, obj, pick, refusal, str, supplierMessage, usdToCents, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult, type Obj,
+  accountFacts, arr, baseUrl, caught, cfg, deliveryValues, failed, http, httpError, isObj, itemsFrom, num, numericOr, obj, pick, refusal, str, supplierMessage, usdCostToCents, usdToCents, wakeUpWebhook, webhookSecret, type HttpOptions, type HttpResult, type Obj,
 } from "./shared";
 
 const ID = "batstore";
@@ -105,7 +105,7 @@ export function createBatStore(ctx: AdapterContext): SupplierAdapter {
     const items: DeliveredItem[] = itemsFrom(values, "account");
     const activatedOn = str(order.activation_identifier) ?? identifier;
     if (items.length === 0 && activatedOn) items.push({ kind: "id", value: activatedOn });
-    const cost = usdToCents(order.amount_usd);
+    const cost = usdCostToCents(order.amount_usd);
     return { status: "delivered", supplierOrderId, items, ...(cost !== null ? { costCents: cost } : {}) };
   }
 
@@ -128,13 +128,13 @@ export function createBatStore(ctx: AdapterContext): SupplierAdapter {
       }
       return products.filter(isObj).flatMap((p): SupplierProduct[] => {
         const id = str(p.id);
-        const cost = usdToCents(p.price_usd);
+        const cost = usdCostToCents(p.price_usd);
         if (!id || id === TEST_PRODUCT_ID || p.api_test === true || cost === null) return [];
         const stock = num(p.stock);
         const deliveryType = str(p.delivery_type)?.toLowerCase() ?? "stock";
         const direct = deliveryType === "stock";
         const tiers = arr(p.price_tiers).filter(isObj).map((t) => ({
-          minQty: num(t.min_qty), maxQty: num(t.max_qty), costCents: usdToCents(t.price_usd),
+          minQty: num(t.min_qty), maxQty: num(t.max_qty), costCents: usdCostToCents(t.price_usd),
         }));
         return [{
           externalId: id,
@@ -147,7 +147,7 @@ export function createBatStore(ctx: AdapterContext): SupplierAdapter {
           meta: {
             deliveryType, stock, tiers, description: str(p.description) ?? null, descriptionAr: arabic.get(id) ?? null,
             emoji: str(p.emoji) ?? null, image: str(p.image_url) ?? null, warrantyDays: num(p.warranty_days),
-            standardPriceCents: usdToCents(p.standard_price_usd), pricingType: str(p.pricing_type) ?? null,
+            standardPriceCents: usdCostToCents(p.standard_price_usd), pricingType: str(p.pricing_type) ?? null,
           },
         }];
       });

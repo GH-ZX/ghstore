@@ -11,7 +11,8 @@ import { formatUsd, verifyBotWebhook } from "@store/core";
 import { parsePreCheckoutQuery, parseSuccessfulPayment } from "@store/payments";
 import type { ApiEnv, Services } from "./context";
 import { n, one } from "./db";
-import { json } from "./http";
+import { logError } from "./health";
+import { ApiError, json } from "./http";
 import { creditStarsPayment, expectedStars, TOPUP_WINDOW_MS } from "./payments";
 import { referralSettings } from "./promo";
 import { botUsername, channelUrl, starsPerUsd, supportContacts, type SupportContacts } from "./settings";
@@ -225,8 +226,20 @@ export async function handleBotWebhook(req: Request, env: ApiEnv, svc: Services)
   try {
     await handleUpdate(update, env, svc);
   } catch (err) {
-    // Always 200 so Telegram doesn't retry forever; the error is logged.
-    console.error("bot update failed", err instanceof Error ? err.message : String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("bot update failed", msg);
+    // A paid Stars invoice that could not be credited because something blinked (the
+    // database, a timeout): the customer's Stars are already spent, so Telegram must
+    // deliver it again. Crediting is idempotent per payment (app.credit_payment), so a
+    // repeat never pays twice. A refusal (ApiError: wrong amount, closed top-up…) would
+    // fail the same way every time and hold up every later update, so it is logged for
+    // the owner and answered 200 like the rest.
+    if (parseSuccessfulPayment(update) && !(err instanceof ApiError)) {
+      await logError(svc.db, "bot.successful_payment", msg);
+      return json({ ok: false }, { status: 500 });
+    }
+    // Anything else: 200, so Telegram doesn't retry it forever; the error is logged.
+    await logError(svc.db, "bot.update", msg);
   }
   return json({ ok: true });
 }

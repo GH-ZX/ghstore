@@ -58,10 +58,12 @@ export interface SyncReport {
   review: number;
   /** False when only part of a big catalogue was checked this time (the rest goes next run). */
   complete: boolean;
-  /** Why the check could not run (the supplier's own error, without secrets). */
+  /** Why the check could not run (the supplier's own error, without secrets), or the first package that failed. */
   error?: string;
   /** Groups of a big catalogue whose check failed this time (backed off; the rest went on). */
   failedGroups?: number;
+  /** Packages that could not be checked this time (skipped; the rest went on). */
+  failed?: number;
 }
 
 export interface SyncOptions {
@@ -239,106 +241,115 @@ export async function syncSupplier(svc: Services, supplierId: string, opts: Sync
   const unchanged: string[] = [];
   for (const o of offers) {
     report.checked++;
-    const p = byRef.get(o.supplier_ref);
-    const syncPaused = o.paused_reason !== null && SYNC_REASONS.has(o.paused_reason);
+    // One package that can't be saved (an odd price from the supplier...) is skipped
+    // and reported; it never stops the check of the others.
+    try {
+      const p = byRef.get(o.supplier_ref);
+      const syncPaused = o.paused_reason !== null && SYNC_REASONS.has(o.paused_reason);
 
-    if (!p || !p.available) {
-      report.missing++;
-      if (o.paused_reason === null) {
-        await svc.db.query(`update app.offers set paused_reason = 'supplier_unavailable', cost_checked_at = now() where id = $1`, [o.id]);
-        report.paused++;
-        paused.push(o.id);
-        stockPaused++;
-      } else {
-        unchanged.push(o.id); // still away: checked, nothing to change
-      }
-      continue;
-    }
-
-    const price = n(o.price_cents);
-    const oldCost = o.cost_cents === null ? null : n(o.cost_cents);
-
-    // A big jump waits for the owner instead of repricing the store by itself.
-    if (costJumped(oldCost, p.costCents, settings.max_jump_pct)) {
-      if (o.paused_reason !== null && !syncPaused) {
-        unchanged.push(o.id); // paused by staff: leave it alone
+      if (!p || !p.available) {
+        report.missing++;
+        if (o.paused_reason === null) {
+          await svc.db.query(`update app.offers set paused_reason = 'supplier_unavailable', cost_checked_at = now() where id = $1`, [o.id]);
+          report.paused++;
+          paused.push(o.id);
+          stockPaused++;
+        } else {
+          unchanged.push(o.id); // still away: checked, nothing to change
+        }
         continue;
       }
-      report.review++;
-      const pending = o.pending_cost_cents === null ? null : n(o.pending_cost_cents);
-      if (o.paused_reason === "cost_jump" && pending === p.costCents) {
-        unchanged.push(o.id);
-        continue;
-      }
-      await svc.db.query(
-        `update app.offers set paused_reason = 'cost_jump', pending_cost_cents = $2, cost_checked_at = now() where id = $1`,
-        [o.id, p.costCents],
-      );
-      if (o.paused_reason !== "cost_jump") {
-        await svc.db.query(
-          `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $4, 'paused')`,
-          [o.id, oldCost, p.costCents, price],
-        );
-        report.paused++;
-        paused.push(o.id);
-      }
-      continue;
-    }
 
-    const rule: PriceRule = {
-      mode: settings.auto_reprice ? o.markup_mode : "manual",
-      value: Number(o.markup_value),
-      roundToCents: o.round_to_cents,
-      minMarginPct: Number(o.min_margin_pct),
-    };
-    const decision = onCostChange(price, p.costCents, rule);
+      const price = n(o.price_cents);
+      const oldCost = o.cost_cents === null ? null : n(o.cost_cents);
 
-    if (decision.action === "pause") {
-      if (o.paused_reason !== "cost_above_margin") {
+      // A big jump waits for the owner instead of repricing the store by itself.
+      if (costJumped(oldCost, p.costCents, settings.max_jump_pct)) {
+        if (o.paused_reason !== null && !syncPaused) {
+          unchanged.push(o.id); // paused by staff: leave it alone
+          continue;
+        }
+        report.review++;
+        const pending = o.pending_cost_cents === null ? null : n(o.pending_cost_cents);
+        if (o.paused_reason === "cost_jump" && pending === p.costCents) {
+          unchanged.push(o.id);
+          continue;
+        }
         await svc.db.query(
-          `update app.offers set cost_cents = $2, pending_cost_cents = null, paused_reason = 'cost_above_margin', cost_checked_at = now() where id = $1`,
+          `update app.offers set paused_reason = 'cost_jump', pending_cost_cents = $2, cost_checked_at = now() where id = $1`,
           [o.id, p.costCents],
         );
+        if (o.paused_reason !== "cost_jump") {
+          await svc.db.query(
+            `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $4, 'paused')`,
+            [o.id, oldCost, p.costCents, price],
+          );
+          report.paused++;
+          paused.push(o.id);
+        }
+        continue;
+      }
+
+      const rule: PriceRule = {
+        mode: settings.auto_reprice ? o.markup_mode : "manual",
+        value: Number(o.markup_value),
+        roundToCents: o.round_to_cents,
+        minMarginPct: Number(o.min_margin_pct),
+      };
+      const decision = onCostChange(price, p.costCents, rule);
+
+      if (decision.action === "pause") {
+        if (o.paused_reason !== "cost_above_margin") {
+          await svc.db.query(
+            `update app.offers set cost_cents = $2, pending_cost_cents = null, paused_reason = 'cost_above_margin', cost_checked_at = now() where id = $1`,
+            [o.id, p.costCents],
+          );
+          await svc.db.query(
+            `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $4, 'paused')`,
+            [o.id, oldCost, p.costCents, price],
+          );
+          report.paused++;
+          paused.push(o.id);
+        } else {
+          unchanged.push(o.id);
+        }
+        continue;
+      }
+
+      const newPrice = decision.price;
+      const resume = syncPaused;
+      if (newPrice !== price || oldCost !== p.costCents || resume) {
         await svc.db.query(
-          `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $4, 'paused')`,
-          [o.id, oldCost, p.costCents, price],
+          `update app.offers set cost_cents = $2, price_cents = $3, pending_cost_cents = null, cost_checked_at = now(),
+                  paused_reason = case when paused_reason = any(string_to_array($4::text, ',')) then null else paused_reason end
+            where id = $1`,
+          [o.id, p.costCents, newPrice, [...SYNC_REASONS].join(",")],
         );
-        report.paused++;
-        paused.push(o.id);
+        if (newPrice !== price) {
+          await svc.db.query(
+            `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $5, 'repriced')`,
+            [o.id, oldCost, p.costCents, price, newPrice],
+          );
+          report.repriced++;
+        } else if (oldCost !== p.costCents && oldCost !== null) {
+          // Automatic repricing is off: the cost moved, the price stayed.
+          await svc.db.query(
+            `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $4, 'kept')`,
+            [o.id, oldCost, p.costCents, price],
+          );
+        }
+        if (resume) {
+          report.resumed++;
+          resumedIds.push(o.id);
+        }
       } else {
         unchanged.push(o.id);
       }
-      continue;
-    }
-
-    const newPrice = decision.price;
-    const resume = syncPaused;
-    if (newPrice !== price || oldCost !== p.costCents || resume) {
-      await svc.db.query(
-        `update app.offers set cost_cents = $2, price_cents = $3, pending_cost_cents = null, cost_checked_at = now(),
-                paused_reason = case when paused_reason = any(string_to_array($4::text, ',')) then null else paused_reason end
-          where id = $1`,
-        [o.id, p.costCents, newPrice, [...SYNC_REASONS].join(",")],
-      );
-      if (newPrice !== price) {
-        await svc.db.query(
-          `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $5, 'repriced')`,
-          [o.id, oldCost, p.costCents, price, newPrice],
-        );
-        report.repriced++;
-      } else if (oldCost !== p.costCents && oldCost !== null) {
-        // Automatic repricing is off: the cost moved, the price stayed.
-        await svc.db.query(
-          `insert into app.price_changes (offer_id, old_cost_cents, new_cost_cents, old_price_cents, new_price_cents, action) values ($1, $2, $3, $4, $4, 'kept')`,
-          [o.id, oldCost, p.costCents, price],
-        );
-      }
-      if (resume) {
-        report.resumed++;
-        resumedIds.push(o.id);
-      }
-    } else {
-      unchanged.push(o.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 200) : "error";
+      report.failed = (report.failed ?? 0) + 1;
+      report.error ??= `package ${o.id}: ${msg}`;
+      console.error(`sync ${supplierId}: package ${o.id} skipped:`, msg);
     }
   }
 

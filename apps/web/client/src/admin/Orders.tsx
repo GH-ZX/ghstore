@@ -11,6 +11,8 @@ import { useApi } from "../lib/useApi";
 import type { OrderHold, OrderStatus } from "../lib/types";
 import { STATUS_COLOR } from "../screens/Orders";
 import { Empty, ErrorBox, Sheet, Spinner } from "../ui/kit";
+import { api, ApiFail } from "../lib/api";
+import { errorText } from "../lib/i18n";
 import { useAction } from "./common";
 import { ProblemsAdmin } from "./Problems";
 
@@ -44,7 +46,8 @@ interface OrderSheetData {
     input: { label: string; labelAr: string; value: string }[];
     details: { key: string; type: string; label: string; labelAr: string; secret: boolean; value: string | null }[];
   };
-  deliveries: { kind: string; label: string | null; value: string; at: string }[];
+  /** Values come hidden (null): "Show" asks for each one, and every look is logged. */
+  deliveries: { id: string; kind: string; label: string | null; value: string | null; masked?: boolean; at: string }[];
   events: { type: string; at: string }[];
 }
 
@@ -208,11 +211,27 @@ function OrderSheet({ id, onClose, onRefund }: { id: string; onClose: () => void
   const { t, lang } = useT();
   const { data, error, reload } = useApi<OrderSheetData>(`/api/admin/orders/${id}`);
   const [shown, setShown] = useState<Record<string, boolean>>({});
+  // Delivered values asked for with "Show" (each look is audit logged on the server).
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
+  const [revealing, setRevealing] = useState<string | null>(null);
   const [items, setItems] = useState<DeliveryDraft[]>([{ kind: "account", label: "", value: "" }]);
   const action = useAction();
 
   async function copy(v: string) {
     if (await copyText(v)) toast(t("copied"));
+  }
+
+  async function reveal(deliveryId: string) {
+    if (!data) return;
+    setRevealing(deliveryId);
+    try {
+      const r = await api<{ deliveries: { id: string; value: string }[] }>(`/api/admin/orders/${data.order.id}/reveal`, { method: "POST", body: { deliveryId } });
+      setRevealed((x) => ({ ...x, ...Object.fromEntries(r.deliveries.map((d) => [d.id, d.value])) }));
+    } catch (e) {
+      toast(errorText(lang, e instanceof ApiFail ? e.code : "internal"), true);
+    } finally {
+      setRevealing(null);
+    }
   }
 
   const o = data?.order;
@@ -334,14 +353,27 @@ function OrderSheet({ id, onClose, onRefund }: { id: string; onClose: () => void
           {data.deliveries.length > 0 && (
             <div className="card card--pad stack-sm">
               <span className="small muted">{release ? t("supplierSent") : t("yourDelivery")}</span>
-              {data.deliveries.map((d, i) => (
-                <div key={i} className="copy-box">
-                  <span>{d.label ? `${d.label}: ${d.value}` : d.value}</span>
-                  <button type="button" className="btn btn--xs btn--ghost press" onClick={() => copy(d.value)}>
-                    {t("copy")}
-                  </button>
-                </div>
-              ))}
+              {data.deliveries.map((d) => {
+                const value = d.value ?? revealed[d.id] ?? null;
+                return (
+                  <div key={d.id} className="copy-box">
+                    <span dir="auto">
+                      {d.label ? `${d.label}: ` : ""}
+                      {value ?? "••••••••"}
+                    </span>
+                    {value === null ? (
+                      <button type="button" className="btn btn--xs btn--ghost press" disabled={revealing !== null} onClick={() => reveal(d.id)}>
+                        {revealing === d.id ? <Spinner small /> : t("show")}
+                      </button>
+                    ) : (
+                      <button type="button" className="btn btn--xs btn--ghost press" onClick={() => copy(value)}>
+                        {t("copy")}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              <span className="hint">🔒 {t("deliveriesLogged")}</span>
             </div>
           )}
 

@@ -13,7 +13,7 @@ import type {
   DeliveryKind,
   PurchaseResult,
 } from "../../core/src/adapters";
-import { toCents } from "../../core/src/money";
+import { toCents, toCentsUp } from "../../core/src/money";
 
 export const TIMEOUT_MS = 15_000;
 
@@ -107,6 +107,22 @@ export function usdToCents(value: unknown): number | null {
     return null;
   }
   return null;
+}
+
+/**
+ * A supplier's cost or price in USD (number or numeric string) to integer cents,
+ * rounded UP to the next whole cent: a $0.004 item costs 1 cent, never 0 (which
+ * would price it at 0 and stop the whole price check). Null for anything
+ * unusable, negative included. Balances use usdToCents.
+ */
+export function usdCostToCents(value: unknown): number | null {
+  if (typeof value === "number" && (!Number.isFinite(value) || value < 0 || value > 1e12)) return null;
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  try {
+    return toCentsUp(value);
+  } catch {
+    return null;
+  }
 }
 
 // ------------------------------------------------------------------ HTTP

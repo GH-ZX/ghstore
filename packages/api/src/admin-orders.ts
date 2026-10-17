@@ -5,6 +5,9 @@
  *                                     typed before paying, the details given
  *                                     after paying (decrypted; every look is
  *                                     audit logged) and what was delivered so far
+ *                                     (kind and label only: the values are hidden)
+ * POST /api/admin/orders/:id/reveal   { deliveryId? } a delivered value (or all of
+ *                                     them), decrypted; every look is audit logged
  * POST /api/admin/orders/:id/deliver  { items: [{ kind, label?, value }] }
  *                                     deliver an order sold by hand, or release
  *                                     one the supplier delivered (items optional:
@@ -59,12 +62,13 @@ export async function getAdminOrder(ctx: Ctx): Promise<Response> {
   if (!o) throw new ApiError("not_found");
   const given = o.answers_enc ? (JSON.parse(await decryptText(o.answers_enc, ctx.env.DATA_KEY)) as Record<string, string>) : {};
   if (o.answers_enc) await audit(ctx, staff.id, "order.details_view", id);
-  const dels = await ctx.svc.db.query<{ kind: string; value_enc: string; label: string | null; created_at: string }>(
-    `select kind, value_enc, label, created_at from app.deliveries where order_id = $1 order by id`,
+  // What was delivered stays hidden here (codes are money): "Show" asks for each
+  // one on its own (revealDeliveries), and every look is audit logged.
+  const dels = await ctx.svc.db.query<{ id: string | number; kind: string; label: string | null; created_at: string }>(
+    `select id, kind, label, created_at from app.deliveries where order_id = $1 order by id`,
     [id],
   );
-  const deliveries = [];
-  for (const d of dels) deliveries.push({ kind: d.kind, label: d.label, value: await decryptText(d.value_enc, ctx.env.DATA_KEY), at: d.created_at });
+  const deliveries = dels.map((d) => ({ id: String(d.id), kind: d.kind, label: d.label, value: null, masked: true, at: d.created_at }));
   const events = await ctx.svc.db.query<{ type: string; at: string }>(
     `select type, at from app.order_events where order_id = $1 order by id limit 50`,
     [id],
@@ -86,6 +90,31 @@ export async function getAdminOrder(ctx: Ctx): Promise<Response> {
     deliveries,
     events: events.map((e) => ({ type: e.type, at: e.at })),
   });
+}
+
+/**
+ * POST /api/admin/orders/:id/reveal { deliveryId? } — what was delivered, decrypted:
+ * one delivery, or all of the order's. Every call is audit logged (who, which).
+ */
+export async function revealDeliveries(ctx: Ctx): Promise<Response> {
+  const staff = await requireStaff(ctx, "support");
+  const id = uuid(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const deliveryId = body.deliveryId === undefined || body.deliveryId === null ? null : String(body.deliveryId);
+  if (deliveryId !== null && !/^\d{1,18}$/.test(deliveryId)) throw new ApiError("invalid_input", "deliveryId");
+  const dels = await ctx.svc.db.query<{ id: string | number; kind: string; value_enc: string; label: string | null; created_at: string }>(
+    `select id, kind, value_enc, label, created_at from app.deliveries
+      where order_id = $1 and ($2::bigint is null or id = $2::bigint) order by id`,
+    [id, deliveryId],
+  );
+  if (!dels.length) throw new ApiError("not_found");
+  // Logged before anything is decrypted, so a look is never missing from the log.
+  await audit(ctx, staff.id, "order.deliveries_view", id, { deliveries: dels.map((d) => String(d.id)) });
+  const deliveries = [];
+  for (const d of dels) {
+    deliveries.push({ id: String(d.id), kind: d.kind, label: d.label, value: await decryptText(d.value_enc, ctx.env.DATA_KEY), at: d.created_at });
+  }
+  return json({ deliveries });
 }
 
 export async function deliverOrder(ctx: Ctx): Promise<Response> {

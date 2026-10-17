@@ -208,7 +208,11 @@ describe("bep20: verifyTransfer rejects", () => {
   it("too little: partial, with the amount that arrived", async () => {
     const result = await verifyTransfer(chain({ receipt: receiptWith([transferLog({ units: usdt(1233) })]) }).ctx, TX, 1234);
     expect(result).toMatchObject({ ok: false, status: "partial", reason: "underpaid", receivedCents: 1233 });
-    expect(result.event).toEqual({ providerRef: TX, status: "partial", amountCents: 1233, txHash: TX });
+    expect(result.event).toMatchObject({ providerRef: TX, status: "partial", amountCents: 1233, txHash: TX });
+    // What the chain says, for staff to compare with the request (never a figure to credit by itself).
+    expect(result.event.detail).toMatchObject({ reason: "underpaid", receivedCents: 1233 });
+    expect(result.event.detail?.senders?.length).toBe(1);
+    expect(result.event.detail?.minedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
   });
 
   it("a failed (reverted) transaction", async () => {

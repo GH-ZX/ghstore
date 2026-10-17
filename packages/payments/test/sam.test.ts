@@ -201,6 +201,27 @@ describe("sam: checkPayment status mapping", () => {
     expect(await adapter.checkPayment("inv_1")).toEqual({ providerRef: "inv_1", status: "paid", amountCents: 1234 });
   });
 
+  it("credits the top-up's own amount for a SYP invoice paid in full, whatever today's rate", async () => {
+    // Issued at 118.5 (1462 pounds for $12.34); the rate has since moved to 100.
+    const { adapter } = samWith({ SAM_SYP_PER_USD: "100" }, [
+      ["/pay/inv_1", invoiceReply({ status: "paid", amount: "1462", paidAmount: "1462", currency: "SYP" })],
+    ]);
+    expect(await adapter.checkPayment("inv_1", { amountCents: 1234 })).toEqual({ providerRef: "inv_1", status: "paid", amountCents: 1234 });
+    // Paid short: the converted figure stays, for staff.
+    const short = samWith({ SAM_SYP_PER_USD: "100" }, [
+      ["/pay/inv_1", invoiceReply({ status: "paid", amount: "1462", paidAmount: "1400", currency: "SYP" })],
+    ]);
+    expect(await short.adapter.checkPayment("inv_1", { amountCents: 1234 })).toEqual({ providerRef: "inv_1", status: "partial", amountCents: 1400 });
+    // No invoiced figure from SAM: nothing to show it was paid in full, so the converted figure stays.
+    const unsized = samWith({ SAM_SYP_PER_USD: "100" }, [
+      ["/pay/inv_1", invoiceReply({ status: "paid", amount: null, paidAmount: "1000", currency: "SYP" })],
+    ]);
+    expect(await unsized.adapter.checkPayment("inv_1", { amountCents: 1234 })).toEqual({ providerRef: "inv_1", status: "paid", amountCents: 1000 });
+    // USD invoices credit what SAM reports.
+    const usdInvoice = samWith({}, [["/pay/inv_1", invoiceReply({ status: "paid", amount: "12.34", paidAmount: "12.34", currency: "USD" })]]);
+    expect(await usdInvoice.adapter.checkPayment("inv_1", { amountCents: 1234 })).toEqual({ providerRef: "inv_1", status: "paid", amountCents: 1234 });
+  });
+
   it("needs the SYP rate only to size a paid SYP invoice", async () => {
     const pending = samWith({}, [["/pay/inv_1", invoiceReply({ status: "pending", amount: "1462", currency: "SYP" })]]);
     expect(await pending.adapter.checkPayment("inv_1")).toEqual({ providerRef: "inv_1", status: "pending" });

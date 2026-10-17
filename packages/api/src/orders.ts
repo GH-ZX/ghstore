@@ -9,6 +9,7 @@
 import { orderProblem } from "./problems";
 import { AFTER_SECRET, checkAnswers, decryptText, encryptText, type AfterField, type InputField } from "@store/core";
 import { requireUser } from "./auth";
+import { LIMITS, throttle } from "./ratelimit";
 import type { Ctx } from "./context";
 import { call, n, one } from "./db";
 import { fulfilOrder, validateInput } from "./fulfilment";
@@ -31,6 +32,8 @@ export async function placeOrder(ctx: Ctx): Promise<Response> {
   const channel = user.channel === "miniapp" ? "miniapp" : "web";
   if (!CHANNELS.has(channel)) throw new ApiError("bad_request");
   const coupon = body.coupon === undefined || body.coupon === null || body.coupon === "" ? null : couponCode(body.coupon);
+  // Codes can't be guessed by placing orders either (same limit as quoting one).
+  if (coupon) await throttle(ctx.svc.db, `coupon:${user.id}`, LIMITS.couponQuote);
 
   const offer = await one<{ input_fields: InputField[]; supplier_on: boolean }>(
     ctx.svc.db,
@@ -296,17 +299,22 @@ export async function submitAnswers(ctx: Ctx): Promise<Response> {
   const checked = checkAnswers(fields, input, previous);
   if (!checked.ok) throw new ApiError("invalid_input", `answers.${checked.field}`);
   const enc = await encryptText(JSON.stringify(checked.values), ctx.env.DATA_KEY);
-  const first = o.hold === "info";
-  const toSupplier = !!o.supplier_id;
+  let first = (o.hold === "info") as boolean;
+  // The supplier is asked only when the order was waiting for these details. An order
+  // already with the owner ('owner': sold by hand, or the supplier could not deliver it)
+  // stays with them: the corrected details are saved for them to use.
+  let toSupplier = false as boolean;
   await ctx.svc.db.tx(async (db) => {
     const locked = await one<{ status: string; hold: string | null }>(db, `select status, hold from app.orders where id = $1 for update`, [id]);
     if (!locked || !open(locked.status) || !(locked.hold === "info" || locked.hold === "owner")) throw new ApiError("bad_state");
+    first = locked.hold === "info";
+    toSupplier = first && !!o.supplier_id;
+    const hold = locked.hold === "info" ? (toSupplier ? null : "owner") : locked.hold;
     await db.query(
-      `update app.orders set answers_enc = $2, answered_at = now(),
-              hold = case when $3::boolean then null else 'owner' end,
-              next_check_at = case when $3::boolean then now() else next_check_at end
+      `update app.orders set answers_enc = $2, answered_at = now(), hold = $3,
+              next_check_at = case when $4::boolean then now() else next_check_at end
         where id = $1`,
-      [id, enc, toSupplier],
+      [id, enc, hold, toSupplier],
     );
     await db.query(`insert into app.order_events (order_id, type) values ($1, $2)`, [id, first ? "details_given" : "details_corrected"]);
   });

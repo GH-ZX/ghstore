@@ -34,7 +34,8 @@ export function priceFromCost(cost: Cents, rule: PriceRule): Cents {
   }
   const step = Math.max(1, Math.floor(rule.roundToCents ?? 1));
   price = Math.ceil(price / step) * step;
-  return Math.max(price, minimumPrice(cost, rule.minMarginPct));
+  // Never free: a price is at least one cent (orders and offers require a positive price).
+  return Math.max(1, price, minimumPrice(cost, rule.minMarginPct));
 }
 
 /** The lowest price that still keeps the minimum margin. */

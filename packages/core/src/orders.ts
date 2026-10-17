@@ -46,25 +46,33 @@ export function backoffSeconds(attempt: number): number {
 /**
  * Turn a supplier answer into the next step.
  * - Retryable failures (network, supplier temporarily out of balance) are retried
- *   up to `maxAttempts`, then refunded.
+ *   up to `maxAttempts` failures in a row (`failures`; pending checks are not
+ *   failures), then refunded. An order the supplier already accepted
+ *   (`accepted`: it has a supplier order id) is never refunded for a retryable
+ *   failure: it is retried with backoff until it settles, or the stuck-orders
+ *   check hands it to a person.
  * - Pending orders are checked again with backoff until `maxPendingHours`, then
  *   handed to a person (they are NOT refunded automatically: the supplier may
  *   still deliver, and a refund plus a late delivery would give the item away).
+ *
+ * `attempt` is the number of checks so far (the pending backoff grows with it);
+ * `failures` defaults to it for callers that keep only one count.
  */
 export function nextStep(
   result: PurchaseResult,
   attempt: number,
-  opts: { maxAttempts?: number } = {},
+  opts: { maxAttempts?: number; failures?: number; accepted?: boolean } = {},
 ): FulfilmentStep {
   const maxAttempts = opts.maxAttempts ?? 6;
+  const failures = Math.max(0, opts.failures ?? attempt);
   switch (result.status) {
     case "delivered":
       return { next: "delivered" };
     case "pending":
       return { next: "processing", checkAfterSeconds: backoffSeconds(attempt) };
     case "failed":
-      if (result.retryable && attempt + 1 < maxAttempts) {
-        return { next: "retry", checkAfterSeconds: backoffSeconds(attempt), reason: result.reason };
+      if (result.retryable && (opts.accepted || failures + 1 < maxAttempts)) {
+        return { next: "retry", checkAfterSeconds: backoffSeconds(failures), reason: result.reason };
       }
       return { next: "refund", reason: result.reason };
   }

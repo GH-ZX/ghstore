@@ -24,7 +24,8 @@ describe("prodseller listProducts", () => {
     const list = await createProdSeller(ctx).listProducts();
     expect(list.map((p) => [p.externalId, p.name, p.costCents, p.available, p.kind])).toEqual([
       ["6a316a7b1777fc2347835653", "Canva Pro", 50, true, "code"],
-      ["6a2fda51035a6d898f2106fe", "ChatGPT Plus", 333, false, "code"],
+      // $3.333 costs 334 cents: a fraction of a cent rounds up.
+      ["6a2fda51035a6d898f2106fe", "ChatGPT Plus", 334, false, "code"],
       ["6a2fdb4f035a6d898f2106ff", "ProdSeller 6a2fdb", 200, true, "code"],
     ]);
     expect(list[0]?.meta).toMatchObject({ publicPriceCents: 100, image: "https://img.example/c.png" });
