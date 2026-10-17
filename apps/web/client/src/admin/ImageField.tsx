@@ -11,6 +11,33 @@ import { Spinner } from "../ui/kit";
 
 const STORED = "/storage/v1/object/public/store-images/";
 
+/** Longest side kept for an uploaded picture: enough for the widest slide on a sharp screen. */
+const MAX_SIDE = { square: 800, wide: 2000 } as const;
+
+/**
+ * Shrink a picture in the browser before it is stored (free, unlike resizing on
+ * every view): at most MAX_SIDE, re-encoded as WebP. The original is kept when
+ * it is already small, animated (GIF), or the result would not be smaller.
+ */
+async function shrink(f: File, shape: "square" | "wide"): Promise<File> {
+  if (!/^image\/(png|jpeg|webp)$/.test(f.type) || typeof createImageBitmap !== "function") return f;
+  try {
+    const bmp = await createImageBitmap(f);
+    const scale = Math.min(1, MAX_SIDE[shape] / Math.max(bmp.width, bmp.height));
+    if (scale === 1 && f.size < 300 * 1024) return f;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d")?.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    bmp.close();
+    const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/webp", 0.82));
+    if (!blob || blob.type !== "image/webp" || blob.size >= f.size) return f;
+    return new File([blob], f.name.replace(/\.\w+$/, "") + ".webp", { type: "image/webp" });
+  } catch {
+    return f;
+  }
+}
+
 export function ImageField({ label, hint, value, onChange, shape }: { label: string; hint?: string; value: string; onChange: (url: string) => void; shape: "square" | "wide" }) {
   const { t, lang } = useT();
   const file = useRef<HTMLInputElement>(null);
@@ -28,7 +55,7 @@ export function ImageField({ label, hint, value, onChange, shape }: { label: str
     if (!f) return;
     setBusy(true);
     try {
-      const r = await apiUpload<{ url: string }>("/api/admin/images", f);
+      const r = await apiUpload<{ url: string }>("/api/admin/images", await shrink(f, shape));
       onChange(r.url);
       toast(t("imgSaved"));
     } catch (e) {

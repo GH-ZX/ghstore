@@ -1,18 +1,15 @@
 /**
- * Smaller pictures. Product pictures uploaded in Admin live in the store's
- * Supabase Storage at their full size (often 1–2 MB); Supabase's image
- * transformations serve the same file at the size a screen needs, as WebP when
- * the browser takes it (https://supabase.com/docs/guides/storage/serving/image-transformations).
- * Pictures elsewhere are resized by Cloudflare when the owner switched that on
- * (Admin → Settings → Smaller pictures), else used as they are.
+ * Smaller pictures. When the owner switched on Cloudflare's image
+ * transformations (free up to 5,000 different pictures a month; Admin →
+ * Settings → Smaller pictures), every picture is served at the size a screen
+ * needs, as WebP/AVIF when the browser takes it; otherwise as it is. (Supabase's
+ * own resizer is not used: it is billed per picture.) Pictures uploaded in the
+ * admin are already shrunk in the browser before they are stored.
  *
  * The website (client) and the Worker (the page's <link rel="preload">) build
  * the same addresses with these functions, so a preloaded picture is the one the
  * page then shows.
  */
-
-/** A public Supabase Storage object, in a format its image transformations handle. */
-const SUPABASE_OBJECT = /^(https:\/\/[a-z0-9-]+\.supabase\.co\/storage\/v1)\/object\/public\/([^?#]+\.(?:png|jpe?g|webp))$/i;
 
 export interface PictureSize {
   width: number;
@@ -29,8 +26,6 @@ export interface PictureOptions {
 export function pictureUrl(url: string, size: PictureSize, opts: PictureOptions = {}): string {
   const w = Math.max(16, Math.min(2500, Math.round(size.width)));
   const h = size.height ? Math.max(16, Math.min(2500, Math.round(size.height))) : null;
-  const m = SUPABASE_OBJECT.exec(url);
-  if (m) return `${m[1]}/render/image/public/${m[2]}?width=${w}${h ? `&height=${h}&resize=cover` : ""}&quality=75`;
   if (opts.cloudflare && /^https:\/\//.test(url) && !url.endsWith(".svg")) {
     return `/cdn-cgi/image/width=${w}${h ? `,height=${h},fit=cover` : ",fit=scale-down"},quality=80,format=auto/${url}`;
   }

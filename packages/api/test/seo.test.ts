@@ -56,15 +56,16 @@ describe("product link previews", () => {
     const url = "https://abcd.supabase.co/storage/v1/object/public/store-images/banner.jpg";
     const html = renderPage(
       INDEX.replace("<head>\n", "<head>\n<!--preload-->\n"),
-      { path: "/", title: "GH Store", description: "d", preload: slidePreloads(url) },
+      { path: "/", title: "GH Store", description: "d", preload: slidePreloads(url, { cloudflare: true }) },
       { baseUrl: "https://gh-store.me", storeName: "GH Store", locale: "ar" },
     );
     const head = html.slice(0, html.indexOf("<title>"));
-    expect(head).toContain('<link rel="preload" as="image" href="https://abcd.supabase.co/storage/v1/render/image/public/store-images/banner.jpg?width=720&amp;');
+    expect(head).toContain('<link rel="preload" as="image" href="/cdn-cgi/image/width=720,');
     expect(head).toContain('media="(max-width: 799px)" fetchpriority="high" referrerpolicy="no-referrer">');
     expect(head).toContain('media="(min-width: 800px)"');
     expect(html).not.toContain("<!--preload-->");
-    // A picture hosted elsewhere is preloaded as it is
+    // Without Cloudflare resizing, a picture is preloaded as it is
+    expect(slidePreloads(url)).toEqual([{ href: url, high: true }]);
     expect(slidePreloads("https://cdn.example/hero.jpg")).toEqual([{ href: "https://cdn.example/hero.jpg", high: true }]);
   });
 
