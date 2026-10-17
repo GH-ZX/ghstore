@@ -109,8 +109,8 @@ await writeFile(
 );
 
 await copyFile(join(here, "public", "_headers"), join(out, "_headers"));
-// Payment providers' logos (ShamCash), shown on the add-funds screen and in Admin → APIs.
-await cp(join(here, "public", "pay"), join(out, "pay"), { recursive: true });
+// Static pictures: payment providers' logos (pay/, ShamCash) and promo pictures (promo/, the Numbers slide).
+for (const dir of ["pay", "promo"]) await cp(join(here, "public", dir), join(out, dir), { recursive: true });
 // robots.txt and sitemap.xml are answered by the Worker (they need the live product list).
 
 console.log(`built ${jsName} (${(js.length / 1024).toFixed(0)} KB), ${cssName} (${(css.length / 1024).toFixed(0)} KB)`);

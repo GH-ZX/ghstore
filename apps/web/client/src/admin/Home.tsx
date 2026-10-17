@@ -53,6 +53,7 @@ interface HomeData {
 interface ProductLite {
   id: string;
   slug: string;
+  category_id?: string;
   name_ar: string;
   name_en: string;
   image_url: string | null;
@@ -421,6 +422,14 @@ function BannerSheet({ banner, categories, products, look: defaultLook, options,
     picture: imageOk && image.trim() ? image.trim() : null,
     art: linked ? { name: linked.name_en, imageUrl: linked.image_url } : null,
     cover: linked?.cover_url ?? null,
+    // A category's slide shows its apps, as in the store.
+    logos: linkedCategory
+      ? products
+          .filter((p) => p.category_id === linkedCategory.id)
+          .sort((a, b) => Number(!!b.image_url) - Number(!!a.image_url))
+          .slice(0, 4)
+          .map((p) => ({ name: p.name_en, imageUrl: p.image_url }))
+      : undefined,
     pictureMode: ownPicture === "default" ? null : ownPicture,
     look,
     packages: linked?.packages,

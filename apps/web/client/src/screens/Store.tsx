@@ -53,9 +53,33 @@ export function Store() {
   );
 }
 
+/** A small stable number for a text (FNV-1a), to shuffle the same way all day. */
+function hash(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
+/**
+ * Today's picks: the owner's featured products first, then, to fill the row on
+ * a wide screen, best sellers, hot and new products, then the rest, in an order
+ * that changes once a day.
+ */
+function todaysPicks(products: ProductCard[], max = 12): ProductCard[] {
+  const featured = products.filter((p) => p.featured);
+  const day = new Date().toISOString().slice(0, 10);
+  const rank = (p: ProductCard) => (p.badge === "best" ? 0 : p.badge === "hot" ? 1 : p.badge === "new" ? 2 : 3);
+  const rest = products
+    .filter((p) => !p.featured)
+    .map((p) => ({ p, r: rank(p), h: hash(`${day}:${p.id}`) }))
+    .sort((a, b) => a.r - b.r || a.h - b.h)
+    .map((x) => x.p);
+  return [...featured, ...rest].slice(0, Math.max(max, featured.length));
+}
+
 function Home({ data, categories }: { data: Catalog; categories: Category[] }) {
   const { t, lang } = useT();
-  const featured = data.products.filter((p) => p.featured);
+  const picks = useMemo(() => todaysPicks(data.products), [data.products]);
   const banners = data.banners ?? [];
   return (
     <>
@@ -77,9 +101,7 @@ function Home({ data, categories }: { data: Catalog; categories: Category[] }) {
         </nav>
       )}
 
-      {banners.length > 0 && featured.length > 0 && (
-        <Shelf title={t("todaysPicks")} icon={<BoltIcon size={16} />} products={featured} />
-      )}
+      {banners.length > 0 && picks.length > 0 && <Shelf title={t("todaysPicks")} icon={<BoltIcon size={16} />} products={picks} />}
 
       {categories.map((c) => {
         const items = data.products.filter((p) => p.category === c.slug);
@@ -131,6 +153,13 @@ function useSlides(data: Catalog): SlideData[] {
     const c = data.categories.find((x) => x.slug === slug);
     return c ? pick(lang, c.nameAr, c.nameEn) : undefined;
   };
+  // A category's slide shows its apps: the first products that have a picture.
+  const logosOf = (slug: string) =>
+    data.products
+      .filter((p) => p.category === slug)
+      .sort((a, b) => Number(!!b.imageUrl) - Number(!!a.imageUrl))
+      .slice(0, 4)
+      .map((p) => ({ name: p.nameEn, imageUrl: p.imageUrl }));
   if (banners.length) {
     return banners.map((b) => {
       const p = b.link?.type === "product" ? bySlug.get(b.link.value) : undefined;
@@ -143,6 +172,7 @@ function useSlides(data: Catalog): SlideData[] {
         picture: b.imageUrl,
         art: p ? { name: p.nameEn, imageUrl: p.imageUrl } : null,
         cover: p?.coverUrl ?? null,
+        logos: b.link?.type === "category" ? logosOf(b.link.value) : undefined,
         pictureMode: b.pictureMode ?? null,
         look: b.look ?? fallback,
         style: b.style,

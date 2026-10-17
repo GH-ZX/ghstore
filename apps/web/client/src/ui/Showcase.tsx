@@ -59,6 +59,8 @@ export interface SlideData {
   art?: { name: string; imageUrl: string | null } | null;
   /** The product's wide cover picture, when it has one. */
   cover?: string | null;
+  /** A category's products: shown as a grid of app icons when the slide has no picture of its own. */
+  logos?: { name: string; imageUrl: string | null }[];
   /** The slide's own choice of picture; null follows the store's setting. */
   pictureMode?: PictureMode | null;
   style: Banner["style"];
@@ -121,7 +123,12 @@ export function ShowcaseSlide({ s, options = DEFAULT_OPTIONS, index = 0, count =
   const wash = card?.imageUrl ?? (artShape === "unknown" && !s.picture ? s.art?.imageUrl : null);
   const deal = s.look === "deal";
   const packages = deal ? s.packages ?? [] : [];
-  const cls = ["slide", `slide--${s.look}`, `slide--${s.style}`, cover ? "slide--cover" : card || wash ? "slide--card" : "slide--plain", preview ? "slide--preview" : ""].join(" ");
+  // A category's slide without a picture: its apps' icons, two by two.
+  const logos = !cover && !card && !wash ? (s.logos ?? []).slice(0, 4) : [];
+  const cls = [
+    "slide", `slide--${s.look}`, `slide--${s.style}`, cover ? "slide--cover" : card || wash ? "slide--card" : "slide--plain",
+    logos.length ? "slide--logos" : "", preview ? "slide--preview" : "",
+  ].join(" ");
 
   const cta = s.cta && (s.go || preview) && (
     <span className="slide__cta" aria-hidden="true">
@@ -140,6 +147,13 @@ export function ShowcaseSlide({ s, options = DEFAULT_OPTIONS, index = 0, count =
       {s.go && !preview && <button type="button" className="slide__hit" onClick={s.go} aria-label={s.cta ? `${s.title}: ${s.cta}` : s.title} />}
 
       {card && <Tile className="slide__art" name={card.name} imageUrl={card.imageUrl} />}
+      {logos.length > 0 && (
+        <div className={`slide__logos slide__logos--${logos.length}`} aria-hidden="true">
+          {logos.map((l, i) => (
+            <Tile key={i} className="slide__logo" name={l.name} imageUrl={l.imageUrl} />
+          ))}
+        </div>
+      )}
       <div className="slide__text">
         {badges && (
           <div className="slide__badges">
@@ -257,6 +271,8 @@ export function Showcase({ slides, options = DEFAULT_OPTIONS }: { slides: SlideD
                 <img src={s.picture} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
               ) : s.art ? (
                 <Tile name={s.art.name} imageUrl={s.art.imageUrl} />
+              ) : s.logos?.[0] ? (
+                <Tile name={s.logos[0].name} imageUrl={s.logos[0].imageUrl} />
               ) : (
                 <span className={`showcase__swatch showcase__swatch--${s.style}`} />
               )}
