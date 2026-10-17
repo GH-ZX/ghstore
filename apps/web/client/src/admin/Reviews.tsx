@@ -70,7 +70,7 @@ export function ReviewsAdmin({ owner }: { owner: boolean }) {
               </a>
               <Stars value={Number(r.rating)} />
             </div>
-            {r.comment ? <p className="reviews__text">{r.comment}</p> : <span className="small muted">{t("reviewNoText")}</span>}
+            {r.comment ? <p className="reviews__text" dir="auto">{r.comment}</p> : <span className="small muted">{t("reviewNoText")}</span>}
             <div className="row-between small muted">
               <span>
                 <bdi>{r.display_name || t("customer")}</bdi> · {ago(r.created_at, lang)}

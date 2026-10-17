@@ -47,7 +47,7 @@ export function ProblemCard({ orderId, problem, onSent }: { orderId: string; pro
         <span className="small muted">
           {t(`problem_${problem.reason}` as "problem_other")} · {dateTime(problem.createdAt, lang)}
         </span>
-        {problem.message && <p className="problem__text">{problem.message}</p>}
+        {problem.message && <p className="problem__text" dir="auto">{problem.message}</p>}
         <span className="small muted">{t("problemWait")}</span>
       </div>
     );
@@ -58,7 +58,7 @@ export function ProblemCard({ orderId, problem, onSent }: { orderId: string; pro
       {problem?.status === "resolved" && (
         <div className="card card--pad stack-sm problem problem--answer">
           <strong>{t("problemAnswer")}</strong>
-          <p className="problem__text">{problem.reply}</p>
+          <p className="problem__text" dir="auto">{problem.reply}</p>
           {problem.resolvedAt && <span className="small muted">{dateTime(problem.resolvedAt, lang)}</span>}
         </div>
       )}

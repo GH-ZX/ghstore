@@ -60,11 +60,11 @@ export function ProblemsAdmin({ canAct, onOpenOrder, onChanged }: { canAct: bool
           <span className={`badge ${p.status === "open" ? "badge--warn" : ""}`} style={{ alignSelf: "flex-start" }}>
             {t(`problem_${p.reason}` as "problem_other")} · {ago(p.created_at, lang)}
           </span>
-          {p.message && <p className="problem__text">{p.message}</p>}
+          {p.message && <p className="problem__text" dir="auto">{p.message}</p>}
           {p.status === "resolved" ? (
             <div className="problem-admin__reply">
               <span className="small muted">{t("problemAnswer")}</span>
-              <p className="problem__text">{p.reply}</p>
+              <p className="problem__text" dir="auto">{p.reply}</p>
             </div>
           ) : (
             canAct && (

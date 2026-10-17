@@ -206,7 +206,7 @@ export function ProductReviews({ slug, focus }: { slug: string; focus?: boolean 
               <strong>{t("yourReview")}</strong>
               <Stars value={data.mine.rating} />
             </div>
-            {data.mine.comment && <p className="reviews__text">{data.mine.comment}</p>}
+            {data.mine.comment && <p className="reviews__text" dir="auto">{data.mine.comment}</p>}
             {data.mine.hidden && <span className="small muted">{t("reviewHidden")}</span>}
             <div className="wrap" style={{ gap: 8 }}>
               <button type="button" className="btn btn--xs btn--soft press" disabled={busy} onClick={() => startEditing(data.mine!.rating, data.mine!.comment)}>
@@ -237,7 +237,7 @@ export function ProductReviews({ slug, focus }: { slug: string; focus?: boolean 
                   <b>{r.name || t("customer")}</b>
                   <Stars value={r.rating} size={13} />
                 </div>
-                {r.comment && <p className="reviews__text">{r.comment}</p>}
+                {r.comment && <p className="reviews__text" dir="auto">{r.comment}</p>}
                 <span className="small muted">{date(r.createdAt)}</span>
               </article>
             ))}
